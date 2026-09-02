@@ -20,6 +20,7 @@
 
     <modules>
         <module>com.dbeaver.datadam.dm.api</module>
+        <module>com.dbeaver.datadam.gateway.api</module>
     </modules>
 
     <build>
