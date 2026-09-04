@@ -1,0 +1,3 @@
+# DataDamp public API
+
+Rest and GraphQL APIs to access DataDam services

@@ -1,0 +1,13 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Vendor: DBeaver Corp
+Bundle-Name: DataDam Deployment Manager API
+Bundle-SymbolicName: com.dbeaver.datadam.dm.api
+Bundle-Version: 0.0.17.qualifier
+Bundle-Release-Date: 20231225
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Export-Package: com.dbeaver.datadam.dm.api.model,
+ com.dbeaver.datadam.dm.api.service
+Bundle-ActivationPolicy: lazy
+Require-Bundle: org.jkiss.utils
+Automatic-Module-Name: com.dbeaver.dm.api
