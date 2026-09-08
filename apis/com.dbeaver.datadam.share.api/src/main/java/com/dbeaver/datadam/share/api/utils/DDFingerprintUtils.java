@@ -16,8 +16,8 @@
  */
 package com.dbeaver.datadam.share.api.utils;
 
-import com.dbeaver.datadam.share.api.model.DDProjectFile;
-import com.dbeaver.datadam.share.api.model.DDProjectRevision;
+import com.dbeaver.datadam.share.api.model.DDSharedProjectFile;
+import com.dbeaver.datadam.share.api.model.DDSharedProjectRevision;
 import org.jkiss.code.NotNull;
 
 import java.nio.ByteBuffer;
@@ -60,16 +60,19 @@ public final class DDFingerprintUtils {
      * The result is independent of the input list order.
      */
     @NotNull
-    public static DDProjectRevision calculateRevision(@NotNull UUID projectId, @NotNull List<DDProjectFile> files) {
+    public static DDSharedProjectRevision calculateRevision(
+        @NotNull UUID projectId,
+        @NotNull List<DDSharedProjectFile> files
+    ) {
         MessageDigest digest = createDigest();
         updateDigest(digest, REVISION_FINGERPRINT_VERSION.getBytes(StandardCharsets.UTF_8));
         updateDigest(digest, projectId.toString().getBytes(StandardCharsets.UTF_8));
 
-        List<DDProjectFile> sortedFiles = files.stream()
-            .sorted(Comparator.comparing(DDProjectFile::fileName))
+        List<DDSharedProjectFile> sortedFiles = files.stream()
+            .sorted(Comparator.comparing(DDSharedProjectFile::fileName))
             .toList();
         String previousFileName = null;
-        for (DDProjectFile file : sortedFiles) {
+        for (DDSharedProjectFile file : sortedFiles) {
             if (file.fileName().equals(previousFileName)) {
                 throw new IllegalArgumentException("Duplicate project file name: " + file.fileName());
             }
@@ -78,7 +81,7 @@ public final class DDFingerprintUtils {
             // Decode hex so equivalent textual representations contribute the same digest bytes.
             updateDigest(digest, parseFingerprint(file.fingerprint(), file.fileName()));
         }
-        return new DDProjectRevision(formatFingerprint(digest.digest()));
+        return new DDSharedProjectRevision(formatFingerprint(digest.digest()));
     }
 
     private static void updateDigest(@NotNull MessageDigest digest, @NotNull byte[] value) {

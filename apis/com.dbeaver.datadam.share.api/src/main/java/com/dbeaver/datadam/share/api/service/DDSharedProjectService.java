@@ -17,10 +17,10 @@
 package com.dbeaver.datadam.share.api.service;
 
 import com.dbeaver.datadam.share.api.exception.DDShareException;
-import com.dbeaver.datadam.share.api.model.DDProject;
-import com.dbeaver.datadam.share.api.model.DDProjectConfiguration;
-import com.dbeaver.datadam.share.api.model.DDProjectRevision;
-import com.dbeaver.datadam.share.api.model.DDProjectUpdateHistory;
+import com.dbeaver.datadam.share.api.model.DDSharedProject;
+import com.dbeaver.datadam.share.api.model.DDSharedProjectConfiguration;
+import com.dbeaver.datadam.share.api.model.DDSharedProjectRevision;
+import com.dbeaver.datadam.share.api.model.DDSharedProjectUpdateHistory;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
@@ -28,25 +28,25 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
-public interface DDProjectService {
+public interface DDSharedProjectService {
 
     @NotNull
-    List<DDProject> listProjects() throws DDShareException;
+    List<DDSharedProject> listProjects() throws DDShareException;
 
     @NotNull
-    DDProject createProject(@NotNull String name, @Nullable String description) throws DDShareException;
+    DDSharedProject createProject(@NotNull String name, @Nullable String description) throws DDShareException;
 
     @NotNull
-    DDProject updateProject(@NotNull UUID projectId, @NotNull String name, @Nullable String description)
+    DDSharedProject updateProject(@NotNull UUID projectId, @NotNull String name, @Nullable String description)
         throws DDShareException;
 
     boolean deleteProject(@NotNull UUID projectId) throws DDShareException;
 
     @NotNull
-    DDProjectConfiguration pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
+    DDSharedProjectConfiguration pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
 
     @NotNull
-    DDProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
+    DDSharedProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
 
     /**
      * Pushes project content using {@code lastKnownRevision} only as an optimistic lock.
@@ -56,10 +56,10 @@ public interface DDProjectService {
      * @param lastKnownRevision last server revision observed by the client
      */
     @NotNull
-    DDProjectRevision pushProjectConfiguration(
+    DDSharedProjectRevision pushProjectConfiguration(
         @NotNull UUID projectId,
-        @NotNull DDProjectConfiguration projectContent,
-        @NotNull DDProjectRevision lastKnownRevision
+        @NotNull DDSharedProjectConfiguration projectContent,
+        @NotNull DDSharedProjectRevision lastKnownRevision
     ) throws DDShareException;
 
     /**
@@ -67,7 +67,7 @@ public interface DDProjectService {
      * A {@code null} boundary leaves that side of the range unbounded.
      */
     @NotNull
-    List<DDProjectUpdateHistory> getProjectUpdateHistory(
+    List<DDSharedProjectUpdateHistory> getProjectUpdateHistory(
         @NotNull UUID projectId,
         @Nullable OffsetDateTime startTime,
         @Nullable OffsetDateTime endTime

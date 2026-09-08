@@ -18,10 +18,10 @@ package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
 
-/**
- * Content-addressed project revision. Equal fingerprints identify equal project file states.
- */
-public record DDProjectRevision(
-    @NotNull String fingerprint
+import java.util.List;
+
+public record DDSharedProjectConfiguration(
+    @NotNull DDSharedProjectRevision revision,
+    @NotNull List<DDSharedProjectFile> files
 ) {
 }

@@ -18,11 +18,10 @@ package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
 
-import java.time.OffsetDateTime;
-
-public record DDProjectUpdateHistory(
-    @NotNull OffsetDateTime updateTime,
-    @NotNull DDProjectUpdateType type,
-    @NotNull DDProjectRevision revision
+/**
+ * Content-addressed project revision. Equal fingerprints identify equal project file states.
+ */
+public record DDSharedProjectRevision(
+    @NotNull String fingerprint
 ) {
 }

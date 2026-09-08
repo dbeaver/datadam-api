@@ -17,13 +17,12 @@
 package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
-import org.jkiss.code.Nullable;
 
-import java.util.UUID;
+import java.time.OffsetDateTime;
 
-public record DDProject(
-    @NotNull UUID id,
-    @NotNull String name,
-    @Nullable String description
+public record DDSharedProjectUpdateHistory(
+    @NotNull OffsetDateTime updateTime,
+    @NotNull DDSharedProjectUpdateType type,
+    @NotNull DDSharedProjectRevision revision
 ) {
 }

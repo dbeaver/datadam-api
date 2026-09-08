@@ -16,7 +16,7 @@
  */
 package com.dbeaver.datadam.share.api.utils;
 
-import com.dbeaver.datadam.share.api.model.DDProjectFile;
+import com.dbeaver.datadam.share.api.model.DDSharedProjectFile;
 import org.jkiss.code.NotNull;
 import org.junit.jupiter.api.Test;
 
@@ -67,7 +67,7 @@ class DDFingerprintUtilsTest {
 
     @Test
     void calculateRevisionUsesStableFormat() {
-        DDProjectFile file = createFile(PROJECT_ID, "data-sources.json", "{\"connections\":[]}", "encrypted");
+        DDSharedProjectFile file = createFile(PROJECT_ID, "data-sources.json", "{\"connections\":[]}", "encrypted");
 
         assertEquals(
             "sha256-v1:4c8a220e9cc7b0114612480fa2cee747ee28392f980d8730cb7f9b62837472df",
@@ -77,9 +77,9 @@ class DDFingerprintUtilsTest {
 
     @Test
     void calculateRevisionIsIndependentOfFileAndHexCaseOrder() {
-        DDProjectFile first = createFile(PROJECT_ID, "first.json", "first", "encrypted-first");
-        DDProjectFile second = createFile(PROJECT_ID, "second.json", "second", "encrypted-second");
-        DDProjectFile uppercaseFingerprint = new DDProjectFile(
+        DDSharedProjectFile first = createFile(PROJECT_ID, "first.json", "first", "encrypted-first");
+        DDSharedProjectFile second = createFile(PROJECT_ID, "second.json", "second", "encrypted-second");
+        DDSharedProjectFile uppercaseFingerprint = new DDSharedProjectFile(
             first.fileName(),
             "different-encrypted-content",
             "sha256-v1:" + first.fingerprint().substring("sha256-v1:".length()).toUpperCase()
@@ -93,8 +93,8 @@ class DDFingerprintUtilsTest {
 
     @Test
     void calculateRevisionIncludesProjectAndFileFingerprints() {
-        DDProjectFile file = createFile(PROJECT_ID, "file.json", "content", "encrypted");
-        DDProjectFile changed = createFile(PROJECT_ID, "file.json", "changed", "encrypted");
+        DDSharedProjectFile file = createFile(PROJECT_ID, "file.json", "content", "encrypted");
+        DDSharedProjectFile changed = createFile(PROJECT_ID, "file.json", "changed", "encrypted");
 
         assertNotEquals(
             DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(file)),
@@ -108,8 +108,8 @@ class DDFingerprintUtilsTest {
 
     @Test
     void calculateRevisionRejectsDuplicateFileNames() {
-        DDProjectFile first = createFile(PROJECT_ID, "file.json", "first", "encrypted-first");
-        DDProjectFile second = createFile(PROJECT_ID, "file.json", "second", "encrypted-second");
+        DDSharedProjectFile first = createFile(PROJECT_ID, "file.json", "first", "encrypted-first");
+        DDSharedProjectFile second = createFile(PROJECT_ID, "file.json", "second", "encrypted-second");
 
         assertThrows(
             IllegalArgumentException.class,
@@ -119,7 +119,7 @@ class DDFingerprintUtilsTest {
 
     @Test
     void calculateRevisionRejectsInvalidFileFingerprint() {
-        DDProjectFile file = new DDProjectFile("file.json", "encrypted", "invalid");
+        DDSharedProjectFile file = new DDSharedProjectFile("file.json", "encrypted", "invalid");
 
         assertThrows(
             IllegalArgumentException.class,
@@ -127,13 +127,13 @@ class DDFingerprintUtilsTest {
         );
     }
 
-    private static DDProjectFile createFile(
+    private static DDSharedProjectFile createFile(
         @NotNull UUID projectId,
         @NotNull String fileName,
         @NotNull String contents,
         @NotNull String encryptedContents
     ) {
-        return new DDProjectFile(
+        return new DDSharedProjectFile(
             fileName,
             encryptedContents,
             DDFingerprintUtils.calculateFileFingerprint(projectId, fileName, bytes(contents))

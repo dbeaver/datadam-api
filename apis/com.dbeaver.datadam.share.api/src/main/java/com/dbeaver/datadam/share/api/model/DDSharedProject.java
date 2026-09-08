@@ -17,13 +17,13 @@
 package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
-/**
- * Encrypted project file with a client-generated fingerprint of its name and unencrypted contents.
- */
-public record DDProjectFile(
-    @NotNull String fileName,
-    @NotNull String encryptedContents,
-    @NotNull String fingerprint
+import java.util.UUID;
+
+public record DDSharedProject(
+    @NotNull UUID id,
+    @NotNull String name,
+    @Nullable String description
 ) {
 }

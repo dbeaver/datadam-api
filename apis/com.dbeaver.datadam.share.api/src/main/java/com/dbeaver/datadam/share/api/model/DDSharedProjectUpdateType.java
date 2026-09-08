@@ -16,7 +16,7 @@
  */
 package com.dbeaver.datadam.share.api.model;
 
-public enum DDProjectUpdateType {
+public enum DDSharedProjectUpdateType {
     PULL,
     PUSH
 }
