@@ -14,7 +14,7 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.share.api.service;
+package com.dbeaver.datadam.share.api.exception;
 
 public class DDShareException extends Exception {
 

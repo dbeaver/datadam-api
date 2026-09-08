@@ -16,6 +16,7 @@
  */
 package com.dbeaver.datadam.share.api.service;
 
+import com.dbeaver.datadam.share.api.exception.DDShareException;
 import com.dbeaver.datadam.share.api.model.DDProject;
 import com.dbeaver.datadam.share.api.model.DDProjectConfiguration;
 import com.dbeaver.datadam.share.api.model.DDProjectUpdateHistory;
