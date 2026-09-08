@@ -17,7 +17,10 @@
 package com.dbeaver.datadam.share.api.service;
 
 import com.dbeaver.datadam.share.api.exception.DDShareException;
-import com.dbeaver.datadam.share.api.model.*;
+import com.dbeaver.datadam.share.api.model.DDProject;
+import com.dbeaver.datadam.share.api.model.DDProjectConfiguration;
+import com.dbeaver.datadam.share.api.model.DDProjectRevision;
+import com.dbeaver.datadam.share.api.model.DDProjectUpdateHistory;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
@@ -46,14 +49,17 @@ public interface DDProjectService {
     DDProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
 
     /**
-     * Pushes encrypted project files if {@code expectedRevisionId} is still current.
-     * Returns the new revision; a stale expected revision causes the operation to fail.
+     * Pushes project content using {@code lastKnownRevision} only as an optimistic lock.
+     * A stale revision causes the operation to fail; the returned revision identifies the current server content.
+     *
+     * @param projectContent content with its client-calculated revision
+     * @param lastKnownRevision last server revision observed by the client
      */
     @NotNull
     DDProjectRevision pushProjectConfiguration(
         @NotNull UUID projectId,
-        @NotNull UUID expectedRevisionId,
-        @NotNull List<DDProjectFile> files
+        @NotNull DDProjectConfiguration projectContent,
+        @NotNull DDProjectRevision lastKnownRevision
     ) throws DDShareException;
 
     /**

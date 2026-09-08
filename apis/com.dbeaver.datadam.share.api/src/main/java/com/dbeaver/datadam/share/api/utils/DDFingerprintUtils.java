@@ -17,52 +17,46 @@
 package com.dbeaver.datadam.share.api.utils;
 
 import com.dbeaver.datadam.share.api.model.DDProjectFile;
+import com.dbeaver.datadam.share.api.model.DDProjectRevision;
 import org.jkiss.code.NotNull;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 
-public final class DDChecksumUtils {
+public final class DDFingerprintUtils {
     private static final String HASH_ALGORITHM = "SHA-256";
-    private static final String CONFIGURATION_CHECKSUM_VERSION = "dbeaver-project-configuration-v1";
+    private static final String FINGERPRINT_PREFIX = "sha256-v1:";
+    private static final String FILE_FINGERPRINT_VERSION = "dbeaver-project-file-v1";
+    private static final String REVISION_FINGERPRINT_VERSION = "dbeaver-project-revision-v1";
 
-    private DDChecksumUtils() {
+    private DDFingerprintUtils() {
     }
 
     /**
-     * Calculates a SHA-256 checksum of the local file contents before DataDam encryption.
+     * Calculates a fingerprint from the file name and its contents before DataDam encryption.
      */
     @NotNull
-    public static String calculateLocalFileChecksum(@NotNull Path path) throws IOException {
+    public static String calculateFileFingerprint(@NotNull String fileName, @NotNull byte[] contents) {
         MessageDigest digest = createDigest();
-        byte[] buffer = new byte[8192];
-        try (InputStream input = Files.newInputStream(path)) {
-            int bytesRead;
-            while ((bytesRead = input.read(buffer)) != -1) {
-                digest.update(buffer, 0, bytesRead);
-            }
-        }
-        return HexFormat.of().formatHex(digest.digest());
+        updateDigest(digest, FILE_FINGERPRINT_VERSION.getBytes(StandardCharsets.UTF_8));
+        updateDigest(digest, fileName.getBytes(StandardCharsets.UTF_8));
+        updateDigest(digest, contents);
+        return formatFingerprint(digest.digest());
     }
 
     /**
-     * Calculates a deterministic SHA-256 checksum from all project file names and encrypted contents.
+     * Calculates a revision from client-generated file fingerprints.
      * The result is independent of the input list order.
      */
     @NotNull
-    public static String calculateConfigurationChecksum(@NotNull List<DDProjectFile> files) {
+    public static DDProjectRevision calculateRevision(@NotNull List<DDProjectFile> files) {
         MessageDigest digest = createDigest();
-        updateDigest(digest, CONFIGURATION_CHECKSUM_VERSION.getBytes(StandardCharsets.UTF_8));
+        updateDigest(digest, REVISION_FINGERPRINT_VERSION.getBytes(StandardCharsets.UTF_8));
 
         List<DDProjectFile> sortedFiles = files.stream()
             .sorted(Comparator.comparing(DDProjectFile::fileName))
@@ -74,11 +68,9 @@ public final class DDChecksumUtils {
             }
             previousFileName = file.fileName();
 
-            byte[] fileChecksum = calculateDigest(decodeEncryptedContents(file.encryptedContents()));
-            updateDigest(digest, file.fileName().getBytes(StandardCharsets.UTF_8));
-            updateDigest(digest, fileChecksum);
+            updateDigest(digest, parseFingerprint(file.fingerprint(), file.fileName()));
         }
-        return HexFormat.of().formatHex(digest.digest());
+        return new DDProjectRevision(formatFingerprint(digest.digest()));
     }
 
     private static void updateDigest(@NotNull MessageDigest digest, @NotNull byte[] value) {
@@ -87,13 +79,24 @@ public final class DDChecksumUtils {
     }
 
     @NotNull
-    private static byte[] decodeEncryptedContents(@NotNull String encryptedContents) {
-        return Base64.getDecoder().decode(encryptedContents);
+    private static byte[] parseFingerprint(@NotNull String fingerprint, @NotNull String fileName) {
+        if (!fingerprint.startsWith(FINGERPRINT_PREFIX)) {
+            throw new IllegalArgumentException("Unsupported fingerprint for project file: " + fileName);
+        }
+        String encodedFingerprint = fingerprint.substring(FINGERPRINT_PREFIX.length());
+        if (encodedFingerprint.length() != 64) {
+            throw new IllegalArgumentException("Invalid fingerprint for project file: " + fileName);
+        }
+        try {
+            return HexFormat.of().parseHex(encodedFingerprint);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid fingerprint for project file: " + fileName, e);
+        }
     }
 
     @NotNull
-    private static byte[] calculateDigest(@NotNull byte[] value) {
-        return createDigest().digest(value);
+    private static String formatFingerprint(@NotNull byte[] value) {
+        return FINGERPRINT_PREFIX + HexFormat.of().formatHex(value);
     }
 
     @NotNull

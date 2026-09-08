@@ -18,8 +18,12 @@ package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
 
+/**
+ * Encrypted project file with a client-generated fingerprint of its name and unencrypted contents.
+ */
 public record DDProjectFile(
     @NotNull String fileName,
-    @NotNull String encryptedContents
+    @NotNull String encryptedContents,
+    @NotNull String fingerprint
 ) {
 }

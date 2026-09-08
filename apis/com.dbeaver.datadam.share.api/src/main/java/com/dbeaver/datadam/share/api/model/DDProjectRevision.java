@@ -18,12 +18,10 @@ package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
 
-import java.time.OffsetDateTime;
-import java.util.UUID;
-
+/**
+ * Content-addressed project revision. Equal fingerprints identify equal project file states.
+ */
 public record DDProjectRevision(
-    @NotNull UUID id,
-    @NotNull OffsetDateTime createdAt,
-    @NotNull String encryptedConfigurationChecksum
+    @NotNull String fingerprint
 ) {
 }
