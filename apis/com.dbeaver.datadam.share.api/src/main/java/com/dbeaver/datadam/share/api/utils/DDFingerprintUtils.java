@@ -27,6 +27,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 
 public final class DDFingerprintUtils {
     private static final String HASH_ALGORITHM = "SHA-256";
@@ -38,25 +39,31 @@ public final class DDFingerprintUtils {
     }
 
     /**
-     * Calculates a fingerprint from the file name and its contents before DataDam encryption.
+     * Calculates a project-scoped fingerprint from the file name and its contents before DataDam encryption.
      */
     @NotNull
-    public static String calculateFileFingerprint(@NotNull String fileName, @NotNull byte[] contents) {
+    public static String calculateFileFingerprint(
+        @NotNull UUID projectId,
+        @NotNull String fileName,
+        @NotNull byte[] contents
+    ) {
         MessageDigest digest = createDigest();
         updateDigest(digest, FILE_FINGERPRINT_VERSION.getBytes(StandardCharsets.UTF_8));
+        updateDigest(digest, projectId.toString().getBytes(StandardCharsets.UTF_8));
         updateDigest(digest, fileName.getBytes(StandardCharsets.UTF_8));
         updateDigest(digest, contents);
         return formatFingerprint(digest.digest());
     }
 
     /**
-     * Calculates a revision from client-generated file fingerprints.
+     * Calculates a project-scoped revision from client-generated file fingerprints.
      * The result is independent of the input list order.
      */
     @NotNull
-    public static DDProjectRevision calculateRevision(@NotNull List<DDProjectFile> files) {
+    public static DDProjectRevision calculateRevision(@NotNull UUID projectId, @NotNull List<DDProjectFile> files) {
         MessageDigest digest = createDigest();
         updateDigest(digest, REVISION_FINGERPRINT_VERSION.getBytes(StandardCharsets.UTF_8));
+        updateDigest(digest, projectId.toString().getBytes(StandardCharsets.UTF_8));
 
         List<DDProjectFile> sortedFiles = files.stream()
             .sorted(Comparator.comparing(DDProjectFile::fileName))
