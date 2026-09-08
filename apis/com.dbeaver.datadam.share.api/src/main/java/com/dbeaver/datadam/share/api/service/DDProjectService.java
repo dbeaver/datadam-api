@@ -17,9 +17,7 @@
 package com.dbeaver.datadam.share.api.service;
 
 import com.dbeaver.datadam.share.api.exception.DDShareException;
-import com.dbeaver.datadam.share.api.model.DDProject;
-import com.dbeaver.datadam.share.api.model.DDProjectConfiguration;
-import com.dbeaver.datadam.share.api.model.DDProjectUpdateHistory;
+import com.dbeaver.datadam.share.api.model.*;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
@@ -44,8 +42,15 @@ public interface DDProjectService {
     @NotNull
     DDProjectConfiguration pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
 
-    boolean pushProjectConfiguration(@NotNull UUID projectId, @NotNull DDProjectConfiguration configuration)
-        throws DDShareException;
+    @NotNull
+    DDProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
+
+    @NotNull
+    DDProjectRevision pushProjectConfiguration(
+        @NotNull UUID projectId,
+        @NotNull UUID expectedRevisionId,
+        @NotNull List<DDProjectFile> files
+    ) throws DDShareException;
 
     /**
      * Returns project update history within the specified time range.

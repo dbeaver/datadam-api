@@ -21,7 +21,7 @@ import org.jkiss.code.NotNull;
 import java.util.List;
 
 public record DDProjectConfiguration(
-    @NotNull List<DDProjectFile> files,
-    @NotNull String configurationChecksum
+    @NotNull DDProjectRevision revision,
+    @NotNull List<DDProjectFile> files
 ) {
 }

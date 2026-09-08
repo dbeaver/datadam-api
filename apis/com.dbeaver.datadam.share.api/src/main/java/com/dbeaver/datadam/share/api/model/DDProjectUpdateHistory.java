@@ -23,6 +23,6 @@ import java.time.OffsetDateTime;
 public record DDProjectUpdateHistory(
     @NotNull OffsetDateTime updateTime,
     @NotNull DDProjectUpdateType type,
-    @NotNull String configurationChecksum
+    @NotNull DDProjectRevision revision
 ) {
 }

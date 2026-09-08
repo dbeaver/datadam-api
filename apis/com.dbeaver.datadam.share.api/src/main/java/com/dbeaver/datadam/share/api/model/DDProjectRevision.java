@@ -18,9 +18,12 @@ package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
 
-public record DDProjectFile(
-    @NotNull String fileName,
-    @NotNull String encryptedContents,
-    @NotNull String encryptedContentChecksum
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+public record DDProjectRevision(
+    @NotNull UUID id,
+    @NotNull OffsetDateTime createdAt,
+    @NotNull String encryptedConfigurationChecksum
 ) {
 }
