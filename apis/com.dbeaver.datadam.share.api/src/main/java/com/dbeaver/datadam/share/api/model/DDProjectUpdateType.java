@@ -16,12 +16,7 @@
  */
 package com.dbeaver.datadam.share.api.model;
 
-import org.jkiss.code.NotNull;
-
-import java.util.List;
-
-public record DDProjectConfiguration(
-    @NotNull List<DDProjectFile> files,
-    @NotNull String configurationChecksum
-) {
+public enum DDProjectUpdateType {
+    PULL,
+    PUSH
 }

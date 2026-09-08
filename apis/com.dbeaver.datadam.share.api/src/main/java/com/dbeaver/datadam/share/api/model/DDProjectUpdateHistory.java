@@ -18,10 +18,11 @@ package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
 
-import java.util.List;
+import java.time.OffsetDateTime;
 
-public record DDProjectConfiguration(
-    @NotNull List<DDProjectFile> files,
+public record DDProjectUpdateHistory(
+    @NotNull OffsetDateTime updateTime,
+    @NotNull DDProjectUpdateType type,
     @NotNull String configurationChecksum
 ) {
 }

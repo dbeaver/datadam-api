@@ -18,9 +18,11 @@ package com.dbeaver.datadam.share.api.service;
 
 import com.dbeaver.datadam.share.api.model.DDProject;
 import com.dbeaver.datadam.share.api.model.DDProjectConfiguration;
+import com.dbeaver.datadam.share.api.model.DDProjectUpdateHistory;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,4 +45,15 @@ public interface DDProjectService {
 
     boolean pushProjectConfiguration(@NotNull UUID projectId, @NotNull DDProjectConfiguration configuration)
         throws DDShareException;
+
+    /**
+     * Returns project update history within the specified time range.
+     * A {@code null} boundary leaves that side of the range unbounded.
+     */
+    @NotNull
+    List<DDProjectUpdateHistory> getProjectUpdateHistory(
+        @NotNull UUID projectId,
+        @Nullable OffsetDateTime startTime,
+        @Nullable OffsetDateTime endTime
+    ) throws DDShareException;
 }
