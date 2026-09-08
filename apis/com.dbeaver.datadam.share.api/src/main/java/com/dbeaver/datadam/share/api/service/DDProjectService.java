@@ -45,6 +45,10 @@ public interface DDProjectService {
     @NotNull
     DDProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
 
+    /**
+     * Pushes encrypted project files if {@code expectedRevisionId} is still current.
+     * Returns the new revision; a stale expected revision causes the operation to fail.
+     */
     @NotNull
     DDProjectRevision pushProjectConfiguration(
         @NotNull UUID projectId,

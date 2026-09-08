@@ -56,14 +56,6 @@ public final class DDChecksumUtils {
     }
 
     /**
-     * Calculates a SHA-256 checksum of Base64-encoded encrypted file contents.
-     */
-    @NotNull
-    public static String calculateEncryptedFileChecksum(@NotNull String encryptedContents) {
-        return HexFormat.of().formatHex(calculateDigest(decodeEncryptedContents(encryptedContents)));
-    }
-
-    /**
      * Calculates a deterministic SHA-256 checksum from all project file names and encrypted contents.
      * The result is independent of the input list order.
      */

@@ -20,7 +20,6 @@ import org.jkiss.code.NotNull;
 
 public record DDProjectFile(
     @NotNull String fileName,
-    @NotNull String encryptedContents,
-    @NotNull String encryptedContentChecksum
+    @NotNull String encryptedContents
 ) {
 }
