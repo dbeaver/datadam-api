@@ -19,15 +19,15 @@ package com.dbeaver.datadam.share.api.model;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
-import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 public record DDSharedProject(
     @NotNull UUID id,
     @NotNull String name,
     @Nullable String description,
-    @NotNull OffsetDateTime createTime,
-    @NotNull OffsetDateTime updateTime,
+    @NotNull LocalDateTime createTime,
+    @NotNull LocalDateTime updateTime,
     @NotNull UUID projectOwner
 ) {
 }

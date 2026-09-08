@@ -18,13 +18,13 @@ package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
 
-import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 public record DDSharedProjectRevision(
     @NotNull UUID id,
     @NotNull UUID userId,
-    @NotNull OffsetDateTime updateTime,
+    @NotNull LocalDateTime updateTime,
     @NotNull String configurationFingerprint
 ) {
 }

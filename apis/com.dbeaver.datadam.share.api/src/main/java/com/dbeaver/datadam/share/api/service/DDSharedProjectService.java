@@ -23,7 +23,7 @@ import com.dbeaver.datadam.share.api.model.DDSharedProjectRevision;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
-import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -65,7 +65,7 @@ public interface DDSharedProjectService {
     @NotNull
     List<DDSharedProjectRevision> getProjectRevisions(
         @NotNull UUID projectId,
-        @Nullable OffsetDateTime startTime,
-        @Nullable OffsetDateTime endTime
+        @Nullable LocalDateTime startTime,
+        @Nullable LocalDateTime endTime
     ) throws DDShareException;
 }
