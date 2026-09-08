@@ -75,6 +75,7 @@ public final class DDFingerprintUtils {
             }
             previousFileName = file.fileName();
 
+            // Decode hex so equivalent textual representations contribute the same digest bytes.
             updateDigest(digest, parseFingerprint(file.fingerprint(), file.fileName()));
         }
         return new DDProjectRevision(formatFingerprint(digest.digest()));
