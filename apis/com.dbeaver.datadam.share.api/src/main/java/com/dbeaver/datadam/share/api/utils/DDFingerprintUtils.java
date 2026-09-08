@@ -17,7 +17,6 @@
 package com.dbeaver.datadam.share.api.utils;
 
 import com.dbeaver.datadam.share.api.model.DDSharedProjectFile;
-import com.dbeaver.datadam.share.api.model.DDSharedProjectRevision;
 import org.jkiss.code.NotNull;
 
 import java.nio.ByteBuffer;
@@ -33,7 +32,7 @@ public final class DDFingerprintUtils {
     private static final String HASH_ALGORITHM = "SHA-256";
     private static final String FINGERPRINT_PREFIX = "sha256-v1:";
     private static final String FILE_FINGERPRINT_VERSION = "dbeaver-project-file-v1";
-    private static final String REVISION_FINGERPRINT_VERSION = "dbeaver-project-revision-v1";
+    private static final String CONFIGURATION_FINGERPRINT_VERSION = "dbeaver-project-revision-v1";
 
     private DDFingerprintUtils() {
     }
@@ -56,16 +55,16 @@ public final class DDFingerprintUtils {
     }
 
     /**
-     * Calculates a project-scoped revision from client-generated file fingerprints.
+     * Calculates a project-scoped configuration fingerprint from client-generated file fingerprints.
      * The result is independent of the input list order.
      */
     @NotNull
-    public static DDSharedProjectRevision calculateRevision(
+    public static String calculateConfigurationFingerprint(
         @NotNull UUID projectId,
         @NotNull List<DDSharedProjectFile> files
     ) {
         MessageDigest digest = createDigest();
-        updateDigest(digest, REVISION_FINGERPRINT_VERSION.getBytes(StandardCharsets.UTF_8));
+        updateDigest(digest, CONFIGURATION_FINGERPRINT_VERSION.getBytes(StandardCharsets.UTF_8));
         updateDigest(digest, projectId.toString().getBytes(StandardCharsets.UTF_8));
 
         List<DDSharedProjectFile> sortedFiles = files.stream()
@@ -81,7 +80,7 @@ public final class DDFingerprintUtils {
             // Decode hex so equivalent textual representations contribute the same digest bytes.
             updateDigest(digest, parseFingerprint(file.fingerprint(), file.fileName()));
         }
-        return new DDSharedProjectRevision(formatFingerprint(digest.digest()));
+        return formatFingerprint(digest.digest());
     }
 
     private static void updateDigest(@NotNull MessageDigest digest, @NotNull byte[] value) {

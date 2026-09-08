@@ -21,7 +21,7 @@ import org.jkiss.code.NotNull;
 import java.util.List;
 
 public record DDSharedProjectConfiguration(
-    @NotNull DDSharedProjectRevision revision,
+    @NotNull String configurationFingerprint,
     @NotNull List<DDSharedProjectFile> files
 ) {
 }

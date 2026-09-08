@@ -66,17 +66,17 @@ class DDFingerprintUtilsTest {
     }
 
     @Test
-    void calculateRevisionUsesStableFormat() {
+    void calculateConfigurationFingerprintUsesStableFormat() {
         DDSharedProjectFile file = createFile(PROJECT_ID, "data-sources.json", "{\"connections\":[]}", "encrypted");
 
         assertEquals(
             "sha256-v1:4c8a220e9cc7b0114612480fa2cee747ee28392f980d8730cb7f9b62837472df",
-            DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(file)).fingerprint()
+            DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(file))
         );
     }
 
     @Test
-    void calculateRevisionIsIndependentOfFileAndHexCaseOrder() {
+    void calculateConfigurationFingerprintIsIndependentOfFileAndHexCaseOrder() {
         DDSharedProjectFile first = createFile(PROJECT_ID, "first.json", "first", "encrypted-first");
         DDSharedProjectFile second = createFile(PROJECT_ID, "second.json", "second", "encrypted-second");
         DDSharedProjectFile uppercaseFingerprint = new DDSharedProjectFile(
@@ -86,44 +86,44 @@ class DDFingerprintUtilsTest {
         );
 
         assertEquals(
-            DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(first, second)),
-            DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(second, uppercaseFingerprint))
+            DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(first, second)),
+            DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(second, uppercaseFingerprint))
         );
     }
 
     @Test
-    void calculateRevisionIncludesProjectAndFileFingerprints() {
+    void calculateConfigurationFingerprintIncludesProjectAndFileFingerprints() {
         DDSharedProjectFile file = createFile(PROJECT_ID, "file.json", "content", "encrypted");
         DDSharedProjectFile changed = createFile(PROJECT_ID, "file.json", "changed", "encrypted");
 
         assertNotEquals(
-            DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(file)),
-            DDFingerprintUtils.calculateRevision(OTHER_PROJECT_ID, List.of(file))
+            DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(file)),
+            DDFingerprintUtils.calculateConfigurationFingerprint(OTHER_PROJECT_ID, List.of(file))
         );
         assertNotEquals(
-            DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(file)),
-            DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(changed))
+            DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(file)),
+            DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(changed))
         );
     }
 
     @Test
-    void calculateRevisionRejectsDuplicateFileNames() {
+    void calculateConfigurationFingerprintRejectsDuplicateFileNames() {
         DDSharedProjectFile first = createFile(PROJECT_ID, "file.json", "first", "encrypted-first");
         DDSharedProjectFile second = createFile(PROJECT_ID, "file.json", "second", "encrypted-second");
 
         assertThrows(
             IllegalArgumentException.class,
-            () -> DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(first, second))
+            () -> DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(first, second))
         );
     }
 
     @Test
-    void calculateRevisionRejectsInvalidFileFingerprint() {
+    void calculateConfigurationFingerprintRejectsInvalidFileFingerprint() {
         DDSharedProjectFile file = new DDSharedProjectFile("file.json", "encrypted", "invalid");
 
         assertThrows(
             IllegalArgumentException.class,
-            () -> DDFingerprintUtils.calculateRevision(PROJECT_ID, List.of(file))
+            () -> DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(file))
         );
     }
 

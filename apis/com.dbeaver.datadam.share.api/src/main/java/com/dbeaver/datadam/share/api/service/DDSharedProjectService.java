@@ -20,7 +20,6 @@ import com.dbeaver.datadam.share.api.exception.DDShareException;
 import com.dbeaver.datadam.share.api.model.DDSharedProject;
 import com.dbeaver.datadam.share.api.model.DDSharedProjectConfiguration;
 import com.dbeaver.datadam.share.api.model.DDSharedProjectRevision;
-import com.dbeaver.datadam.share.api.model.DDSharedProjectUpdateHistory;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
@@ -45,29 +44,26 @@ public interface DDSharedProjectService {
     @NotNull
     DDSharedProjectConfiguration pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
 
-    @NotNull
-    DDSharedProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
-
     /**
-     * Pushes project content using {@code lastKnownRevision} only as an optimistic lock.
-     * A stale revision causes the operation to fail; the returned revision identifies the current server content.
+     * Pushes project content if {@code lastKnownRevision} matches the current server revision.
+     * The comparison and update are performed atomically.
      *
-     * @param projectContent content with its client-calculated revision
-     * @param lastKnownRevision last server revision observed by the client
+     * @param projectContent content with its client-calculated configuration fingerprint
+     * @param lastKnownConfigurationFingerprint last server revision observed by the client
      */
     @NotNull
     DDSharedProjectRevision pushProjectConfiguration(
         @NotNull UUID projectId,
         @NotNull DDSharedProjectConfiguration projectContent,
-        @NotNull DDSharedProjectRevision lastKnownRevision
+        @NotNull String lastKnownConfigurationFingerprint
     ) throws DDShareException;
 
     /**
-     * Returns project update history within the specified time range.
+     * Returns project revisions created within the specified time range.
      * A {@code null} boundary leaves that side of the range unbounded.
      */
     @NotNull
-    List<DDSharedProjectUpdateHistory> getProjectUpdateHistory(
+    List<DDSharedProjectRevision> getProjectRevisions(
         @NotNull UUID projectId,
         @Nullable OffsetDateTime startTime,
         @Nullable OffsetDateTime endTime
