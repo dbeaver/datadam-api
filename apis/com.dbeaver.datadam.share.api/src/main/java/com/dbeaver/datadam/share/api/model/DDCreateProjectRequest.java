@@ -19,8 +19,10 @@ package com.dbeaver.datadam.share.api.model;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
+import java.util.UUID;
+
 public record DDCreateProjectRequest(
-    @NotNull String projectId,
+    @NotNull UUID projectId,
     @NotNull String name,
     @Nullable String description
 ) {
