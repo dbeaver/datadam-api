@@ -14,16 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.dbeaver.datadam.gateway.model;
+package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
-import org.jkiss.code.Nullable;
 
-public record DDConfigurationPart(
+public record DDUpdateConfigurationPartRequest(
     @NotNull String key,
-    @NotNull DDConfigurationPartKind kind,
-    @Nullable String projectId,
-    long version,
+    long expectedVersion,
     @NotNull String encryptedValue
 ) {
 }

@@ -14,9 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.dbeaver.datadam.gateway.model;
+package com.dbeaver.datadam.share.api.model;
 
-public enum DDConfigurationPartKind {
-    ACCOUNT,
-    PROJECT
+import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
+
+public record DDConfigurationSummary(
+    @NotNull String configurationId,
+    @NotNull String name,
+    long version,
+    @NotNull String createdAt,
+    @Nullable String lastSyncAt
+) {
 }
