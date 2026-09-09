@@ -1,0 +1,14 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Vendor: DBeaver Corp
+Bundle-Name: DataDam Share API
+Bundle-SymbolicName: com.dbeaver.datadam.share.api
+Bundle-Version: 1.0.0
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Export-Package: com.dbeaver.datadam.share.api.exception,
+ com.dbeaver.datadam.share.api.model,
+ com.dbeaver.datadam.share.api.service,
+ com.dbeaver.datadam.share.api.utils
+Bundle-ActivationPolicy: lazy
+Require-Bundle: org.jkiss.utils
+Automatic-Module-Name: com.dbeaver.datadam.share.api
