@@ -16,14 +16,7 @@
  */
 package com.dbeaver.datadam.share.api.model;
 
-import org.jkiss.code.NotNull;
-import org.jkiss.code.Nullable;
-
-import java.time.LocalDateTime;
-
-public record DDProjectActivity(
-    @NotNull LocalDateTime activityAt,
-    @NotNull DDProjectActivityType activityType,
-    @Nullable String endpoint
-) {
+public enum DDSharedProjectActivityType {
+    PROJECT_PULL,
+    PROJECT_PUSH
 }

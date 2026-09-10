@@ -19,8 +19,11 @@ package com.dbeaver.datadam.share.api.model;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
-public record DDUpdateProjectRequest(
-    @NotNull String name,
-    @Nullable String description
+import java.time.LocalDateTime;
+
+public record DDSharedProjectActivity(
+    @NotNull LocalDateTime activityAt,
+    @NotNull DDSharedProjectActivityType activityType,
+    @Nullable String endpoint
 ) {
 }
