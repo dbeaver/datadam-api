@@ -27,17 +27,27 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Contract for storing and syncing DBeaver projects shared between machines/users.
+ */
 public interface DDSharedProjectService {
 
     @NotNull
     List<DDSharedProject> listProjects() throws DDShareException;
 
     @NotNull
-    DDSharedProject createProject(@NotNull String name, @Nullable String description) throws DDShareException;
+    DDSharedProject createProject(
+        @NotNull UUID projectId,
+        @NotNull String name,
+        @Nullable String description
+    ) throws DDShareException;
 
     @NotNull
-    DDSharedProject updateProject(@NotNull UUID projectId, @NotNull String name, @Nullable String description)
-        throws DDShareException;
+    DDSharedProject updateProject(
+        @NotNull UUID projectId,
+        @NotNull String name,
+        @Nullable String description
+    ) throws DDShareException;
 
     boolean deleteProject(@NotNull UUID projectId) throws DDShareException;
 
