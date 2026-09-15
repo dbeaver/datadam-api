@@ -55,6 +55,12 @@ public interface DDSharedProjectService {
     DDSharedProjectConfiguration pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
 
     /**
+     * Returns the latest revision of the current project configuration, if one exists.
+     */
+    @Nullable
+    DDSharedProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
+
+    /**
      * Pushes project content if {@code lastKnownRevision} matches the current server revision.
      * The comparison and update are performed atomically.
      *
