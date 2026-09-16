@@ -23,10 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Comparator;
-import java.util.HexFormat;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 public final class DDFingerprintUtils {
     private static final String HASH_ALGORITHM = "SHA-256";
@@ -63,22 +60,34 @@ public final class DDFingerprintUtils {
         @NotNull UUID projectId,
         @NotNull List<DDSharedProjectFile> files
     ) {
+        Map<String, String> fileFingerprints = new LinkedHashMap<>(files.size());
+        for (DDSharedProjectFile file : files) {
+            if (fileFingerprints.containsKey(file.fileName())) {
+                throw new IllegalArgumentException("Duplicate project file name: " + file.fileName());
+            }
+            fileFingerprints.put(file.fileName(), file.fingerprint());
+        }
+        return calculateConfigurationFingerprint(projectId, fileFingerprints);
+    }
+
+    /**
+     * Calculates a project-scoped configuration fingerprint from file names and their client-generated fingerprints.
+     * The result is independent of the input map order.
+     */
+    @NotNull
+    public static String calculateConfigurationFingerprint(
+        @NotNull UUID projectId,
+        @NotNull Map<String, String> fileFingerprints
+    ) {
         MessageDigest digest = createDigest();
         updateDigest(digest, CONFIGURATION_FINGERPRINT_VERSION.getBytes(StandardCharsets.UTF_8));
         updateDigest(digest, projectId.toString().getBytes(StandardCharsets.UTF_8));
 
-        List<DDSharedProjectFile> sortedFiles = files.stream()
-            .sorted(Comparator.comparing(DDSharedProjectFile::fileName))
-            .toList();
-        String previousFileName = null;
-        for (DDSharedProjectFile file : sortedFiles) {
-            if (file.fileName().equals(previousFileName)) {
-                throw new IllegalArgumentException("Duplicate project file name: " + file.fileName());
-            }
-            previousFileName = file.fileName();
-
+        for (Map.Entry<String, String> file : fileFingerprints.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .toList()) {
             // Decode hex so equivalent textual representations contribute the same digest bytes.
-            updateDigest(digest, parseFingerprint(file.fingerprint(), file.fileName()));
+            updateDigest(digest, parseFingerprint(file.getValue(), file.getKey()));
         }
         return formatFingerprint(digest.digest());
     }
