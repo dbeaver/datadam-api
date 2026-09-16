@@ -55,10 +55,7 @@ public interface DDSharedProjectService {
     @NotNull
     DDSharedProjectPullResponse pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
 
-    /**
-     * Returns the latest revision of the current project configuration, if one exists.
-     */
-    @Nullable
+    @NotNull
     DDSharedProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
 
     /**
