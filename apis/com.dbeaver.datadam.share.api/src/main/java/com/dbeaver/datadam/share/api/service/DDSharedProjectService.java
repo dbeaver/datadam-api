@@ -54,6 +54,16 @@ public interface DDSharedProjectService {
     @NotNull
     DDSharedProjectConfiguration pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
 
+    @NotNull
+    default DDSharedProjectConfiguration pullProjectConfiguration(
+        @NotNull UUID projectId, @NotNull List<DDSharedProjectConfiguration.Format> supportedFormats
+    ) throws DDShareException {
+        if (!supportedFormats.contains(DDSharedProjectConfiguration.Format.LEGACY_LOCAL_FILES)) {
+            throw new DDShareException("Project configuration format is not supported");
+        }
+        return pullProjectConfiguration(projectId);
+    }
+
     /**
      * Pushes project content if {@code lastKnownRevision} matches the current server revision.
      * The comparison and update are performed atomically.

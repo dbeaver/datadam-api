@@ -14,29 +14,24 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.share.api.model;
+package com.dbeaver.datadam.share.api.service;
 
+import com.dbeaver.datadam.share.api.exception.DDShareException;
+import com.dbeaver.datadam.share.api.model.DDProjectStatistics;
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.UUID;
 
-public record DDSharedProjectConfiguration(
-    @NotNull String configurationFingerprint,
-    @NotNull List<DDSharedProjectFile> files,
-    @NotNull Format format
-) {
-    public enum Format {
-        LEGACY_LOCAL_FILES,
-        PORTABLE_JSON
-    }
-
-    public DDSharedProjectConfiguration(@NotNull String configurationFingerprint, @NotNull List<DDSharedProjectFile> files) {
-        this(configurationFingerprint, files, Format.LEGACY_LOCAL_FILES);
-    }
-
-    public DDSharedProjectConfiguration {
-        if (format == null) {
-            format = Format.LEGACY_LOCAL_FILES;
-        }
-    }
+public interface DDProjectStatisticsService {
+    @NotNull
+    List<DDProjectStatistics> getProjectStatistics(
+        @NotNull UUID projectId,
+        @Nullable OffsetDateTime startTime,
+        @Nullable OffsetDateTime endTime,
+        int offset,
+        int limit
+    ) throws DDShareException;
 }
