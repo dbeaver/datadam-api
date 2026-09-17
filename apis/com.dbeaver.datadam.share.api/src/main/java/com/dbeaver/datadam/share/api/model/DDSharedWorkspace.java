@@ -18,25 +18,14 @@ package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
 
-import java.util.List;
+import java.time.OffsetDateTime;
+import java.util.UUID;
 
-public record DDSharedProjectConfiguration(
-    @NotNull String configurationFingerprint,
-    @NotNull List<DDSharedProjectFile> files,
-    @NotNull Format format
+public record DDSharedWorkspace(
+    @NotNull UUID id,
+    @NotNull String name,
+    @NotNull String encryptedKey,
+    @NotNull OffsetDateTime createTime,
+    @NotNull OffsetDateTime updateTime
 ) {
-    public enum Format {
-        LEGACY_LOCAL_FILES,
-        PORTABLE_JSON
-    }
-
-    public DDSharedProjectConfiguration(@NotNull String configurationFingerprint, @NotNull List<DDSharedProjectFile> files) {
-        this(configurationFingerprint, files, Format.LEGACY_LOCAL_FILES);
-    }
-
-    public DDSharedProjectConfiguration {
-        if (format == null) {
-            format = Format.LEGACY_LOCAL_FILES;
-        }
-    }
 }
