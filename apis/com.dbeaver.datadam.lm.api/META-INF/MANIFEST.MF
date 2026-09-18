@@ -1,0 +1,12 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Vendor: DBeaver Corp
+Bundle-Name: DataDam License Manager API
+Bundle-SymbolicName: com.dbeaver.datadam.lm.api
+Bundle-Version: 0.0.17.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Export-Package: com.dbeaver.datadam.lm.api.model,
+ com.dbeaver.datadam.lm.api.service
+Bundle-ActivationPolicy: lazy
+Require-Bundle: org.jkiss.utils
+Automatic-Module-Name: com.dbeaver.datadam.lm.api
