@@ -19,7 +19,6 @@ package com.dbeaver.datadam.share.api.service;
 import com.dbeaver.datadam.share.api.exception.DDShareException;
 import com.dbeaver.datadam.share.api.model.DDSharedProject;
 import com.dbeaver.datadam.share.api.model.DDSharedProjectConfiguration;
-import com.dbeaver.datadam.share.api.model.DDSharedProjectPullResponse;
 import com.dbeaver.datadam.share.api.model.DDSharedProjectRevision;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
@@ -53,10 +52,7 @@ public interface DDSharedProjectService {
     boolean deleteProject(@NotNull UUID projectId) throws DDShareException;
 
     @NotNull
-    DDSharedProjectPullResponse pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
-
-    @NotNull
-    DDSharedProjectRevision getCurrentProjectRevision(@NotNull UUID projectId) throws DDShareException;
+    DDSharedProjectConfiguration pullProjectConfiguration(@NotNull UUID projectId) throws DDShareException;
 
     /**
      * Pushes project content if {@code lastKnownRevision} matches the current server revision.
