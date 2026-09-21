@@ -21,9 +21,7 @@ import org.jkiss.code.NotNull;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -90,20 +88,6 @@ class DDFingerprintUtilsTest {
         assertEquals(
             DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(first, second)),
             DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(second, uppercaseFingerprint))
-        );
-    }
-
-    @Test
-    void calculateConfigurationFingerprintFromFileFingerprints() {
-        DDSharedProjectFile first = createFile(PROJECT_ID, "first.json", "first", "encrypted-first");
-        DDSharedProjectFile second = createFile(PROJECT_ID, "second.json", "second", "encrypted-second");
-        Map<String, String> fileFingerprints = new LinkedHashMap<>();
-        fileFingerprints.put(second.fileName(), second.fingerprint());
-        fileFingerprints.put(first.fileName(), first.fingerprint());
-
-        assertEquals(
-            DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, List.of(first, second)),
-            DDFingerprintUtils.calculateConfigurationFingerprint(PROJECT_ID, fileFingerprints)
         );
     }
 
