@@ -21,18 +21,25 @@ import org.jkiss.code.Nullable;
 
 /**
  * Reports a successful external license activation. Reuse {@code eventId} on retries.
- * All fields are validated by the server; {@code externalProductId} may be absent for
+ * All fields are validated by the server; {@code externalLicenseId} may be absent for
  * {@code trial} licenses and is required for {@code purchased} licenses.
+ * {@code product} identifies the external product (for example, a driver), with version
+ * {@code externalProductVersion}. {@code internalProduct} and {@code internalProductVersion}
+ * identify the DBeaver application that performed the activation.
+ * {@code lmLicenseId} optionally identifies that application's LM license.
  * {@code activatedAt} is an ISO-8601 timestamp with an explicit timezone offset.
  */
 public record DDExternalLicenseActivation(
     @NotNull String eventId,
     @NotNull String provider,
     @NotNull String email,
-    @Nullable String externalProductId,
+    @Nullable String externalLicenseId,
     @NotNull String externalProductVersion,
     @NotNull String licenseType,
     @NotNull String product,
+    @NotNull String internalProduct,
+    @NotNull String internalProductVersion,
+    @Nullable String lmLicenseId,
     @NotNull String activatedAt
 ) {
 }
