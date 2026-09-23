@@ -21,15 +21,6 @@ The JSON body wraps the `DDExternalLicenseActivation` object in an `activation`
 field, as declared by `@RequestParameter("activation")` in the service interface.
 
 ```java
-import com.dbeaver.datadam.lm.api.model.DDExternalLicenseActivation;
-import com.dbeaver.datadam.lm.api.model.DDExternalLicenseActivationResponse;
-import com.dbeaver.datadam.lm.api.service.DDExternalLicenseService;
-import org.jkiss.utils.rest.RestClient;
-
-import java.net.URI;
-import java.time.Instant;
-import java.util.UUID;
-
 var activation = new DDExternalLicenseActivation(
     UUID.randomUUID().toString(), // eventId
     "cdata",                     // provider
