@@ -19,8 +19,8 @@ package com.dbeaver.datadam.lm.api.service;
 import com.dbeaver.datadam.lm.api.model.DDExternalLicenseActivation;
 import com.dbeaver.datadam.lm.api.model.DDExternalLicenseActivationResponse;
 import org.jkiss.code.NotNull;
-import org.jkiss.utils.rest.RequestBody;
 import org.jkiss.utils.rest.RequestMapping;
+import org.jkiss.utils.rest.RequestParameter;
 import org.jkiss.utils.rest.RestClient;
 import org.jkiss.utils.rest.RpcException;
 
@@ -41,12 +41,14 @@ public interface DDExternalLicenseService {
 
     /**
      * Records an activation. Duplicate event IDs are accepted without modifying the first record.
+     * The HTTP body is {@code {"activation": { ...activation fields... }}}.
      *
      * @return a successful response after recording the activation or accepting a duplicate
      * @throws RpcException if the request fails or the server rejects it; HTTP error bodies use the same response model
      */
     @NotNull
     @RequestMapping(value = "externalLicenseActivation", timeout = 30)
-    DDExternalLicenseActivationResponse recordActivation(@RequestBody @NotNull DDExternalLicenseActivation activation)
-        throws RpcException;
+    DDExternalLicenseActivationResponse recordActivation(
+        @RequestParameter("activation") @NotNull DDExternalLicenseActivation activation
+    ) throws RpcException;
 }
