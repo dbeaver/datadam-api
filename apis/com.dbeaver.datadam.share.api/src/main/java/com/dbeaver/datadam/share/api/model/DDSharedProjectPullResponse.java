@@ -20,11 +20,8 @@ import org.jkiss.code.NotNull;
 
 import java.util.List;
 
-/**
- * Push-only project configuration payload.
- */
-public record DDSharedProjectConfiguration(
-    @NotNull String configurationFingerprint,
-    @NotNull List<DDSharedProjectFile> files
+public record DDSharedProjectPullResponse(
+    @NotNull List<DDSharedProjectFile> files,
+    @NotNull DDSharedProjectRevision currentRevision
 ) {
 }
