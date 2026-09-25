@@ -10,12 +10,14 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>com.dbeaver.datadam.dm.api</artifactId>
+    <artifactId>com.dbeaver.datadam.lm.api</artifactId>
     <packaging>eclipse-plugin</packaging>
-    <name>Deployment Manager API</name>
+    <name>DataDam License Manager API</name>
 
-    <build>
-        <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
-    </build>
-
+    <dependencies>
+        <dependency>
+            <groupId>com.dbeaver.common</groupId>
+            <artifactId>org.jkiss.utils</artifactId>
+        </dependency>
+    </dependencies>
 </project>

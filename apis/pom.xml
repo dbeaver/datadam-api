@@ -12,15 +12,16 @@
     </parent>
 
     <groupId>com.dbeaver.datadam</groupId>
-    <artifactId>dm-api</artifactId>
+    <artifactId>api</artifactId>
     <packaging>pom</packaging>
     <version>0.0.17-SNAPSHOT</version>
-    <name>DataDam Deployment Manager API</name>
-    <description>DataDam Deployment Manager API</description>
+    <name>DataDam API</name>
+    <description>DataDam API</description>
 
     <modules>
         <module>com.dbeaver.datadam.dm.api</module>
         <module>com.dbeaver.datadam.share.api</module>
+        <module>com.dbeaver.datadam.lm.api</module>
     </modules>
 
     <build>

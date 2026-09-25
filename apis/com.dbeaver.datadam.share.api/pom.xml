@@ -5,13 +5,12 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.dbeaver.datadam</groupId>
-        <artifactId>dm-api</artifactId>
+        <artifactId>api</artifactId>
         <version>0.0.17-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>com.dbeaver.datadam.share.api</artifactId>
-    <version>1.0.0</version>
     <packaging>eclipse-plugin</packaging>
     <name>DataDam Share API</name>
 
