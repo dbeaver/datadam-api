@@ -12,6 +12,19 @@ This repository contains API for global DBeaver ecosystem.
 OSGI APIs and Service for DataDam integration
 Used by DBeaver, dbvr, CloudBeaver and by DataDam itself
 
+## SSO API
+
+`apis/com.dbeaver.datadam.sso.api` exports the shared SSO contracts in
+`com.dbeaver.datadam.sso.api.model`:
+
+* `DDSsoAuthorizeRequest`: client, redirect URI, state and PKCE challenge parameters.
+* `DDSsoIdentity`: source-scoped subject, email, identity source and original authentication time.
+* `DDSsoTokenRequest`: authorization code, PKCE verifier, client and redirect URI.
+* `DDSsoTokenResponse`: signed identity token (`id_token`) and lifetime in seconds (`expires_in`).
+
+The module is an OSGi bundle and is also consumed as a Maven dependency by the standalone SSO server.
+Token response JSON field names are declared with Gson `@SerializedName` annotations.
+
 ## License Manager API
 
 `apis/com.dbeaver.datadam.lm.api` contains the external-license activation request/response DTOs and
