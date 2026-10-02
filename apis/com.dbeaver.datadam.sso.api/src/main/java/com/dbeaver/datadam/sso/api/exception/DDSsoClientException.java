@@ -14,18 +14,10 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.sso.api.model;
+package com.dbeaver.datadam.sso.api.exception;
 
-import com.google.gson.annotations.SerializedName;
-import org.jkiss.code.NotNull;
-
-/**
- * Backend authorization code exchange. HTTP controllers must explicitly bind the snake_case form parameters.
- */
-public record DDSsoTokenRequest(
-    @NotNull String code,
-    @SerializedName("code_verifier") @NotNull String codeVerifier,
-    @SerializedName("client_id") @NotNull String clientId,
-    @SerializedName("redirect_uri") @NotNull String redirectUri
-) {
+public class DDSsoClientException extends Exception {
+    public DDSsoClientException(String message) {
+        super(message);
+    }
 }

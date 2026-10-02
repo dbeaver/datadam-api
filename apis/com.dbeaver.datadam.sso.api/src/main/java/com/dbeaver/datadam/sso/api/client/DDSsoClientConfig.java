@@ -14,18 +14,25 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.sso.api.model;
+package com.dbeaver.datadam.sso.api.client;
 
-import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
-/**
- * Backend authorization code exchange. HTTP controllers must explicitly bind the snake_case form parameters.
- */
-public record DDSsoTokenRequest(
-    @NotNull String code,
-    @SerializedName("code_verifier") @NotNull String codeVerifier,
-    @SerializedName("client_id") @NotNull String clientId,
-    @SerializedName("redirect_uri") @NotNull String redirectUri
+import java.time.Duration;
+
+/** Protocol settings shared by SSO clients, independent of application session and flow configuration. */
+public record DDSsoClientConfig(
+    @NotNull String issuer,
+    @Nullable String backchannelUrl,
+    @NotNull String clientId,
+    @NotNull String clientSecret,
+    @NotNull String redirectUri,
+    @NotNull String identitySource,
+    @NotNull Duration jwksCacheTtl
 ) {
+    @Override
+    public String toString() {
+        return "DDSsoClientConfig[issuer=" + issuer + ", clientId=" + clientId + "]";
+    }
 }

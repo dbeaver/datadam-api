@@ -19,13 +19,13 @@ package com.dbeaver.datadam.sso.api.model;
 import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
 
-/**
- * Backend authorization code exchange. HTTP controllers must explicitly bind the snake_case form parameters.
- */
-public record DDSsoTokenRequest(
-    @NotNull String code,
-    @SerializedName("code_verifier") @NotNull String codeVerifier,
-    @SerializedName("client_id") @NotNull String clientId,
-    @SerializedName("redirect_uri") @NotNull String redirectUri
+/** Public parameters of an Ed25519 (OKP) key. Private key material is never part of this model. */
+public record DDSsoPublicJwk(
+    @SerializedName("kty") @NotNull String keyType,
+    @SerializedName("kid") @NotNull String keyId,
+    @SerializedName("use") @NotNull String keyUse,
+    @SerializedName("alg") @NotNull String algorithm,
+    @SerializedName("crv") @NotNull String curve,
+    @SerializedName("x") @NotNull String publicKey
 ) {
 }
