@@ -17,15 +17,16 @@
 package com.dbeaver.datadam.sso.api.model;
 
 import com.google.gson.annotations.SerializedName;
+import com.nimbusds.jose.jwk.JWKParameterNames;
 import org.jkiss.code.NotNull;
 
 /** Public parameters of an Ed25519 (OKP) key. Private key material is never part of this model. */
 public record DDSsoPublicJwk(
-    @SerializedName("kty") @NotNull String keyType,
-    @SerializedName("kid") @NotNull String keyId,
-    @SerializedName("use") @NotNull String keyUse,
-    @SerializedName("alg") @NotNull String algorithm,
-    @SerializedName("crv") @NotNull String curve,
-    @SerializedName("x") @NotNull String publicKey
+    @SerializedName(JWKParameterNames.KEY_TYPE) @NotNull String keyType,
+    @SerializedName(JWKParameterNames.KEY_ID) @NotNull String keyId,
+    @SerializedName(JWKParameterNames.PUBLIC_KEY_USE) @NotNull String keyUse,
+    @SerializedName(JWKParameterNames.ALGORITHM) @NotNull String algorithm,
+    @SerializedName(JWKParameterNames.OKP_SUBTYPE) @NotNull String curve,
+    @SerializedName(JWKParameterNames.OKP_PUBLIC_KEY) @NotNull String publicKey
 ) {
 }

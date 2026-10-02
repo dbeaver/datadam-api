@@ -16,12 +16,13 @@
  */
 package com.dbeaver.datadam.sso.api.model;
 
+import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
 
 /** Opaque one-time browser handoff and its lifetime in seconds. */
 public record DDSsoHandoffResponse(
     @NotNull String handoff,
-    @SerializedName("expires_in") long expiresIn
+    @SerializedName(DDSsoConstants.RESPONSE_EXPIRES_IN) long expiresIn
 ) {
 }

@@ -17,6 +17,8 @@
 package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
+import com.dbeaver.datadam.sso.api.DDSsoConstants;
+import org.assertj.core.api.Assertions;
 import com.dbeaver.datadam.sso.api.model.DDSsoAuthorizeRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
@@ -37,6 +39,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -54,8 +58,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
-
-import static org.assertj.core.api.Assertions.*;
 
 class DDSsoClientTest {
     private static final Instant NOW = Instant.parse("2026-10-01T12:00:00Z");
@@ -109,33 +111,60 @@ class DDSsoClientTest {
         server.stop(0);
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "https://sso.example.com, https://sso.example.com/authorize",
+        "https://sso.example.com/, https://sso.example.com/authorize",
+        "https://sso.example.com/issuer, https://sso.example.com/issuer/authorize",
+        "https://sso.example.com/issuer/, https://sso.example.com/issuer/authorize"
+    })
+    void joinsSharedPathsWithoutLosingIssuerPathOrDuplicatingSlashes(String issuer, String expected) {
+        var configured = new DDSsoClient(new DDSsoClientConfig(issuer, "", "account", "test-secret",
+            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5)));
+        Assertions.assertThat(configured.endpoint(DDSsoConstants.AUTHORIZE_PATH).toString()).isEqualTo(expected);
+        Assertions.assertThat(configured.endpoint("authorize").toString()).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/internal", "/internal/"})
+    void preservesBackchannelPathWithSharedEndpointPaths(String path) throws Exception {
+        var configured = new DDSsoClient(new DDSsoClientConfig("https://sso.example.com/issuer/",
+            "http://127.0.0.1:" + server.getAddress().getPort() + path, "account", "test-secret",
+            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5)));
+        responseJson.set(gson.toJson(Map.of("handoff", "A".repeat(43), "expires_in", 60)));
+        var request = new DDSsoHandoffRequest(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW),
+            new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256"), "B".repeat(43));
+        Assertions.assertThat(configured.createHandoff(request)).isEqualTo("https://sso.example.com/issuer/handoff?handoff=" + "A".repeat(43));
+        Assertions.assertThat(requestPath).hasValue("/internal/handoff");
+    }
+
     @Test
     void validatesTokenAndCachesTrustedJwks() throws Exception {
         String token = signed(claims(), header("key1"));
         var first = client.verifyIdentity(token);
-        assertThat(first).isEqualTo(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW.minusSeconds(60)));
-        assertThat(client.verifyIdentity(token)).isEqualTo(first);
-        assertThat(jwksRequests).hasValue(1);
-        assertThat(jwksMethod).hasValue("GET");
+        Assertions.assertThat(first).isEqualTo(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW.minusSeconds(60)));
+        Assertions.assertThat(client.verifyIdentity(token)).isEqualTo(first);
+        Assertions.assertThat(jwksRequests).hasValue(1);
+        Assertions.assertThat(jwksMethod).hasValue("GET");
     }
 
     @Test
     void exchangesCodeAndVerifierOnlyInAuthenticatedFormBody() throws Exception {
         responseJson.set(gson.toJson(Map.of("id_token", signed(claims(), header("key1")), "expires_in", 300)));
-        assertThat(client.exchange("code+/%", "verifier")).isNotNull();
-        assertThat(requestMethod).hasValue("POST");
-        assertThat(requestPath).hasValue("/token");
-        assertThat(contentType).hasValue("application/x-www-form-urlencoded");
-        assertThat(credentials.get()).isEqualTo("Basic " + java.util.Base64.getEncoder().encodeToString("account:test-secret".getBytes(StandardCharsets.UTF_8)));
+        Assertions.assertThat(client.exchange("code+/%", "verifier")).isNotNull();
+        Assertions.assertThat(requestMethod).hasValue("POST");
+        Assertions.assertThat(requestPath).hasValue("/token");
+        Assertions.assertThat(contentType).hasValue("application/x-www-form-urlencoded");
+        Assertions.assertThat(credentials.get()).isEqualTo("Basic " + java.util.Base64.getEncoder().encodeToString("account:test-secret".getBytes(StandardCharsets.UTF_8)));
         Map<String, String> form = new HashMap<>();
         for (String pair : posted.get().split("&")) {
             String[] values = pair.split("=", 2);
             form.put(values[0], URLDecoder.decode(values[1], StandardCharsets.UTF_8));
         }
-        assertThat(form).containsEntry("code", "code+/%").containsEntry("code_verifier", "verifier")
+        Assertions.assertThat(form).containsEntry("code", "code+/%").containsEntry("code_verifier", "verifier")
             .containsEntry("client_id", "account").containsEntry("redirect_uri", "https://account.example.com/sso/callback");
-        assertThat(form).containsOnlyKeys("code", "code_verifier", "client_id", "redirect_uri");
-        assertThat(gson.fromJson(gson.toJson(form), DDSsoTokenRequest.class)).isEqualTo(new DDSsoTokenRequest(
+        Assertions.assertThat(form).containsOnlyKeys("code", "code_verifier", "client_id", "redirect_uri");
+        Assertions.assertThat(gson.fromJson(gson.toJson(form), DDSsoTokenRequest.class)).isEqualTo(new DDSsoTokenRequest(
             "code+/%", "verifier", "account", "https://account.example.com/sso/callback"
         ));
     }
@@ -145,14 +174,14 @@ class DDSsoClientTest {
         responseJson.set(gson.toJson(Map.of("handoff", "A".repeat(43), "expires_in", 60)));
         var request = new DDSsoHandoffRequest(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW),
             new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256"), "B".repeat(43));
-        assertThat(client.createHandoff(request)).isEqualTo("https://sso.example.com/handoff?handoff=" + "A".repeat(43));
-        assertThat(requestMethod).hasValue("POST");
-        assertThat(requestPath).hasValue("/handoff");
-        assertThat(contentType).hasValue("application/json");
+        Assertions.assertThat(client.createHandoff(request)).isEqualTo("https://sso.example.com/handoff?handoff=" + "A".repeat(43));
+        Assertions.assertThat(requestMethod).hasValue("POST");
+        Assertions.assertThat(requestPath).hasValue("/handoff");
+        Assertions.assertThat(contentType).hasValue("application/json");
         var body = JsonParser.parseString(posted.get()).getAsJsonObject();
-        assertThat(body.keySet()).containsExactlyInAnyOrder("identity", "authorization", "flow_id");
-        assertThat(body.get("flow_id").getAsString()).isEqualTo("B".repeat(43));
-        assertThat(body.getAsJsonObject("identity").get("authTime").getAsString()).isEqualTo(NOW.toString());
+        Assertions.assertThat(body.keySet()).containsExactlyInAnyOrder("identity", "authorization", "flow_id");
+        Assertions.assertThat(body.get("flow_id").getAsString()).isEqualTo("B".repeat(43));
+        Assertions.assertThat(body.getAsJsonObject("identity").get("authTime").getAsString()).isEqualTo(NOW.toString());
     }
 
     @ParameterizedTest
@@ -161,7 +190,7 @@ class DDSsoClientTest {
         Map<String, Object> claims = claims();
         if (value == null) claims.remove(claim); else claims.put(claim, value);
         String token = signed(claims, header("key1"));
-        assertThatThrownBy(() -> client.verifyIdentity(token)).isInstanceOf(DDSsoClientException.class).hasMessage("Invalid SSO identity token");
+        Assertions.assertThatThrownBy(() -> client.verifyIdentity(token)).isInstanceOf(DDSsoClientException.class).hasMessage("Invalid SSO identity token");
     }
 
     static Stream<Arguments> invalidClaims() {
@@ -177,10 +206,10 @@ class DDSsoClientTest {
     void rejectsChangedSignatureAndUnsupportedHeaders() throws Exception {
         String original = signed(claims(), header("key1"));
         String tampered = original.substring(0, original.lastIndexOf('.') + 1) + Base64URL.encode(new byte[64]);
-        assertThatThrownBy(() -> client.verifyIdentity(tampered)).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThatThrownBy(() -> client.verifyIdentity(tampered)).isInstanceOf(DDSsoClientException.class);
         for (JWSHeader header : List.of(new JWSHeader.Builder(JWSAlgorithm.HS256).keyID("key1").type(JOSEObjectType.JWT).build(),
             new JWSHeader.Builder(JWSAlgorithm.Ed25519).keyID("key1").build())) {
-            assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header))).isInstanceOf(DDSsoClientException.class);
+            Assertions.assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header))).isInstanceOf(DDSsoClientException.class);
         }
     }
 
@@ -189,7 +218,7 @@ class DDSsoClientTest {
         var response = JsonParser.parseString(keysJson.get()).getAsJsonObject();
         response.getAsJsonArray("keys").get(0).getAsJsonObject().addProperty("d", Base64URL.encode(new byte[32]).toString());
         keysJson.set(gson.toJson(response));
-        assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("key1"))))
+        Assertions.assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("key1"))))
             .isInstanceOf(DDSsoClientException.class).hasMessage("Invalid SSO identity token");
     }
 
@@ -197,7 +226,7 @@ class DDSsoClientTest {
     void rejectsDuplicatePublicKeyIds() throws Exception {
         var response = gson.fromJson(keysJson.get(), DDSsoJwksResponse.class);
         keysJson.set(gson.toJson(new DDSsoJwksResponse(List.of(response.keys().getFirst(), response.keys().getFirst()))));
-        assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("key1"))))
+        Assertions.assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("key1"))))
             .isInstanceOf(DDSsoClientException.class);
     }
 
@@ -207,7 +236,7 @@ class DDSsoClientTest {
         var response = JsonParser.parseString(keysJson.get()).getAsJsonObject();
         response.getAsJsonArray("keys").get(0).getAsJsonObject().add(field, gson.toJsonTree(value));
         keysJson.set(gson.toJson(response));
-        assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("key1"))))
+        Assertions.assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("key1"))))
             .isInstanceOf(DDSsoClientException.class);
     }
 
@@ -224,9 +253,9 @@ class DDSsoClientTest {
         client.verifyIdentity(signed(claims(), header("key1")));
         keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         keysJson.set(jwks("key2", keyPair));
-        assertThat(client.verifyIdentity(signed(claims(), header("key2")))).isNotNull();
-        assertThat(jwksRequests).hasValue(2);
-        assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("missing")))).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(client.verifyIdentity(signed(claims(), header("key2")))).isNotNull();
+        Assertions.assertThat(jwksRequests).hasValue(2);
+        Assertions.assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("missing")))).isInstanceOf(DDSsoClientException.class);
     }
 
     private String signed(Map<String, Object> claims, JWSHeader header) throws Exception {

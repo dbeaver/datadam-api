@@ -16,6 +16,7 @@
  */
 package com.dbeaver.datadam.sso.api.client;
 
+import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffResponse;
@@ -26,13 +27,18 @@ import com.dbeaver.datadam.sso.api.model.DDSsoTokenResponse;
 import com.google.gson.Gson;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.KeyType;
+import com.nimbusds.jose.jwk.KeyUse;
+import com.nimbusds.jwt.JWTClaimNames;
 import com.nimbusds.jwt.SignedJWT;
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters;
 import org.bouncycastle.crypto.util.SubjectPublicKeyInfoFactory;
 import org.jkiss.code.NotNull;
 import org.jkiss.utils.GsonUtils;
+import org.jkiss.utils.HttpConstants;
 
 import java.io.IOException;
 import java.net.URI;
@@ -52,6 +58,13 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class DDSsoClient {
+    private static final String HTTP_POST = "POST";
+    private static final int CONNECT_TIMEOUT_MILLIS = 5_000;
+    private static final int READ_TIMEOUT_MILLIS = 10_000;
+    private static final int MAX_RESPONSE_BYTES = 1_048_576;
+    private static final int MAX_TOKEN_LENGTH = 16_384;
+    private static final int MAX_JWKS_KEYS = 16;
+    private static final int MAX_CLOCK_SKEW_SECONDS = 30;
     private final DDSsoClientConfig properties;
     private final Clock clock;
     private final Gson gson = GsonUtils.gsonBuilder().registerTypeAdapter(Instant.class, new GsonUtils.InstantIsoAdapter()).create();
@@ -69,7 +82,11 @@ public class DDSsoClient {
 
     @NotNull
     public URI endpoint(@NotNull String path) {
-        return URI.create(properties.issuer() + (properties.issuer().endsWith("/") ? "" : "/") + path);
+        return endpoint(properties.issuer(), path);
+    }
+
+    private static URI endpoint(String base, String path) {
+        return URI.create(base + (base.endsWith("/") ? "" : "/") + (path.startsWith("/") ? path.substring(1) : path));
     }
 
     @NotNull
@@ -77,10 +94,10 @@ public class DDSsoClient {
         DDSsoTokenRequest request = new DDSsoTokenRequest(code, verifier, properties.clientId(), properties.redirectUri());
         String form = gson.toJsonTree(request).getAsJsonObject().entrySet().stream()
             .map(entry -> encode(entry.getKey()) + "=" + encode(entry.getValue().getAsString())).collect(Collectors.joining("&"));
-        String body = send("token", "application/x-www-form-urlencoded", form);
+        String body = send(DDSsoConstants.TOKEN_PATH, HttpConstants.CONTENT_TYPE_APP_FORM, form);
         try {
             DDSsoTokenResponse token = gson.fromJson(body, DDSsoTokenResponse.class);
-            if (token == null || token.idToken() == null || token.idToken().length() > 16384 || token.expiresIn() <= 0) {
+            if (token == null || token.idToken() == null || token.idToken().length() > MAX_TOKEN_LENGTH || token.expiresIn() <= 0) {
                 throw new IllegalArgumentException();
             }
             return verifyIdentity(token.idToken());
@@ -91,14 +108,14 @@ public class DDSsoClient {
 
     @NotNull
     public String createHandoff(@NotNull DDSsoHandoffRequest request) throws DDSsoClientException {
-        String body = send("handoff", "application/json", gson.toJson(request));
+        String body = send(DDSsoConstants.HANDOFF_PATH, HttpConstants.CONTENT_TYPE_JSON, gson.toJson(request));
         try {
             DDSsoHandoffResponse handoff = gson.fromJson(body, DDSsoHandoffResponse.class);
-            if (handoff == null || handoff.handoff() == null || !handoff.handoff().matches("[A-Za-z0-9_-]{43}")
+            if (handoff == null || handoff.handoff() == null || !DDSsoConstants.BASE64URL_256_PATTERN.matcher(handoff.handoff()).matches()
                 || handoff.expiresIn() <= 0) {
                 throw new IllegalArgumentException();
             }
-            return endpoint("handoff") + "?handoff=" + handoff.handoff();
+            return endpoint(DDSsoConstants.HANDOFF_PATH) + "?" + DDSsoConstants.PARAM_HANDOFF + "=" + handoff.handoff();
         } catch (RuntimeException e) {
             throw new DDSsoClientException("Invalid SSO handoff response");
         }
@@ -107,7 +124,7 @@ public class DDSsoClient {
     @NotNull
     public DDSsoIdentity verifyIdentity(@NotNull String encoded) throws DDSsoClientException {
         try {
-            if (encoded.length() > 16384) {
+            if (encoded.length() > MAX_TOKEN_LENGTH) {
                 throw new IllegalArgumentException();
             }
             SignedJWT token = SignedJWT.parse(encoded);
@@ -115,30 +132,33 @@ public class DDSsoClient {
             if (!JWSAlgorithm.Ed25519.equals(header.getAlgorithm()) || !JOSEObjectType.JWT.equals(header.getType())
                 || header.getKeyID() == null || header.getKeyID().isBlank() || !header.isBase64URLEncodePayload()
                 || header.getCriticalParams() != null && !header.getCriticalParams().isEmpty()
-                || token.getSignature().decode().length != 64) {
+                || token.getSignature().decode().length != DDSsoConstants.ED25519_SIGNATURE_BYTES) {
                 throw new IllegalArgumentException();
             }
-            Signature signature = Signature.getInstance("Ed25519");
+            Signature signature = Signature.getInstance(DDSsoConstants.ALGORITHM_ED25519);
             signature.initVerify(publicKey(header.getKeyID()));
             signature.update(token.getSigningInput());
             if (!signature.verify(token.getSignature().decode())) {
                 throw new IllegalArgumentException();
             }
             Map<String, Object> claims = token.getPayload().toJSONObject();
-            if (claims == null || !properties.issuer().equals(claims.get("iss"))
-                || !(properties.clientId().equals(claims.get("aud")) || List.of(properties.clientId()).equals(claims.get("aud")))
-                || !"identity".equals(claims.get("token_use")) || !properties.identitySource().equals(claims.get("source"))) {
+            if (claims == null || !properties.issuer().equals(claims.get(JWTClaimNames.ISSUER))
+                || !(properties.clientId().equals(claims.get(JWTClaimNames.AUDIENCE))
+                    || List.of(properties.clientId()).equals(claims.get(JWTClaimNames.AUDIENCE)))
+                || !DDSsoConstants.TOKEN_USE_IDENTITY.equals(claims.get(DDSsoConstants.CLAIM_TOKEN_USE))
+                || !properties.identitySource().equals(claims.get(DDSsoConstants.CLAIM_SOURCE))) {
                 throw new IllegalArgumentException();
             }
-            Instant issuedAt = date(claims.get("iat"));
-            Instant expiresAt = date(claims.get("exp"));
-            Instant authTime = date(claims.get("auth_time"));
+            Instant issuedAt = date(claims.get(JWTClaimNames.ISSUED_AT));
+            Instant expiresAt = date(claims.get(JWTClaimNames.EXPIRATION_TIME));
+            Instant authTime = date(claims.get(DDSsoConstants.CLAIM_AUTH_TIME));
             Instant now = clock.instant();
-            if (!expiresAt.isAfter(now) || !expiresAt.isAfter(issuedAt) || issuedAt.isAfter(now.plusSeconds(30))
-                || authTime.isAfter(issuedAt) || claims.containsKey("nbf") && date(claims.get("nbf")).isAfter(now)) {
+            if (!expiresAt.isAfter(now) || !expiresAt.isAfter(issuedAt) || issuedAt.isAfter(now.plusSeconds(MAX_CLOCK_SKEW_SECONDS))
+                || authTime.isAfter(issuedAt)
+                || claims.containsKey(JWTClaimNames.NOT_BEFORE) && date(claims.get(JWTClaimNames.NOT_BEFORE)).isAfter(now)) {
                 throw new IllegalArgumentException();
             }
-            return new DDSsoIdentity(text(claims.get("sub")), text(claims.get("email")), properties.identitySource(), authTime);
+            return new DDSsoIdentity(text(claims.get(JWTClaimNames.SUBJECT)), text(claims.get(DDSsoConstants.CLAIM_EMAIL)), properties.identitySource(), authTime);
         } catch (Exception e) {
             // Tokens, upstream bodies and key data must not appear in diagnostics.
             throw new DDSsoClientException("Invalid SSO identity token");
@@ -148,27 +168,27 @@ public class DDSsoClient {
     private synchronized PublicKey publicKey(String kid) throws Exception {
         Instant now = clock.instant();
         if (!keysExpireAt.isAfter(now) || !keys.containsKey(kid)) {
-            String body = send(".well-known/jwks.json", null, null);
+            String body = send(DDSsoConstants.JWKS_PATH, null, null);
             // Validate JOSE structure before DTO mapping, which deliberately omits private key fields.
             if (JWKSet.parse(body).getKeys().stream().anyMatch(JWK::isPrivate)) {
                 throw new IllegalArgumentException();
             }
             DDSsoJwksResponse set = gson.fromJson(body, DDSsoJwksResponse.class);
-            if (set == null || set.keys().isEmpty() || set.keys().size() > 16) {
+            if (set == null || set.keys().isEmpty() || set.keys().size() > MAX_JWKS_KEYS) {
                 throw new IllegalArgumentException();
             }
             Map<String, PublicKey> loaded = new HashMap<>();
             for (var key : set.keys()) {
-                if (!"OKP".equals(key.keyType()) || !"Ed25519".equals(key.curve())
-                    || !"Ed25519".equals(key.algorithm()) || !"sig".equals(key.keyUse())
+                if (!KeyType.OKP.toString().equals(key.keyType()) || !Curve.Ed25519.toString().equals(key.curve())
+                    || !DDSsoConstants.ALGORITHM_ED25519.equals(key.algorithm()) || !KeyUse.SIGNATURE.toString().equals(key.keyUse())
                     || key.keyId() == null || key.keyId().isBlank() || key.publicKey() == null) {
                     throw new IllegalArgumentException();
                 }
                 byte[] decoded = Base64.getUrlDecoder().decode(key.publicKey());
-                if (decoded.length != 32) {
+                if (decoded.length != DDSsoConstants.ED25519_PUBLIC_KEY_BYTES) {
                     throw new IllegalArgumentException();
                 }
-                PublicKey publicKey = KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(
+                PublicKey publicKey = KeyFactory.getInstance(DDSsoConstants.ALGORITHM_ED25519).generatePublic(new X509EncodedKeySpec(
                     SubjectPublicKeyInfoFactory.createSubjectPublicKeyInfo(new Ed25519PublicKeyParameters(decoded)).getEncoded()
                 ));
                 if (loaded.putIfAbsent(key.keyId(), publicKey) != null) {
@@ -190,15 +210,15 @@ public class DDSsoClient {
         try {
             String base = properties.backchannelUrl() != null && !properties.backchannelUrl().isBlank()
                 ? properties.backchannelUrl() : properties.issuer();
-            URI uri = URI.create(base + (base.endsWith("/") ? "" : "/") + path);
+            URI uri = endpoint(base, path);
             connection = (HttpURLConnection) uri.toURL().openConnection();
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(10000);
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
             connection.setInstanceFollowRedirects(false);
             if (payload != null) {
-                connection.setRequestMethod("POST");
-                connection.setRequestProperty("Content-Type", contentType);
-                connection.setRequestProperty("Authorization", "Basic " + Base64.getEncoder().encodeToString(
+                connection.setRequestMethod(HTTP_POST);
+                connection.setRequestProperty(HttpConstants.HEADER_CONTENT_TYPE, contentType);
+                connection.setRequestProperty(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.BASIC_PREFIX + Base64.getEncoder().encodeToString(
                     (properties.clientId() + ":" + properties.clientSecret()).getBytes(StandardCharsets.UTF_8)
                 ));
                 connection.setDoOutput(true);
@@ -206,12 +226,12 @@ public class DDSsoClient {
                     output.write(payload.getBytes(StandardCharsets.UTF_8));
                 }
             }
-            if (connection.getResponseCode() != 200) {
+            if (connection.getResponseCode() != HttpConstants.CODE_OK) {
                 throw new DDSsoClientException("SSO request failed");
             }
             try (var body = connection.getInputStream()) {
-                byte[] bytes = body.readNBytes(1_048_577);
-                if (bytes.length > 1_048_576) {
+                byte[] bytes = body.readNBytes(MAX_RESPONSE_BYTES + 1);
+                if (bytes.length > MAX_RESPONSE_BYTES) {
                     throw new DDSsoClientException("SSO response is too large");
                 }
                 return new String(bytes, StandardCharsets.UTF_8);

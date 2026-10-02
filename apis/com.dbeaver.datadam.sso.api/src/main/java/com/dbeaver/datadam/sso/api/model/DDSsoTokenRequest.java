@@ -18,14 +18,15 @@ package com.dbeaver.datadam.sso.api.model;
 
 import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
+import org.jkiss.utils.oauth.OAuthConstants;
 
 /**
  * Backend authorization code exchange. HTTP controllers must explicitly bind the snake_case form parameters.
  */
 public record DDSsoTokenRequest(
     @NotNull String code,
-    @SerializedName("code_verifier") @NotNull String codeVerifier,
-    @SerializedName("client_id") @NotNull String clientId,
-    @SerializedName("redirect_uri") @NotNull String redirectUri
+    @SerializedName(OAuthConstants.PARAM_CODE_VERIFIER) @NotNull String codeVerifier,
+    @SerializedName(OAuthConstants.AUTH_PROP_CLIENT_ID) @NotNull String clientId,
+    @SerializedName(OAuthConstants.PARAM_REDIRECT_URI) @NotNull String redirectUri
 ) {
 }

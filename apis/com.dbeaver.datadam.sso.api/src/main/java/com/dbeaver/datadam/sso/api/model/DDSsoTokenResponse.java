@@ -16,14 +16,16 @@
  */
 package com.dbeaver.datadam.sso.api.model;
 
+import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
+import org.jkiss.utils.oauth.OAuthConstants;
 
 /**
  * Identity JWT for the requesting application. Expiration is expressed in seconds.
  */
 public record DDSsoTokenResponse(
-    @SerializedName("id_token") @NotNull String idToken,
-    @SerializedName("expires_in") long expiresIn
+    @SerializedName(OAuthConstants.RESULT_PROP_TOKEN_ID) @NotNull String idToken,
+    @SerializedName(DDSsoConstants.RESPONSE_EXPIRES_IN) long expiresIn
 ) {
 }

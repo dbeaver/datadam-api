@@ -16,6 +16,7 @@
  */
 package com.dbeaver.datadam.sso.api.model;
 
+import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
 
@@ -23,6 +24,6 @@ import org.jkiss.code.NotNull;
 public record DDSsoHandoffRequest(
     @NotNull DDSsoIdentity identity,
     @NotNull DDSsoAuthorizeRequest authorization,
-    @SerializedName("flow_id") @NotNull String flowId
+    @SerializedName(DDSsoConstants.PARAM_FLOW_ID) @NotNull String flowId
 ) {
 }
