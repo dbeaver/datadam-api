@@ -12,6 +12,32 @@ This repository contains API for global DBeaver ecosystem.
 OSGI APIs and Service for DataDam integration
 Used by DBeaver, dbvr, CloudBeaver and by DataDam itself
 
+## SSO API
+
+`apis/com.dbeaver.datadam.sso.api` exports the shared SSO contracts in
+`com.dbeaver.datadam.sso.api.model`:
+
+* `DDSsoAuthorizeRequest`: client, redirect URI, state and PKCE challenge parameters.
+* `DDSsoIdentity`: source-scoped subject, email, identity source and original authentication time.
+* `DDSsoTokenRequest`: authorization code, PKCE verifier, client and redirect URI.
+* `DDSsoTokenResponse`: signed identity token (`id_token`) and lifetime in seconds (`expires_in`).
+* `DDSsoHandoffRequest`: confirmed identity, original authorization request and browser-binding `flow_id`.
+* `DDSsoHandoffResponse`: opaque one-time `handoff` and lifetime in seconds (`expires_in`).
+
+The module is an OSGi bundle and is also consumed as a Maven dependency by the standalone SSO server.
+Token response JSON field names are declared with Gson `@SerializedName` annotations.
+Handoff creation uses `POST /handoff` with HTTP Basic backend authentication and a JSON body. The nested
+authorization fields use their Java camelCase names; `flow_id` and `expires_in` use explicit Gson mappings.
+The identity's `authTime` uses ISO-8601 (`GsonUtils.InstantIsoAdapter`). Browser completion uses
+`GET /handoff?handoff=...` and requires the proof cookie set by the initial SSO authorization request.
+
+Token exchange uses `POST /token` with `application/x-www-form-urlencoded` fields `code`, `code_verifier`,
+`client_id` and `redirect_uri`. If supplied, `grant_type` must equal `authorization_code`. Clients with a
+configured secret authenticate through HTTP Basic; public clients use code and PKCE without credentials.
+The response is `DDSsoTokenResponse` with an application-specific identity JWT and `expires_in` in seconds.
+Failed exchanges return a JSON `error` (`invalid_request`, `unsupported_grant_type`, `invalid_client`,
+`invalid_grant` or `server_error`).
+
 ## License Manager API
 
 `apis/com.dbeaver.datadam.lm.api` contains the external-license activation request/response DTOs and
