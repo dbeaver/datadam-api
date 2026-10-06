@@ -17,17 +17,23 @@
 package com.dbeaver.datadam.sso.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 import java.time.Instant;
 
 /**
  * Identity confirmed by a trusted application backend. The subject is scoped to the identity source.
- * Authentication time is the original login time, not the token issue time.
+ * Authentication time is the original login time, not the token issue time. MFA proof is absent until
+ * a local second factor succeeds; older SSO identities without the proof remain readable.
  */
 public record DDSsoIdentity(
     @NotNull String subject,
     @NotNull String email,
     @NotNull String source,
-    @NotNull Instant authTime
+    @NotNull Instant authTime,
+    @Nullable Instant mfaVerifiedAt
 ) {
+    public DDSsoIdentity(String subject, String email, String source, Instant authTime) {
+        this(subject, email, source, authTime, null);
+    }
 }

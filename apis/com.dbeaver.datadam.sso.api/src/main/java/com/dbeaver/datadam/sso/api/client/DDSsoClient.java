@@ -51,6 +51,7 @@ import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -152,13 +153,18 @@ public class DDSsoClient {
             Instant issuedAt = date(claims.get(JWTClaimNames.ISSUED_AT));
             Instant expiresAt = date(claims.get(JWTClaimNames.EXPIRATION_TIME));
             Instant authTime = date(claims.get(DDSsoConstants.CLAIM_AUTH_TIME));
+            Instant mfaVerifiedAt = claims.containsKey(DDSsoConstants.CLAIM_MFA_VERIFIED_AT)
+                ? preciseInstant(claims.get(DDSsoConstants.CLAIM_MFA_VERIFIED_AT)) : null;
             Instant now = clock.instant();
             if (!expiresAt.isAfter(now) || !expiresAt.isAfter(issuedAt) || issuedAt.isAfter(now.plusSeconds(MAX_CLOCK_SKEW_SECONDS))
                 || authTime.isAfter(issuedAt)
+                || mfaVerifiedAt != null && (mfaVerifiedAt.isBefore(authTime)
+                    || mfaVerifiedAt.truncatedTo(ChronoUnit.SECONDS).isAfter(issuedAt) || mfaVerifiedAt.isAfter(now))
                 || claims.containsKey(JWTClaimNames.NOT_BEFORE) && date(claims.get(JWTClaimNames.NOT_BEFORE)).isAfter(now)) {
                 throw new IllegalArgumentException();
             }
-            return new DDSsoIdentity(text(claims.get(JWTClaimNames.SUBJECT)), text(claims.get(DDSsoConstants.CLAIM_EMAIL)), properties.identitySource(), authTime);
+            return new DDSsoIdentity(text(claims.get(JWTClaimNames.SUBJECT)), text(claims.get(DDSsoConstants.CLAIM_EMAIL)),
+                properties.identitySource(), authTime, mfaVerifiedAt);
         } catch (Exception e) {
             // Tokens, upstream bodies and key data must not appear in diagnostics.
             throw new DDSsoClientException("Invalid SSO identity token");
@@ -257,6 +263,13 @@ public class DDSsoClient {
             throw new IllegalArgumentException();
         }
         return Instant.ofEpochSecond(((Number) value).longValue());
+    }
+
+    private static Instant preciseInstant(Object value) {
+        if (!(value instanceof String timestamp)) {
+            throw new IllegalArgumentException();
+        }
+        return Instant.parse(timestamp);
     }
 
     private static String encode(String value) {

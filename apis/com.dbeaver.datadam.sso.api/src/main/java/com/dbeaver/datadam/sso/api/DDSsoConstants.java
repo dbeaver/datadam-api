@@ -49,6 +49,8 @@ public final class DDSsoConstants {
     public static final String CLAIM_EMAIL = "email";
     public static final String CLAIM_SOURCE = "source";
     public static final String CLAIM_AUTH_TIME = "auth_time";
+    /** ISO-8601 instant string; full precision is needed to distinguish MFA enrollment changes within one second. */
+    public static final String CLAIM_MFA_VERIFIED_AT = "mfa_verified_at";
     public static final String CLAIM_TOKEN_USE = "token_use";
     public static final String TOKEN_USE_IDENTITY = "identity";
     public static final String TOKEN_USE_SESSION = "sso_session";

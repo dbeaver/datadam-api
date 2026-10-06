@@ -149,6 +149,32 @@ class DDSsoClientTest {
     }
 
     @Test
+    void acceptsSignedMfaProofAndRejectsInvalidAssuranceClaims() throws Exception {
+        Map<String, Object> claims = claims();
+        Instant verifiedAt = NOW.minusSeconds(20).plusNanos(123_456_000);
+        claims.put(DDSsoConstants.CLAIM_MFA_VERIFIED_AT, verifiedAt.toString());
+        Assertions.assertThat(client.verifyIdentity(signed(claims, header("key1"))))
+            .isEqualTo(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW.minusSeconds(60), verifiedAt));
+        for (Object invalid : List.of("true", true, -1, NOW.plusSeconds(1).toString(),
+            NOW.minusSeconds(61).toString())) {
+            claims.put(DDSsoConstants.CLAIM_MFA_VERIFIED_AT, invalid);
+            Assertions.assertThatThrownBy(() -> client.verifyIdentity(signed(claims, header("key1"))))
+                .isInstanceOf(DDSsoClientException.class).hasMessage("Invalid SSO identity token");
+        }
+    }
+
+    @Test
+    void rejectsMfaProofAddedAfterIdentityTokenWasSigned() throws Exception {
+        Map<String, Object> claims = claims();
+        String[] token = signed(claims, header("key1")).split("\\.");
+        claims.put(DDSsoConstants.CLAIM_MFA_VERIFIED_AT, NOW.minusSeconds(20).toString());
+        String modified = token[0] + "." + Base64URL.encode(gson.toJson(claims)) + "." + token[2];
+
+        Assertions.assertThatThrownBy(() -> client.verifyIdentity(modified))
+            .isInstanceOf(DDSsoClientException.class).hasMessage("Invalid SSO identity token");
+    }
+
+    @Test
     void exchangesCodeAndVerifierOnlyInAuthenticatedFormBody() throws Exception {
         responseJson.set(gson.toJson(Map.of("id_token", signed(claims(), header("key1")), "expires_in", 300)));
         Assertions.assertThat(client.exchange("code+/%", "verifier")).isNotNull();
