@@ -39,6 +39,8 @@ import org.bouncycastle.crypto.util.SubjectPublicKeyInfoFactory;
 import org.jkiss.code.NotNull;
 import org.jkiss.utils.GsonUtils;
 import org.jkiss.utils.HttpConstants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -59,6 +61,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class DDSsoClient {
+    private static final Logger log = LoggerFactory.getLogger(DDSsoClient.class);
     private static final String HTTP_POST = "POST";
     private static final int CONNECT_TIMEOUT_MILLIS = 5_000;
     private static final int READ_TIMEOUT_MILLIS = 10_000;
@@ -103,6 +106,7 @@ public class DDSsoClient {
             }
             return verifyIdentity(token.idToken());
         } catch (RuntimeException e) {
+            log.warn("SSO client token exchange failed: reason=invalid_token_response");
             throw new DDSsoClientException("Invalid SSO token response");
         }
     }
@@ -118,6 +122,7 @@ public class DDSsoClient {
             }
             return endpoint(DDSsoConstants.HANDOFF_PATH) + "?" + DDSsoConstants.PARAM_HANDOFF + "=" + handoff.handoff();
         } catch (RuntimeException e) {
+            log.warn("SSO client handoff creation failed: reason=invalid_handoff_response");
             throw new DDSsoClientException("Invalid SSO handoff response");
         }
     }
@@ -167,6 +172,8 @@ public class DDSsoClient {
                 properties.identitySource(), authTime, mfaVerifiedAt);
         } catch (Exception e) {
             // Tokens, upstream bodies and key data must not appear in diagnostics.
+            log.warn("SSO client identity verification failed: reason=invalid_identity_token, exceptionType={}",
+                e.getClass().getSimpleName());
             throw new DDSsoClientException("Invalid SSO identity token");
         }
     }
@@ -203,6 +210,7 @@ public class DDSsoClient {
             }
             keys = Map.copyOf(loaded);
             keysExpireAt = now.plus(properties.jwksCacheTtl());
+            log.info("SSO client signing keys refreshed");
         }
         PublicKey key = keys.get(kid);
         if (key == null) {
@@ -217,6 +225,9 @@ public class DDSsoClient {
             String base = properties.backchannelUrl() != null && !properties.backchannelUrl().isBlank()
                 ? properties.backchannelUrl() : properties.issuer();
             URI uri = endpoint(base, path);
+            // Never include query parameters, credentials, request/response bodies or exception messages.
+            log.info("SSO client request started: endpoint={}, method={}, scheme={}, host={}, port={}, path={}",
+                path, payload == null ? "GET" : HTTP_POST, uri.getScheme(), uri.getHost(), uri.getPort(), uri.getRawPath());
             connection = (HttpURLConnection) uri.toURL().openConnection();
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
             connection.setReadTimeout(READ_TIMEOUT_MILLIS);
@@ -232,17 +243,23 @@ public class DDSsoClient {
                     output.write(payload.getBytes(StandardCharsets.UTF_8));
                 }
             }
-            if (connection.getResponseCode() != HttpConstants.CODE_OK) {
+            int status = connection.getResponseCode();
+            if (status != HttpConstants.CODE_OK) {
+                log.warn("SSO client request failed: endpoint={}, status={}", path, status);
                 throw new DDSsoClientException("SSO request failed");
             }
             try (var body = connection.getInputStream()) {
                 byte[] bytes = body.readNBytes(MAX_RESPONSE_BYTES + 1);
                 if (bytes.length > MAX_RESPONSE_BYTES) {
+                    log.warn("SSO client request failed: endpoint={}, reason=response_too_large", path);
                     throw new DDSsoClientException("SSO response is too large");
                 }
+                log.info("SSO client request succeeded: endpoint={}, status={}", path, status);
                 return new String(bytes, StandardCharsets.UTF_8);
             }
         } catch (IOException e) {
+            log.warn("SSO client request failed: endpoint={}, reason=io_error, exceptionType={}",
+                path, e.getClass().getSimpleName());
             throw new DDSsoClientException("SSO service is unavailable");
         } finally {
             if (connection != null) {

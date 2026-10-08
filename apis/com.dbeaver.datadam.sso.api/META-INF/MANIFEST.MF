@@ -16,5 +16,6 @@ Import-Package: com.google.gson.annotations,
  org.bouncycastle.asn1,
  org.bouncycastle.asn1.x509,
  org.bouncycastle.crypto.params,
- org.bouncycastle.crypto.util
+ org.bouncycastle.crypto.util,
+ org.slf4j
 Automatic-Module-Name: com.dbeaver.datadam.sso.api
