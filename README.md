@@ -43,7 +43,10 @@ connect/read timeouts (5/10 seconds), and a bounded exception cause chain. `writ
 `read_headers` can include TCP/TLS setup because `HttpURLConnection` connects lazily. Known TLS/IO
 diagnostic phrases and TLS alerts are retained, but arbitrary exception messages, certificate details,
 credentials, query parameters and request/response bodies are omitted. An unrecognized message is
-represented by its exception type only. These diagnostics do not change the error returned to callers.
+represented by its exception type only. The same warning includes a sanitized stack trace with the
+original stack frames, causes and suppressed exceptions. Each copied exception carries the original
+exception type and its filtered diagnostic in its message. These diagnostics do not change the error
+returned to callers.
 
 ## License Manager API
 
