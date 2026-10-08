@@ -1,0 +1,21 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Vendor: DBeaver Corp
+Bundle-Name: DataDam SSO API
+Bundle-SymbolicName: com.dbeaver.datadam.sso.api
+Bundle-Version: 0.0.17.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Export-Package: com.dbeaver.datadam.sso.api,
+ com.dbeaver.datadam.sso.api.client,
+ com.dbeaver.datadam.sso.api.exception,
+ com.dbeaver.datadam.sso.api.model
+Bundle-ActivationPolicy: lazy
+Require-Bundle: org.jkiss.utils,
+ com.nimbusds.nimbus-jose-jwt;bundle-version="10.9.1"
+Import-Package: com.google.gson.annotations,
+ org.bouncycastle.asn1,
+ org.bouncycastle.asn1.x509,
+ org.bouncycastle.crypto.params,
+ org.bouncycastle.crypto.util,
+ org.slf4j
+Automatic-Module-Name: com.dbeaver.datadam.sso.api
