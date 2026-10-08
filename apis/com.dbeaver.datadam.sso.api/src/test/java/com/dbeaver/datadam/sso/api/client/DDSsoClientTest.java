@@ -42,12 +42,19 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import javax.net.ssl.SSLHandshakeException;
+import java.io.EOFException;
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.SocketTimeoutException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.Signature;
+import java.security.cert.CertPathBuilderException;
+import java.security.cert.CertificateExpiredException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -57,6 +64,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 class DDSsoClientTest {
@@ -282,6 +291,80 @@ class DDSsoClientTest {
         Assertions.assertThat(client.verifyIdentity(signed(claims(), header("key2")))).isNotNull();
         Assertions.assertThat(jwksRequests).hasValue(2);
         Assertions.assertThatThrownBy(() -> client.verifyIdentity(signed(claims(), header("missing")))).isInstanceOf(DDSsoClientException.class);
+    }
+
+    @Test
+    void reportsHandshakeCauseChainWithoutExceptionData() {
+        var handshake = new SSLHandshakeException("PKIX path building failed: https://user:secret@example.com/?token=private");
+        var path = new CertPathBuilderException("unable to find valid certification path to requested target: private certificate");
+        handshake.initCause(path);
+        path.initCause(new CertificateExpiredException("private certificate details\nforged log entry"));
+
+        Assertions.assertThat(DDSsoClient.describeFailure(handshake)).isEqualTo(
+            "SSLHandshakeException[PKIX path building failed] -> "
+                + "CertPathBuilderException[unable to find valid certification path] -> CertificateExpiredException"
+        );
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "Remote host terminated the handshake, Remote host terminated the handshake",
+        "No appropriate protocol (protocol is disabled or cipher suites are inappropriate), No appropriate protocol",
+        "No subject alternative DNS name matching private.example found., No subject alternative DNS name matching",
+        "Received fatal alert: protocol_version, Received fatal alert: protocol_version",
+        "Received fatal alert: handshake_failure, Received fatal alert: handshake_failure",
+        "Received fatal alert: certificate_required, Received fatal alert: certificate_required",
+        "Received fatal alert: private-data, Received fatal alert"
+    })
+    void reportsOnlyRecognizedHandshakeDetails(String message, String expected) {
+        Assertions.assertThat(DDSsoClient.describeFailure(new SSLHandshakeException(message)))
+            .isEqualTo("SSLHandshakeException[" + expected + "]");
+    }
+
+    @Test
+    void distinguishesPeerClosureAndReadTimeoutWithoutLoggingArbitraryMessages() {
+        var handshake = new SSLHandshakeException("Remote host terminated the handshake");
+        handshake.initCause(new EOFException("SSL peer shut down incorrectly"));
+        Assertions.assertThat(DDSsoClient.describeFailure(handshake)).isEqualTo(
+            "SSLHandshakeException[Remote host terminated the handshake] -> EOFException[SSL peer shut down incorrectly]"
+        );
+        Assertions.assertThat(DDSsoClient.describeFailure(new SocketTimeoutException("Read timed out")))
+            .isEqualTo("SocketTimeoutException[Read timed out]");
+        Assertions.assertThat(DDSsoClient.describeFailure(new IOException("Authorization: Basic private\nprivate response body")))
+            .isEqualTo("IOException");
+    }
+
+    @Test
+    void boundsCyclicCauseChainsAndAcceptsMissingMessages() {
+        var first = new IOException();
+        var second = new EOFException();
+        first.initCause(second);
+        second.initCause(first);
+        Assertions.assertThat(DDSsoClient.describeFailure(first))
+            .isEqualTo("IOException -> EOFException -> IOException -> EOFException -> IOException -> EOFException -> IOException -> EOFException -> ...");
+    }
+
+    @Test
+    void preservesSafeClientErrorWhenTlsPeerClosesDuringHandshake() throws Exception {
+        try (var listener = new ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress());
+             var executor = Executors.newSingleThreadExecutor()) {
+            listener.setSoTimeout(5000);
+            var peer = executor.submit(() -> {
+                try (var socket = listener.accept()) {
+                    socket.setSoTimeout(5000);
+                    // Read a TLS record header, then close without completing the handshake.
+                    Assertions.assertThat(socket.getInputStream().readNBytes(5)).hasSize(5);
+                }
+                return null;
+            });
+            var configured = new DDSsoClient(new DDSsoClientConfig("https://sso.example.com",
+                "https://localhost:" + listener.getLocalPort(), "account", "test-secret",
+                "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5)));
+
+            Assertions.assertThatThrownBy(() -> configured.exchange("private-code", "private-verifier"))
+                .isInstanceOf(DDSsoClientException.class).hasMessage("SSO service is unavailable").hasNoCause();
+            peer.get(10, TimeUnit.SECONDS);
+        }
     }
 
     private String signed(Map<String, Object> claims, JWSHeader header) throws Exception {

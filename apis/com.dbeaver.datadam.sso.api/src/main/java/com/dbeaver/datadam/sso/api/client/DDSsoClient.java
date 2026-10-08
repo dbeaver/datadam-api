@@ -58,6 +58,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class DDSsoClient {
@@ -220,12 +221,14 @@ public class DDSsoClient {
     }
 
     private String send(String path, String contentType, String payload) throws DDSsoClientException {
+        long startedAt = System.nanoTime();
+        String phase = "open_connection";
+        String base = properties.backchannelUrl() != null && !properties.backchannelUrl().isBlank()
+            ? properties.backchannelUrl() : properties.issuer();
+        URI uri = endpoint(base, path);
         HttpURLConnection connection = null;
         try {
-            String base = properties.backchannelUrl() != null && !properties.backchannelUrl().isBlank()
-                ? properties.backchannelUrl() : properties.issuer();
-            URI uri = endpoint(base, path);
-            // Never include query parameters, credentials, request/response bodies or exception messages.
+            // Never include query parameters, credentials, request/response bodies or raw exception messages.
             log.info("SSO client request started: endpoint={}, method={}, scheme={}, host={}, port={}, path={}",
                 path, payload == null ? "GET" : HTTP_POST, uri.getScheme(), uri.getHost(), uri.getPort(), uri.getRawPath());
             connection = (HttpURLConnection) uri.toURL().openConnection();
@@ -239,15 +242,18 @@ public class DDSsoClient {
                     (properties.clientId() + ":" + properties.clientSecret()).getBytes(StandardCharsets.UTF_8)
                 ));
                 connection.setDoOutput(true);
+                phase = "write_request"; // Opening the output stream also establishes TCP/TLS.
                 try (var output = connection.getOutputStream()) {
                     output.write(payload.getBytes(StandardCharsets.UTF_8));
                 }
             }
+            phase = "read_headers"; // For GET this also establishes TCP/TLS.
             int status = connection.getResponseCode();
             if (status != HttpConstants.CODE_OK) {
                 log.warn("SSO client request failed: endpoint={}, status={}", path, status);
                 throw new DDSsoClientException("SSO request failed");
             }
+            phase = "read_body";
             try (var body = connection.getInputStream()) {
                 byte[] bytes = body.readNBytes(MAX_RESPONSE_BYTES + 1);
                 if (bytes.length > MAX_RESPONSE_BYTES) {
@@ -258,14 +264,61 @@ public class DDSsoClient {
                 return new String(bytes, StandardCharsets.UTF_8);
             }
         } catch (IOException e) {
-            log.warn("SSO client request failed: endpoint={}, reason=io_error, exceptionType={}",
-                path, e.getClass().getSimpleName());
+            log.warn("SSO client request failed: endpoint={}, reason=io_error, exceptionType={}, scheme={}, host={}, port={}, "
+                    + "phase={}, elapsedMs={}, connectTimeoutMs={}, readTimeoutMs={}, causeChain={}",
+                path, e.getClass().getSimpleName(), uri.getScheme(), uri.getHost(), uri.getPort(), phase,
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt), CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS,
+                describeFailure(e));
             throw new DDSsoClientException("SSO service is unavailable");
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
         }
+    }
+
+    /** Keep nested transport causes useful without exposing URLs, certificates or payloads in exception messages. */
+    static String describeFailure(Throwable failure) {
+        StringBuilder result = new StringBuilder();
+        int depth = 0;
+        while (failure != null && depth++ < 8) {
+            if (!result.isEmpty()) {
+                result.append(" -> ");
+            }
+            result.append(failure.getClass().getSimpleName());
+            String message = failure.getMessage();
+            if (message != null) {
+                // Only emit fixed diagnostic phrases; never append any input-derived suffix.
+                for (String detail : List.of(
+                    "PKIX path building failed", "unable to find valid certification path",
+                    "Remote host terminated the handshake", "SSL peer shut down incorrectly",
+                    "No appropriate protocol", "No subject alternative DNS name matching",
+                    "No subject alternative names present", "No name matching",
+                    "Connection reset", "Connection refused", "Read timed out", "Connect timed out"
+                )) {
+                    if (message.contains(detail)) {
+                        result.append('[').append(detail).append(']');
+                        break;
+                    }
+                }
+                String alertPrefix = "Received fatal alert: ";
+                if (message.startsWith(alertPrefix)) {
+                    String alert = message.substring(alertPrefix.length());
+                    switch (alert) {
+                        case "handshake_failure", "protocol_version", "unrecognized_name", "certificate_required",
+                             "bad_certificate", "certificate_expired", "certificate_unknown", "unknown_ca",
+                             "insufficient_security", "internal_error", "unexpected_message", "decrypt_error" ->
+                            result.append('[').append(alertPrefix).append(alert).append(']');
+                        default -> result.append("[Received fatal alert]");
+                    }
+                }
+            }
+            failure = failure.getCause();
+        }
+        if (failure != null) {
+            result.append(" -> ...");
+        }
+        return result.toString();
     }
 
     private static String text(Object value) {
