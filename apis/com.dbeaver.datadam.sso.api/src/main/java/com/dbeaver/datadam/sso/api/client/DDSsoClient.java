@@ -56,6 +56,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -268,7 +269,7 @@ public class DDSsoClient {
                     + "phase={}, elapsedMs={}, connectTimeoutMs={}, readTimeoutMs={}, causeChain={}",
                 path, e.getClass().getSimpleName(), uri.getScheme(), uri.getHost(), uri.getPort(), phase,
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt), CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS,
-                describeFailure(e));
+                describeFailure(e), safeFailure(e));
             throw new DDSsoClientException("SSO service is unavailable");
         } finally {
             if (connection != null) {
@@ -285,38 +286,65 @@ public class DDSsoClient {
             if (!result.isEmpty()) {
                 result.append(" -> ");
             }
-            result.append(failure.getClass().getSimpleName());
-            String message = failure.getMessage();
-            if (message != null) {
-                // Only emit fixed diagnostic phrases; never append any input-derived suffix.
-                for (String detail : List.of(
-                    "PKIX path building failed", "unable to find valid certification path",
-                    "Remote host terminated the handshake", "SSL peer shut down incorrectly",
-                    "No appropriate protocol", "No subject alternative DNS name matching",
-                    "No subject alternative names present", "No name matching",
-                    "Connection reset", "Connection refused", "Read timed out", "Connect timed out"
-                )) {
-                    if (message.contains(detail)) {
-                        result.append('[').append(detail).append(']');
-                        break;
-                    }
-                }
-                String alertPrefix = "Received fatal alert: ";
-                if (message.startsWith(alertPrefix)) {
-                    String alert = message.substring(alertPrefix.length());
-                    switch (alert) {
-                        case "handshake_failure", "protocol_version", "unrecognized_name", "certificate_required",
-                             "bad_certificate", "certificate_expired", "certificate_unknown", "unknown_ca",
-                             "insufficient_security", "internal_error", "unexpected_message", "decrypt_error" ->
-                            result.append('[').append(alertPrefix).append(alert).append(']');
-                        default -> result.append("[Received fatal alert]");
-                    }
-                }
-            }
+            result.append(describeCause(failure));
             failure = failure.getCause();
         }
         if (failure != null) {
             result.append(" -> ...");
+        }
+        return result.toString();
+    }
+
+    /** Preserve original frames and exception relationships, but never pass raw exception messages to the logger. */
+    static Throwable safeFailure(Throwable failure) {
+        return safeFailure(failure, new IdentityHashMap<>());
+    }
+
+    private static Throwable safeFailure(Throwable failure, Map<Throwable, Throwable> copies) {
+        Throwable existing = copies.get(failure);
+        if (existing != null) {
+            return existing;
+        }
+        Throwable copy = new Throwable(describeCause(failure));
+        copies.put(failure, copy);
+        copy.setStackTrace(failure.getStackTrace());
+        if (failure.getCause() != null) {
+            copy.initCause(safeFailure(failure.getCause(), copies));
+        }
+        for (Throwable suppressed : failure.getSuppressed()) {
+            copy.addSuppressed(safeFailure(suppressed, copies));
+        }
+        return copy;
+    }
+
+    private static String describeCause(Throwable failure) {
+        StringBuilder result = new StringBuilder(failure.getClass().getSimpleName());
+        String message = failure.getMessage();
+        if (message != null) {
+            // Only emit fixed diagnostic phrases; never append any input-derived suffix.
+            for (String detail : List.of(
+                "PKIX path building failed", "unable to find valid certification path",
+                "Remote host terminated the handshake", "SSL peer shut down incorrectly",
+                "No appropriate protocol", "No subject alternative DNS name matching",
+                "No subject alternative names present", "No name matching",
+                "Connection reset", "Connection refused", "Read timed out", "Connect timed out"
+            )) {
+                if (message.contains(detail)) {
+                    result.append('[').append(detail).append(']');
+                    break;
+                }
+            }
+            String alertPrefix = "Received fatal alert: ";
+            if (message.startsWith(alertPrefix)) {
+                String alert = message.substring(alertPrefix.length());
+                switch (alert) {
+                    case "handshake_failure", "protocol_version", "unrecognized_name", "certificate_required",
+                         "bad_certificate", "certificate_expired", "certificate_unknown", "unknown_ca",
+                         "insufficient_security", "internal_error", "unexpected_message", "decrypt_error" ->
+                        result.append('[').append(alertPrefix).append(alert).append(']');
+                    default -> result.append("[Received fatal alert]");
+                }
+            }
         }
         return result.toString();
     }

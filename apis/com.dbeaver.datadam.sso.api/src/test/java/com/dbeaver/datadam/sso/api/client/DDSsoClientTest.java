@@ -45,6 +45,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import javax.net.ssl.SSLHandshakeException;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.SocketTimeoutException;
@@ -342,6 +344,56 @@ class DDSsoClientTest {
         second.initCause(first);
         Assertions.assertThat(DDSsoClient.describeFailure(first))
             .isEqualTo("IOException -> EOFException -> IOException -> EOFException -> IOException -> EOFException -> IOException -> EOFException -> ...");
+    }
+
+    @Test
+    void preservesOriginalFramesCausesAndSuppressedFailuresWithoutSensitiveMessages() {
+        var handshake = new SSLHandshakeException("Remote host terminated the handshake: private-host");
+        var eof = new EOFException("SSL peer shut down incorrectly: private-token");
+        var cleanup = new IOException("private-response-body\nforged log entry");
+        handshake.setStackTrace(new StackTraceElement[] {
+            new StackTraceElement("sun.security.ssl.SSLSocketImpl", "startHandshake", "SSLSocketImpl.java", 455),
+            new StackTraceElement("example.Client", "send", "Client.java", 123)
+        });
+        eof.setStackTrace(new StackTraceElement[] {
+            new StackTraceElement("sun.security.ssl.SSLSocketInputRecord", "read", "SSLSocketInputRecord.java", 489)
+        });
+        cleanup.setStackTrace(new StackTraceElement[] {
+            new StackTraceElement("example.Connection", "close", "Connection.java", 42)
+        });
+        handshake.initCause(eof);
+        eof.addSuppressed(cleanup);
+
+        Throwable safe = DDSsoClient.safeFailure(handshake);
+        Assertions.assertThat(safe).isNotSameAs(handshake);
+        Assertions.assertThat(safe.getStackTrace()).containsExactly(handshake.getStackTrace());
+        Assertions.assertThat(safe.getCause().getStackTrace()).containsExactly(eof.getStackTrace());
+        Assertions.assertThat(safe.getCause().getSuppressed()[0].getStackTrace()).containsExactly(cleanup.getStackTrace());
+        StringWriter output = new StringWriter();
+        safe.printStackTrace(new PrintWriter(output));
+        Assertions.assertThat(output.toString())
+            .contains("SSLHandshakeException[Remote host terminated the handshake]", "SSLSocketImpl.java:455",
+                "Client.java:123", "Caused by:", "EOFException[SSL peer shut down incorrectly]",
+                "SSLSocketInputRecord.java:489", "Suppressed:", "Connection.java:42")
+            .doesNotContain("private-host", "private-token", "private-response-body", "forged log entry");
+        Assertions.assertThat(handshake.getMessage()).contains("private-host");
+        Assertions.assertThat(eof.getSuppressed()[0]).isSameAs(cleanup);
+    }
+
+    @Test
+    void preservesSharedAndCyclicExceptionRelationshipsInSafeStackTrace() {
+        var first = new IOException("private-first");
+        var second = new EOFException("private-second");
+        first.initCause(second);
+        second.initCause(first);
+        first.addSuppressed(second);
+
+        Throwable safe = DDSsoClient.safeFailure(first);
+        Assertions.assertThat(safe.getCause().getCause()).isSameAs(safe);
+        Assertions.assertThat(safe.getSuppressed()[0]).isSameAs(safe.getCause());
+        StringWriter output = new StringWriter();
+        safe.printStackTrace(new PrintWriter(output));
+        Assertions.assertThat(output.toString()).contains("CIRCULAR REFERENCE").doesNotContain("private-first", "private-second");
     }
 
     @Test
