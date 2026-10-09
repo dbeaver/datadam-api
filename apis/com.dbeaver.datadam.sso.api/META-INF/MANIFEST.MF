@@ -11,7 +11,7 @@ Export-Package: com.dbeaver.datadam.sso.api,
  com.dbeaver.datadam.sso.api.model
 Bundle-ActivationPolicy: lazy
 Require-Bundle: org.jkiss.utils,
- com.nimbusds.nimbus-jose-jwt;bundle-version="10.9.1"
+ com.dbeaver.rest.client;visibility:=reexport
 Import-Package: com.google.gson.annotations,
  org.bouncycastle.asn1,
  org.bouncycastle.asn1.x509,
