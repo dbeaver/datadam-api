@@ -38,6 +38,13 @@ The response is `DDSsoTokenResponse` with an application-specific identity JWT a
 Failed exchanges return a JSON `error` (`invalid_request`, `unsupported_grant_type`, `invalid_client`,
 `invalid_grant` or `server_error`).
 
+Transport failures are logged with the endpoint, scheme/host/port, request phase, elapsed milliseconds,
+connect/read timeouts (5/10 seconds), and a bounded exception cause chain. `write_request` and
+`read_headers` can include TCP/TLS setup because `HttpURLConnection` connects lazily. Known TLS/IO
+diagnostic phrases and TLS alerts are retained, but arbitrary exception messages, certificate details,
+credentials, query parameters and request/response bodies are omitted. An unrecognized message is
+represented by its exception type only. These diagnostics do not change the error returned to callers.
+
 ## License Manager API
 
 `apis/com.dbeaver.datadam.lm.api` contains the external-license activation request/response DTOs and
