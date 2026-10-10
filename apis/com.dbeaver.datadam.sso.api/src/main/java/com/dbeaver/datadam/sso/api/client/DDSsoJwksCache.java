@@ -43,21 +43,27 @@ import java.util.Set;
 public class DDSsoJwksCache {
     private static final Logger log = LoggerFactory.getLogger(DDSsoJwksCache.class);
     private static final int MAX_JWKS_KEYS = 16;
+    private static final Duration MAX_REFRESH_COOLDOWN = Duration.ofSeconds(30);
     private static final Set<String> PRIVATE_KEY_FIELDS = Set.of("d", "p", "q", "dp", "dq", "qi", "oth", "k");
     @NotNull
     private final DDSsoClient client;
     @NotNull
     private final Duration ttl;
     @NotNull
+    private final Duration refreshCooldown;
+    @NotNull
     private final Clock clock;
     @NotNull
     private Map<String, PublicKey> keys = Map.of();
     @NotNull
     private Instant expiresAt = Instant.EPOCH;
+    @NotNull
+    private Instant nextRefreshAllowedAt = Instant.MIN;
 
     public DDSsoJwksCache(@NotNull DDSsoClient client, @NotNull Duration ttl, @NotNull Clock clock) {
         this.client = client;
         this.ttl = ttl;
+        this.refreshCooldown = ttl.compareTo(MAX_REFRESH_COOLDOWN) < 0 ? ttl : MAX_REFRESH_COOLDOWN;
         this.clock = clock;
     }
 
@@ -65,6 +71,11 @@ public class DDSsoJwksCache {
     public synchronized PublicKey getPublicKey(@NotNull String kid) throws DDSsoClientException {
         Instant now = clock.instant();
         if (!expiresAt.isAfter(now) || !keys.containsKey(kid)) {
+            if (now.isBefore(nextRefreshAllowedAt)) {
+                throw new DDSsoClientException("SSO signing key unavailable");
+            }
+            // Throttle all key IDs together, including attempts that fail to load or parse JWKS.
+            nextRefreshAllowedAt = now.plus(refreshCooldown);
             String body = client.getJwks();
             try {
                 keys = parseKeys(body);

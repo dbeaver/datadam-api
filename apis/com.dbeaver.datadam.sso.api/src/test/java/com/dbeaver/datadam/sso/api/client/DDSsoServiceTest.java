@@ -50,6 +50,7 @@ import java.security.Signature;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.HashMap;
@@ -63,6 +64,8 @@ class DDSsoServiceTest {
     private static final Instant NOW = Instant.parse("2026-10-01T12:00:00Z");
     private final Gson gson = new Gson();
     private final AtomicInteger jwksRequests = new AtomicInteger();
+    private final AtomicInteger jwksStatus = new AtomicInteger(200);
+    private final AtomicReference<Instant> now = new AtomicReference<>(NOW);
     private final AtomicReference<String> keysJson = new AtomicReference<>();
     private final AtomicReference<String> responseJson = new AtomicReference<>();
     private final AtomicReference<String> posted = new AtomicReference<>();
@@ -78,6 +81,7 @@ class DDSsoServiceTest {
     private DDSsoClient http;
     private DDSsoService service;
     private DDSsoTokenVerifier verifier;
+    private DDSsoJwksCache keyCache;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -88,7 +92,7 @@ class DDSsoServiceTest {
             jwksRequests.incrementAndGet();
             jwksMethod.set(exchange.getRequestMethod());
             byte[] bytes = keysJson.get().getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.sendResponseHeaders(jwksStatus.get(), bytes.length);
             exchange.getResponseBody().write(bytes);
             exchange.close();
         });
@@ -110,9 +114,10 @@ class DDSsoServiceTest {
         DDSsoClientConfig config = new DDSsoClientConfig("https://sso.example.com",
             "http://127.0.0.1:" + server.getAddress().getPort(), "account", "test-secret",
             "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5));
-        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        Clock clock = clock(ZoneOffset.UTC);
         http = new DDSsoClient(config);
-        verifier = new DDSsoTokenVerifier(config, new DDSsoJwksCache(http, config.jwksCacheTtl(), clock), clock);
+        keyCache = new DDSsoJwksCache(http, config.jwksCacheTtl(), clock);
+        verifier = new DDSsoTokenVerifier(config, keyCache, clock);
         service = new DDSsoService(config, http, verifier);
     }
 
@@ -487,9 +492,111 @@ class DDSsoServiceTest {
         verifier.verifyIdentity(signed(claims(), header("key1")));
         keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         keysJson.set(jwks("key2", keyPair));
+        now.set(NOW.plusSeconds(29));
+        Assertions.assertThatThrownBy(() -> verifier.verifyIdentity(signed(claims(), header("key2"))))
+            .isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(jwksRequests).hasValue(1);
+        now.set(NOW.plusSeconds(30));
         Assertions.assertThat(verifier.verifyIdentity(signed(claims(), header("key2")))).isNotNull();
         Assertions.assertThat(jwksRequests).hasValue(2);
         Assertions.assertThatThrownBy(() -> verifier.verifyIdentity(signed(claims(), header("missing")))).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(jwksRequests).hasValue(2);
+    }
+
+    @Test
+    void unknownKeyIdsShareCooldownWithoutBlockingFreshKnownKeys() throws Exception {
+        for (int i = 0; i < 10; i++) {
+            String kid = "missing-" + i;
+            Assertions.assertThatThrownBy(() -> keyCache.getPublicKey(kid)).isInstanceOf(DDSsoClientException.class);
+        }
+        Assertions.assertThat(jwksRequests).hasValue(1);
+        Assertions.assertThat(verifier.verifyIdentity(signed(claims(), header("key1")))).isNotNull();
+        now.set(NOW.plusSeconds(29));
+        Assertions.assertThatThrownBy(() -> keyCache.getPublicKey("another-missing-key"))
+            .isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(jwksRequests).hasValue(1);
+        now.set(NOW.plusSeconds(30));
+        Assertions.assertThatThrownBy(() -> keyCache.getPublicKey("still-missing"))
+            .isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(jwksRequests).hasValue(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {200, 503})
+    void failedJwksLoadingAndParsingAreThrottled(int status) throws Exception {
+        jwksStatus.set(status);
+        keysJson.set("not-json");
+        Assertions.assertThatThrownBy(() -> keyCache.getPublicKey("key1")).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(jwksRequests).hasValue(1);
+
+        jwksStatus.set(200);
+        keysJson.set(jwks("key1", keyPair));
+        for (String kid : List.of("key1", "missing-a", "missing-b")) {
+            Assertions.assertThatThrownBy(() -> keyCache.getPublicKey(kid)).isInstanceOf(DDSsoClientException.class);
+        }
+        now.set(NOW.plusSeconds(29));
+        Assertions.assertThatThrownBy(() -> keyCache.getPublicKey("key1")).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(jwksRequests).hasValue(1);
+        now.set(NOW.plusSeconds(30));
+        Assertions.assertThat(keyCache.getPublicKey("key1")).isNotNull();
+        Assertions.assertThat(jwksRequests).hasValue(2);
+    }
+
+    @Test
+    void failedRefreshPreservesFreshKeysButNeverExtendsTheirTtl() throws Exception {
+        var cachedKey = keyCache.getPublicKey("key1");
+        now.set(NOW.plusSeconds(30));
+        jwksStatus.set(503);
+        Assertions.assertThatThrownBy(() -> keyCache.getPublicKey("missing")).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(keyCache.getPublicKey("key1")).isSameAs(cachedKey);
+        Assertions.assertThat(jwksRequests).hasValue(2);
+
+        now.set(NOW.plusSeconds(300));
+        Assertions.assertThatThrownBy(() -> keyCache.getPublicKey("key1")).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(jwksRequests).hasValue(3);
+        jwksStatus.set(200);
+        now.set(NOW.plusSeconds(329));
+        Assertions.assertThatThrownBy(() -> keyCache.getPublicKey("key1")).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(jwksRequests).hasValue(3);
+        now.set(NOW.plusSeconds(330));
+        Assertions.assertThat(keyCache.getPublicKey("key1")).isEqualTo(cachedKey);
+        Assertions.assertThat(jwksRequests).hasValue(4);
+    }
+
+    @Test
+    void shortTtlCanRefreshKnownKeysAsSoonAsTheyExpire() throws Exception {
+        var cache = new DDSsoJwksCache(http, Duration.ofSeconds(5), clock(ZoneOffset.UTC));
+        var cachedKey = cache.getPublicKey("key1");
+        now.set(NOW.plusSeconds(4));
+        Assertions.assertThatThrownBy(() -> cache.getPublicKey("missing")).isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(cache.getPublicKey("key1")).isSameAs(cachedKey);
+        Assertions.assertThat(jwksRequests).hasValue(1);
+        now.set(NOW.plusSeconds(5));
+        Assertions.assertThat(cache.getPublicKey("key1")).isEqualTo(cachedKey);
+        Assertions.assertThat(jwksRequests).hasValue(2);
+    }
+
+    @NotNull
+    private Clock clock(@NotNull ZoneId zone) {
+        return new Clock() {
+            @NotNull
+            @Override
+            public ZoneId getZone() {
+                return zone;
+            }
+
+            @NotNull
+            @Override
+            public Clock withZone(@NotNull ZoneId newZone) {
+                return clock(newZone);
+            }
+
+            @NotNull
+            @Override
+            public Instant instant() {
+                return now.get();
+            }
+        };
     }
 
     @NotNull
