@@ -46,6 +46,12 @@ public final class DDSsoConstants {
     public static final String ERROR_SERVER = "server_error";
     public static final String ERROR_TEMPORARILY_UNAVAILABLE = "temporarily_unavailable";
 
+    public static final String CLAIM_ISSUER = "iss";
+    public static final String CLAIM_AUDIENCE = "aud";
+    public static final String CLAIM_SUBJECT = "sub";
+    public static final String CLAIM_ISSUED_AT = "iat";
+    public static final String CLAIM_EXPIRATION_TIME = "exp";
+    public static final String CLAIM_NOT_BEFORE = "nbf";
     public static final String CLAIM_EMAIL = "email";
     public static final String CLAIM_SOURCE = "source";
     public static final String CLAIM_AUTH_TIME = "auth_time";
@@ -54,6 +60,20 @@ public final class DDSsoConstants {
     public static final String CLAIM_TOKEN_USE = "token_use";
     public static final String TOKEN_USE_IDENTITY = "identity";
     public static final String TOKEN_USE_SESSION = "sso_session";
+
+    public static final String JOSE_ALGORITHM = "alg";
+    public static final String JOSE_KEY_ID = "kid";
+    public static final String JOSE_TYPE = "typ";
+    public static final String JOSE_CRITICAL = "crit";
+    public static final String JOSE_BASE64_PAYLOAD = "b64";
+    public static final String JOSE_TYPE_JWT = "JWT";
+    public static final String JWKS_KEYS = "keys";
+    public static final String JWK_KEY_TYPE = "kty";
+    public static final String JWK_USE = "use";
+    public static final String JWK_CURVE = "crv";
+    public static final String JWK_PUBLIC_KEY = "x";
+    public static final String JWK_TYPE_OKP = "OKP";
+    public static final String JWK_USE_SIGNATURE = "sig";
 
     public static final String ALGORITHM_ED25519 = "Ed25519";
     public static final String ALGORITHM_SHA256 = "SHA-256";
@@ -66,6 +86,16 @@ public final class DDSsoConstants {
 
     public static final String HEADER_REFERRER_POLICY = "Referrer-Policy";
     public static final String REFERRER_POLICY_NO_REFERRER = "no-referrer";
+    public static final String DESKTOP_CLIENT_ID = "dbeaver-desktop";
+    public static final String DESKTOP_CALLBACK_TEMPLATE = "http://127.0.0.1/callback";
+    public static final String ACCESS_AUDIENCE = "datadam-api";
+    public static final String TOKEN_USE_ACCESS = "access";
+    public static final String CLAIM_CLIENT_ID = "client_id";
+    public static final String TOKEN_TYPE_BEARER = "Bearer";
+    public static final String DESKTOP_APPROVE_PATH = "/desktop/approve";
+    public static final String DESKTOP_RESUME_PATH = "/desktop/resume";
+    public static final String ACCESS_CONTEXT_PATH = "/api/internal/access-context";
+    public static final String HEADER_SERVICE_TOKEN = "X-DD-Service-Token";
 
     private DDSsoConstants() {
     }

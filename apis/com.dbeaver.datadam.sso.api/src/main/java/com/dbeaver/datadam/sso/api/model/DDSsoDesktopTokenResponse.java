@@ -19,14 +19,13 @@ package com.dbeaver.datadam.sso.api.model;
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
+import org.jkiss.utils.oauth.OAuthConstants;
 
-/** Public parameters of an Ed25519 (OKP) key. Private key material is never part of this model. */
-public record DDSsoPublicJwk(
-    @SerializedName(DDSsoConstants.JWK_KEY_TYPE) @NotNull String keyType,
-    @SerializedName(DDSsoConstants.JOSE_KEY_ID) @NotNull String keyId,
-    @SerializedName(DDSsoConstants.JWK_USE) @NotNull String keyUse,
-    @SerializedName(DDSsoConstants.JOSE_ALGORITHM) @NotNull String algorithm,
-    @SerializedName(DDSsoConstants.JWK_CURVE) @NotNull String curve,
-    @SerializedName(DDSsoConstants.JWK_PUBLIC_KEY) @NotNull String publicKey
+/** Tokens issued solely to the public desktop client. */
+public record DDSsoDesktopTokenResponse(
+    @SerializedName("access_token") @NotNull String accessToken,
+    @SerializedName("token_type") @NotNull String tokenType,
+    @SerializedName(DDSsoConstants.RESPONSE_EXPIRES_IN) long expiresIn,
+    @SerializedName(OAuthConstants.RESULT_PROP_TOKEN_ID) @NotNull String idToken
 ) {
 }
