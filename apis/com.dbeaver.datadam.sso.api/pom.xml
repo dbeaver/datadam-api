@@ -20,13 +20,13 @@
             <artifactId>org.jkiss.utils</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
+            <groupId>com.dbeaver.common</groupId>
+            <artifactId>com.dbeaver.rest.client</artifactId>
+            <version>${dbeaver.common.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.nimbusds</groupId>
-            <artifactId>nimbus-jose-jwt</artifactId>
-            <version>10.9.1</version>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>
