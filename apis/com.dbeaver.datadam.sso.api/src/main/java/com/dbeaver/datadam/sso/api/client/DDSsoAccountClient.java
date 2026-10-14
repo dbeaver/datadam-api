@@ -35,7 +35,6 @@ import java.util.UUID;
 
 /** Backend-only client; a desktop never receives the service credential. */
 public class DDSsoAccountClient extends AbstractRestClient {
-    private static final int MAX_TOKEN_LENGTH = 16_384;
     @NotNull
     private final String serviceSecret;
 
@@ -44,9 +43,7 @@ public class DDSsoAccountClient extends AbstractRestClient {
             List.of(), HttpClient.Redirect.NEVER);
         URI base = URI.create(backchannelUrl);
         if (base.getHost() == null || base.getUserInfo() != null || base.getQuery() != null || base.getFragment() != null
-            || !("https".equals(base.getScheme()) || "http".equals(base.getScheme()))
-            || serviceSecret.length() < 32 || serviceSecret.length() > 512
-            || !serviceSecret.chars().allMatch(value -> value >= 33 && value <= 126)) {
+            || !("https".equals(base.getScheme()) || "http".equals(base.getScheme()))) {
             throw new IllegalArgumentException("Account backchannel URL and service credentials are required");
         }
         this.serviceSecret = serviceSecret;
@@ -54,7 +51,7 @@ public class DDSsoAccountClient extends AbstractRestClient {
 
     @NotNull
     public DDSsoAccessContextResponse exchange(@NotNull String accessToken) throws DDSsoClientException {
-        if (accessToken.isBlank() || accessToken.length() > MAX_TOKEN_LENGTH) {
+        if (accessToken.isBlank()) {
             logError("Account access context exchange failed: reason=invalid_access_token");
             throw new DDSsoClientException("Invalid Account access token");
         }
