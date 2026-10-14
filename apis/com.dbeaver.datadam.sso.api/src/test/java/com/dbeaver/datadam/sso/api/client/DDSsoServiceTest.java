@@ -380,6 +380,20 @@ class DDSsoServiceTest {
     }
 
     @Test
+    void preservesExternalSourceAndSubjectAfterVerifyingIdentityToken() throws Exception {
+        Map<String, Object> claims = claims();
+        claims.put("source", "dbeaver-com");
+        claims.put("sub", "wordpress-user-id");
+        responseJson.set(gson.toJson(Map.of("id_token", signed(claims, header("key1")), "expires_in", 300)));
+
+        DDSsoIdentity identity = service.exchange("code", "verifier");
+
+        Assertions.assertThat(identity.source()).isEqualTo("dbeaver-com");
+        Assertions.assertThat(identity.subject()).isEqualTo("wordpress-user-id");
+        Assertions.assertThat(identity.email()).isEqualTo("user@example.com");
+    }
+
+    @Test
     void postsHandoffAndUsesPublicIssuerForBrowserRedirect() throws Exception {
         responseJson.set(gson.toJson(Map.of("handoff", "A".repeat(43), "expires_in", 60)));
         var request = new DDSsoHandoffRequest(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW),
@@ -411,7 +425,8 @@ class DDSsoServiceTest {
     static Stream<Arguments> invalidClaims() {
         return Stream.of(Arguments.of("iss", "https://other.example"), Arguments.of("aud", "admin"),
             Arguments.of("aud", List.of("account", "admin")), Arguments.of("token_use", "sso_session"),
-            Arguments.of("source", "another-source"), Arguments.of("sub", ""), Arguments.of("sub", 123),
+            Arguments.of("source", null), Arguments.of("source", ""), Arguments.of("source", 123),
+            Arguments.of("sub", ""), Arguments.of("sub", 123),
             Arguments.of("email", null), Arguments.of("email", true), Arguments.of("email", List.of("user@example.com")),
             Arguments.of("aud", List.of()), Arguments.of("aud", 123),
             Arguments.of("exp", NOW.getEpochSecond()), Arguments.of("exp", null), Arguments.of("exp", "9999999999"),

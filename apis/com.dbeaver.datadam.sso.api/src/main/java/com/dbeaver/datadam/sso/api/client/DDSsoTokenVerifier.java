@@ -60,10 +60,10 @@ public class DDSsoTokenVerifier {
         try {
             JsonObject claims = verifiedClaims(encoded);
             if (!matchesAudience(claims.get(DDSsoConstants.CLAIM_AUDIENCE), properties.clientId())
-                || !DDSsoConstants.TOKEN_USE_IDENTITY.equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_TOKEN_USE)))
-                || !properties.identitySource().equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SOURCE)))) {
+                || !DDSsoConstants.TOKEN_USE_IDENTITY.equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_TOKEN_USE)))) {
                 throw new IllegalArgumentException();
             }
+            String source = DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SOURCE));
             Instant issuedAt = date(claims.get(DDSsoConstants.CLAIM_ISSUED_AT));
             Instant authTime = date(claims.get(DDSsoConstants.CLAIM_AUTH_TIME));
             Instant mfaVerifiedAt = claims.has(DDSsoConstants.CLAIM_MFA_VERIFIED_AT)
@@ -76,7 +76,7 @@ public class DDSsoTokenVerifier {
             return new DDSsoIdentity(
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SUBJECT)),
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_EMAIL)),
-                properties.identitySource(), authTime, mfaVerifiedAt);
+                source, authTime, mfaVerifiedAt);
         } catch (Exception e) {
             // Tokens, upstream bodies and key data must not appear in diagnostics.
             log.warn("SSO client identity verification failed: reason=invalid_identity_token, exceptionType={}",
