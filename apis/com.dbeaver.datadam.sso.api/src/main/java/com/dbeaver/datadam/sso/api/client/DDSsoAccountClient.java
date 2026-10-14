@@ -55,6 +55,7 @@ public class DDSsoAccountClient extends AbstractRestClient {
     @NotNull
     public DDSsoAccessContextResponse exchange(@NotNull String accessToken) throws DDSsoClientException {
         if (accessToken.isBlank() || accessToken.length() > MAX_TOKEN_LENGTH) {
+            logError("Account access context exchange failed: reason=invalid_access_token");
             throw new DDSsoClientException("Invalid Account access token");
         }
         try {
@@ -67,6 +68,7 @@ public class DDSsoAccountClient extends AbstractRestClient {
             if (context == null || context.userId() == null || context.accountId() == null
                 || context.accountType() == null || context.subscriptionPlanType() == null || context.permissions() == null
                 || context.permissions().stream().anyMatch(permission -> permission == null || permission.isBlank())) {
+                logError("Account access context exchange failed: reason=invalid_response");
                 throw new DDSsoClientException("Invalid Account access context");
             }
             UUID.fromString(context.userId());
@@ -80,6 +82,7 @@ public class DDSsoAccountClient extends AbstractRestClient {
     @NotNull
     @Override
     protected DBException mapErrorResponse(int code, @NotNull String message, @NotNull URI uri) {
+        logError("Account access context exchange failed: httpStatus=" + code);
         return new DBException("Account access context unavailable");
     }
 }
