@@ -24,6 +24,11 @@
             <artifactId>gson</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.dbeaver.common</groupId>
+            <artifactId>com.dbeaver.rest.client</artifactId>
+            <version>${dbeaver.common.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
             <scope>test</scope>
