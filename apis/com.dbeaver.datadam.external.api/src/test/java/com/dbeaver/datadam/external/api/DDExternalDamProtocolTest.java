@@ -73,14 +73,14 @@ class DDExternalDamProtocolTest {
     void keepsControlMessagesSeparateFromTopicMessages() {
         String hello = DDExternalDamProtocol.encodeHello(new DDHello("DI_desktop", "run-1", "DBeaver", "26.2.4"));
         String ready = DDExternalDamProtocol.encodeReady(new DDReady("connection-1"));
-        String event = """
-            {"topic":"projects","type":"project.updated","payload":{}}
-            """;
 
         assertThrows(IllegalArgumentException.class, () -> DDExternalDamProtocol.decode(hello));
         assertThrows(IllegalArgumentException.class, () -> DDExternalDamProtocol.decode(ready));
         assertThrows(IllegalArgumentException.class, () -> DDExternalDamProtocol.decodeHello(ready));
         assertThrows(IllegalArgumentException.class, () -> DDExternalDamProtocol.decodeReady(hello));
+        String event = """
+            {"topic":"projects","type":"project.updated","payload":{}}
+            """;
         assertThrows(IllegalArgumentException.class, () -> DDExternalDamProtocol.decodeHello(event));
         assertThrows(IllegalArgumentException.class, () -> DDExternalDamProtocol.decodeReady(event));
     }

@@ -89,7 +89,7 @@ public final class DDExternalDamClient extends AbstractRestClient {
     }
 
     public boolean sendMessage(@NotNull UUID accountId, @NotNull String connectionId, @NotNull DDMessage message)
-        throws DDExternalDamException {
+            throws DDExternalDamException {
         if (connectionId.isBlank()) {
             throw new IllegalArgumentException("A connection ID is required");
         }

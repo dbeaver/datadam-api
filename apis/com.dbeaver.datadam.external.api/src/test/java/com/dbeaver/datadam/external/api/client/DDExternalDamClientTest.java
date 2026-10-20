@@ -176,9 +176,6 @@ class DDExternalDamClientTest {
 
     @Test
     void sendsOpaqueMetadataAsVariablesAndPreservesTheDeepObjectPayload() throws DDExternalDamException {
-        String connectionId = "connection-\"\\\n) { injectedConnection }";
-        String topic = "topic-\"\\\n{ injectedTopic }";
-        String type = "type-\"\\\n{ injectedType }";
         JsonObject nested = new JsonObject();
         nested.addProperty("name", "quoted \"value\"");
         nested.addProperty("path", "C:\\temp\\file");
@@ -190,9 +187,12 @@ class DDExternalDamClientTest {
         JsonObject payload = new JsonObject();
         payload.add("items", items);
         payload.addProperty("text", "Привет");
+        String topic = "topic-\"\\\n{ injectedTopic }";
+        String type = "type-\"\\\n{ injectedType }";
         DDMessage message = new DDMessage(topic, type, payload);
         respond(SEND_FIELD, JsonParser.parseString("true"));
 
+        String connectionId = "connection-\"\\\n) { injectedConnection }";
         assertTrue(client.sendMessage(ACCOUNT_ID, connectionId, message));
 
         JsonObject body = posted();
@@ -250,7 +250,9 @@ class DDExternalDamClientTest {
 
     @Test
     void rejectsNonArrayConnectionResultsAndNonObjectEntries() {
-        for (String value : List.of("null", "true", "42", "\"connections\"", "{}", "[null]", "[true]", "[42]", "[\"connection\"]", "[[]]")) {
+        for (String value : List.of(
+            "null", "true", "42", "\"connections\"", "{}", "[null]", "[true]", "[42]", "[\"connection\"]", "[[]]"
+        )) {
             respond(CONNECTIONS_FIELD, JsonParser.parseString(value));
 
             assertRequestFails(() -> client.getConnections(ACCOUNT_ID));
