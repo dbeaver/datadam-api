@@ -116,7 +116,7 @@ public final class DDExternalDamProtocol {
     @NotNull
     private static JsonObject readControlPayload(@NotNull String message, @NotNull String expectedType) {
         JsonObject envelope = parseEnvelope(message);
-        if (!expectedType.equals(readString(envelope, FIELD_TYPE))) {
+        if (envelope.has(FIELD_TOPIC) || !expectedType.equals(readString(envelope, FIELD_TYPE))) {
             throw new IllegalArgumentException("Expected a " + expectedType + " message");
         }
         return readPayload(envelope);

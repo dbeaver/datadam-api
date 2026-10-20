@@ -86,6 +86,32 @@ class DDExternalDamProtocolTest {
     }
 
     @Test
+    void rejectsControlMessagesWithAnyTopicField() {
+        for (String control : List.of(
+            DDExternalDamProtocol.encodeHello(new DDHello("DI_desktop", "run-1", "DBeaver", "26.2.4")),
+            DDExternalDamProtocol.encodeReady(new DDReady("connection-1"))
+        )) {
+            for (String topic : List.of("\"projects\"", "null", "\"\"", "\" \"", "42", "true", "[]", "{}")) {
+                JsonObject envelope = JsonParser.parseString(control).getAsJsonObject();
+                envelope.add("topic", JsonParser.parseString(topic));
+                String message = envelope.toString();
+
+                assertThrows(IllegalArgumentException.class, () -> DDExternalDamProtocol.decodeHello(message));
+                assertThrows(IllegalArgumentException.class, () -> DDExternalDamProtocol.decodeReady(message));
+            }
+        }
+    }
+
+    @Test
+    void allowsControlTypeNamesInApplicationMessages() {
+        for (String type : List.of(DDExternalDamProtocol.TYPE_HELLO, DDExternalDamProtocol.TYPE_READY)) {
+            DDMessage message = new DDMessage("projects", type, new JsonObject());
+
+            assertEquals(message, DDExternalDamProtocol.decode(DDExternalDamProtocol.encode(message)));
+        }
+    }
+
+    @Test
     void preservesUnknownApplicationTypesAndAdditionalEnvelopeFields() {
         DDMessage message = DDExternalDamProtocol.decode("""
             {"topic":"future","type":"future.event","payload":{"value":42},"additional":true}

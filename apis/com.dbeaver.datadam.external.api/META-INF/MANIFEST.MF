@@ -12,6 +12,6 @@ Export-Package: com.dbeaver.datadam.external.api,
  com.dbeaver.datadam.external.api.transport
 Bundle-ActivationPolicy: lazy
 Require-Bundle: org.jkiss.utils,
- com.dbeaver.rest.client
+ com.dbeaver.rest.client;visibility:=reexport
 Import-Package: com.google.gson
 Automatic-Module-Name: com.dbeaver.datadam.external.api
