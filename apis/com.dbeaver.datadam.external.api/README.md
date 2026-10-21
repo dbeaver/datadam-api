@@ -113,3 +113,54 @@ or `CLOSED`. Only `CONNECTED` contains connection information, and `status.isRea
 `observeState(observer)` delivers the current state and subsequent changes in order without a snapshot/subscription
 race. Closing the returned subscription cancels only that observer. Initial notification can run synchronously;
 subsequent callbacks run on the notifying thread. Existing `addConnectionListener` remains transitions-only.
+
+## Request/reply
+
+The independent `com.dbeaver.messaging` module supplies `RequestReplyEndpoint<P>`. It knows nothing about DataDam
+accounts, deployment IDs, GraphQL, or JSON. `DDRequestReplyTransport` adapts an existing scoped DataDam channel to
+`RequestReplyEndpoint<JsonObject>` without changing the channel's asynchronous message API.
+
+On Desktop, or inside External DAM over an existing physical channel:
+
+```java
+var transport = DDRequestReplyTransport.forChannel(channel, "documents");
+try (var requests = RequestReplyEndpoint.open(transport)) {
+    var response = requests.request(payload);
+}
+```
+
+Open a physical-channel endpoint after the channel becomes ready. Opening over a disconnected or closed physical
+channel fails without retaining subscriptions. An already opened endpoint can stay installed across reconnects;
+requests outstanding at disconnection fail and are not replayed.
+
+An Account, Storage, or other backend selects a physical connection once:
+
+```java
+var transport = subscriptions.forConnection(accountId, connectionId).requestReply("documents");
+try (var requests = RequestReplyEndpoint.open(transport)) {
+    var response = requests.request(payload);
+}
+```
+
+The peer registers `requests.handle(payload -> process(payload))` on its own endpoint. The request topic identifies
+one logical receiving endpoint for the selected peer; use distinct topics for independently handled services. Each
+endpoint establishes its private reply subscription before accepting calls, so replies return to the originating
+backend process. Protocol envelopes and payloads remain JSON objects. A null response represents successful completion
+without a result. Handler failures are returned as safe protocol errors, without application exception details.
+
+The bridge uses message type `datadam.requestreply.v1`. Its envelope contains `requestId`, `replyTo`, `type`, and either
+`data` or `error`. `replyTo` is an endpoint UUID, not a backend address. Private reply topics use
+`datadam.reply.v1.<SHA-256(request-topic)>.<endpoint-UUID>`, which keeps them within registration metadata limits even
+for a maximum-length request topic. Closing the endpoint cancels both topic subscriptions.
+
+`request` blocks a worker or virtual thread. The request/reply result acknowledges remote handler completion;
+ordinary channel sends and callback GraphQL acknowledgements retain their existing transport-only meaning. The backend
+adapter uses bounded asynchronous sending around its blocking HTTP client. It keeps the existing in-memory callback
+subscriptions and lease renewal, and exposes request/reply only for `forConnection`, with no implicit connection
+selection from account-wide subscriptions.
+
+Closing the request/reply endpoint cancels its receiving subscriptions and owned work, without closing the shared
+channel or subscription facade. Closing the subscription facade rejects new backend sends and prevents queued sends
+from starting; an already claimed HTTP send can finish. Physical channels report disconnects immediately; backend
+callbacks have no physical connection-state feed, so pending calls use their deadlines when the peer disappears.
+Timeout or interruption can leave the remote outcome unknown. No request or response is automatically retried.

@@ -9,9 +9,11 @@ Export-Package: com.dbeaver.datadam.external.api,
  com.dbeaver.datadam.external.api.client,
  com.dbeaver.datadam.external.api.exception,
  com.dbeaver.datadam.external.api.model,
+ com.dbeaver.datadam.external.api.requestreply,
  com.dbeaver.datadam.external.api.transport
 Bundle-ActivationPolicy: lazy
 Require-Bundle: org.jkiss.utils,
+ com.dbeaver.messaging;visibility:=reexport,
  com.dbeaver.rest.client;visibility:=reexport
 Import-Package: com.google.gson
 Automatic-Module-Name: com.dbeaver.datadam.external.api
