@@ -60,12 +60,14 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
     private Registration registration;
     private boolean claimed;
 
+    /** Sends messages asynchronously to a selected peer. */
     @FunctionalInterface
     public interface Sender {
         @NotNull
         CompletionStage<Void> send(@NotNull DDMessage message);
     }
 
+    /** Registers topic listeners for a selected peer. */
     @FunctionalInterface
     public interface TopicSubscriber {
         @NotNull

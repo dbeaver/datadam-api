@@ -20,6 +20,7 @@ import com.dbeaver.datadam.external.api.model.DDConnectionInfo;
 import com.dbeaver.datadam.external.api.model.DDMessage;
 import org.jkiss.code.NotNull;
 
+/** Receives topic messages with their source connection. */
 @FunctionalInterface
 public interface DDMessageListener {
     void onMessage(@NotNull DDConnectionInfo connection, @NotNull DDMessage message);

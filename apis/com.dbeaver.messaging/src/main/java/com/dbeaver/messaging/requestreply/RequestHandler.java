@@ -19,6 +19,7 @@ package com.dbeaver.messaging.requestreply;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
+/** Handles incoming requests and returns response payloads. */
 @FunctionalInterface
 public interface RequestHandler<P> {
     @Nullable

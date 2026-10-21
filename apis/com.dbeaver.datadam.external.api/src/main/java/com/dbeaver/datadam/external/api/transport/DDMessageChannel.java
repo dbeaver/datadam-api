@@ -22,6 +22,7 @@ import org.jkiss.code.NotNull;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
+/** Provides asynchronous DataDam messaging and connection-state observation. */
 public interface DDMessageChannel extends AutoCloseable {
     @NotNull
     DDChannelStatus getStatus();

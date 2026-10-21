@@ -16,6 +16,7 @@
  */
 package com.dbeaver.datadam.external.api.transport;
 
+/** Controls the lifetime of a DataDam listener registration. */
 @FunctionalInterface
 public interface DDSubscription extends AutoCloseable {
     @Override

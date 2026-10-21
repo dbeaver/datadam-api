@@ -21,6 +21,7 @@ import org.jkiss.code.NotNull;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
+/** Provides asynchronous request/reply message transport for a selected peer. */
 public interface RequestReplyTransport<P> {
     @NotNull
     MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<P> listener) throws RequestReplyException;
@@ -28,6 +29,7 @@ public interface RequestReplyTransport<P> {
     @NotNull
     CompletionStage<Void> send(@NotNull RequestReplyMessage<P> message);
 
+    /** Receives endpoint messages and disconnection notifications. */
     interface Listener<P> {
         void onMessage(@NotNull RequestReplyMessage<P> message);
 

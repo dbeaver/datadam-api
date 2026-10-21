@@ -19,6 +19,7 @@ package com.dbeaver.datadam.external.api.transport;
 import com.dbeaver.datadam.external.api.model.DDConnectionInfo;
 import org.jkiss.code.NotNull;
 
+/** Receives physical connection lifecycle notifications. */
 public interface DDConnectionListener {
     void onConnected(@NotNull DDConnectionInfo connection);
 
