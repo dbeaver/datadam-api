@@ -20,28 +20,19 @@ import com.dbeaver.datadam.external.api.DDExternalDamApi;
 import com.dbeaver.datadam.external.api.exception.DDExternalDamException;
 import com.dbeaver.datadam.external.api.model.DDExternalDamConnection;
 import com.dbeaver.datadam.external.api.model.DDMessage;
-import com.dbeaver.rest.client.AbstractRestClient;
-import com.dbeaver.rest.client.MediaType;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
-import com.google.gson.JsonParser;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
-import org.jkiss.dbeaver.DBException;
-import org.jkiss.utils.CommonUtils;
-import org.jkiss.utils.HttpConstants;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-public final class DDExternalDamClient extends AbstractRestClient {
+public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
     private static final String CONNECTIONS_FIELD = "externalDamConnections";
     private static final String SEND_FIELD = "sendExternalDamMessage";
@@ -59,15 +50,19 @@ public final class DDExternalDamClient extends AbstractRestClient {
             sendExternalDamMessage(accountId: $accountId, connectionId: $connectionId, message: $message)
         }
         """;
-
-    private final String serviceSecret;
+    private static final String REGISTER_MUTATION = """
+        mutation RegisterExternalDamSubscription($input: ExternalDamSubscriptionInput!) {
+            registerExternalDamSubscription(input: $input)
+        }
+        """;
+    private static final String UNREGISTER_MUTATION = """
+        mutation UnregisterExternalDamSubscription($subscriberId: String!, $subscriptionId: ID!) {
+            unregisterExternalDamSubscription(subscriberId: $subscriberId, subscriptionId: $subscriptionId)
+        }
+        """;
 
     public DDExternalDamClient(@NotNull String serviceUrl, @NotNull String serviceSecret) {
-        super(validateServiceUrl(serviceUrl), DEFAULT_CONNECT_TIMEOUT, READ_TIMEOUT_MILLIS, List.of(), HttpClient.Redirect.NEVER);
-        if (!DDExternalDamApi.isValidServiceSecret(serviceSecret)) {
-            throw new IllegalArgumentException("A valid External DAM service secret is required");
-        }
-        this.serviceSecret = serviceSecret;
+        super(serviceUrl, serviceSecret, DDExternalDamApi.GRAPHQL_PATH, READ_TIMEOUT_MILLIS);
     }
 
     @NotNull
@@ -103,58 +98,49 @@ public final class DDExternalDamClient extends AbstractRestClient {
         return result.getAsBoolean();
     }
 
-    @NotNull
-    private JsonElement request(
-        @NotNull String operationName,
-        @NotNull String query,
-        @NotNull Map<String, ?> variables,
-        @NotNull String field
+    public int registerSubscription(
+        @NotNull String subscriberId,
+        @NotNull UUID subscriptionId,
+        @NotNull UUID accountId,
+        @Nullable String connectionId,
+        @NotNull String topic
     ) throws DDExternalDamException {
-        String response;
+        requireText(subscriberId);
+        requireText(topic);
+        if (connectionId != null) {
+            requireText(connectionId);
+        }
+        Map<String, Object> input = new HashMap<>();
+        input.put("subscriberId", subscriberId);
+        input.put("subscriptionId", Objects.requireNonNull(subscriptionId).toString());
+        input.put("accountId", Objects.requireNonNull(accountId).toString());
+        input.put("connectionId", connectionId);
+        input.put("topic", topic);
+        JsonElement result = request("RegisterExternalDamSubscription", REGISTER_MUTATION,
+            Map.of("input", input), "registerExternalDamSubscription");
+        if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isNumber()) {
+            throw invalidResponse();
+        }
         try {
-            HttpRequest.Builder request = HttpRequest.newBuilder(
-                buildUri(CommonUtils.removeLeadingSlash(DDExternalDamApi.GRAPHQL_PATH), Map.of()))
-                .header(DDExternalDamApi.HEADER_SERVICE_TOKEN, serviceSecret)
-                .header(HttpConstants.HEADER_CONTENT_TYPE, MediaType.JSON.toString())
-                .header(HttpConstants.HEADER_ACCEPT, MediaType.JSON.toString())
-                .header(HttpConstants.HEADER_CACHE_CONTROL, HttpConstants.CACHE_CONTROL_NO_STORE)
-                .POST(createBodyPublisher(Map.of("operationName", operationName, "query", query, "variables", variables), MediaType.JSON));
-            response = execute(request, String.class);
-        } catch (DBException e) {
-            if (e instanceof DDExternalDamException failure) {
-                throw failure;
+            int leaseSeconds = result.getAsBigDecimal().intValueExact();
+            if (leaseSeconds >= 15 && leaseSeconds <= 300) {
+                return leaseSeconds;
             }
-            throw new DDExternalDamException("External DAM service request failed", e);
-        }
-        JsonObject envelope;
-        try {
-            envelope = readObject(JsonParser.parseString(response));
-        } catch (JsonParseException e) {
+        } catch (ArithmeticException | NumberFormatException e) {
             throw invalidResponse();
         }
-        JsonElement errors = envelope.get("errors");
-        if (errors != null && (!errors.isJsonArray() || !errors.getAsJsonArray().isEmpty())) {
-            throw new DDExternalDamException("External DAM GraphQL request failed");
-        }
-        JsonElement result = readObject(envelope.get("data")).get(field);
-        if (result == null || result.isJsonNull()) {
-            throw invalidResponse();
-        }
-        return result;
+        throw invalidResponse();
     }
 
-    @Override
-    @NotNull
-    protected DBException mapErrorResponse(int code, @NotNull String message, @NotNull URI uri) {
-        return new DDExternalDamException("External DAM request failed: HTTP " + code);
-    }
-
-    @NotNull
-    private static JsonObject readObject(@Nullable JsonElement value) throws DDExternalDamException {
-        if (value == null || !value.isJsonObject()) {
+    public boolean unregisterSubscription(@NotNull String subscriberId, @NotNull UUID subscriptionId) throws DDExternalDamException {
+        requireText(subscriberId);
+        JsonElement result = request("UnregisterExternalDamSubscription", UNREGISTER_MUTATION,
+            Map.of("subscriberId", subscriberId, "subscriptionId", Objects.requireNonNull(subscriptionId).toString()),
+            "unregisterExternalDamSubscription");
+        if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isBoolean()) {
             throw invalidResponse();
         }
-        return value.getAsJsonObject();
+        return result.getAsBoolean();
     }
 
     @NotNull
@@ -166,24 +152,9 @@ public final class DDExternalDamClient extends AbstractRestClient {
         return value.getAsString();
     }
 
-    @NotNull
-    private static DDExternalDamException invalidResponse() {
-        return new DDExternalDamException("Invalid External DAM response");
-    }
-
-    @NotNull
-    private static String validateServiceUrl(@NotNull String serviceUrl) {
-        try {
-            URI uri = URI.create(serviceUrl);
-            if (uri.getHost() != null && uri.getUserInfo() == null && uri.getRawQuery() == null && uri.getRawFragment() == null
-                && ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
-                && (uri.getRawPath().isEmpty() || "/".equals(uri.getRawPath()))
-                && (uri.getPort() == -1 || uri.getPort() >= 1 && uri.getPort() <= 65535)) {
-                return uri.toString();
-            }
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid External DAM service URL");
+    private static void requireText(@NotNull String value) {
+        if (value.isBlank() || value.length() > 256) {
+            throw new IllegalArgumentException("Invalid subscription metadata");
         }
-        throw new IllegalArgumentException("Invalid External DAM service URL");
     }
 }

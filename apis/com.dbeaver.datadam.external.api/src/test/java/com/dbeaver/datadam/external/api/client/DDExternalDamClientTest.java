@@ -235,6 +235,71 @@ class DDExternalDamClientTest {
     }
 
     @Test
+    void registersStableSubscriptionIdsAsVariablesAndPreservesOptionalConnectionScope() throws DDExternalDamException {
+        UUID subscriptionId = UUID.randomUUID();
+        for (String connectionId : List.of("", "socket")) {
+            respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+
+            assertEquals(60, client.registerSubscription("account", subscriptionId, ACCOUNT_ID,
+                connectionId.isEmpty() ? null : connectionId, "projects"));
+
+            JsonObject body = posted();
+            assertEquals("RegisterExternalDamSubscription", body.get("operationName").getAsString());
+            String query = body.get("query").getAsString().replaceAll("\\s+", " ");
+            assertTrue(query.contains("$input: ExternalDamSubscriptionInput!"));
+            assertTrue(query.contains("registerExternalDamSubscription(input: $input)"));
+            JsonObject input = body.getAsJsonObject("variables").getAsJsonObject("input");
+            assertEquals("account", input.get("subscriberId").getAsString());
+            assertEquals(subscriptionId.toString(), input.get("subscriptionId").getAsString());
+            assertEquals(ACCOUNT_ID.toString(), input.get("accountId").getAsString());
+            assertEquals("projects", input.get("topic").getAsString());
+            if (connectionId.isEmpty()) {
+                assertTrue(!input.has("connectionId") || input.get("connectionId").isJsonNull());
+            } else {
+                assertEquals(connectionId, input.get("connectionId").getAsString());
+            }
+            assertFalse(input.has("url"));
+            assertFalse(input.has("serviceSecret"));
+            assertFalse(query.contains(subscriptionId.toString()));
+        }
+    }
+
+    @Test
+    void unregistersOnlyTheStableSubscriberAndSubscriptionId() throws DDExternalDamException {
+        UUID subscriptionId = UUID.randomUUID();
+        for (boolean removed : List.of(true, false)) {
+            respond("unregisterExternalDamSubscription", JsonParser.parseString(Boolean.toString(removed)));
+
+            assertEquals(removed, client.unregisterSubscription("storage", subscriptionId));
+
+            JsonObject body = posted();
+            assertEquals("UnregisterExternalDamSubscription", body.get("operationName").getAsString());
+            JsonObject variables = body.getAsJsonObject("variables");
+            assertEquals(Set.of("subscriberId", "subscriptionId"), variables.keySet());
+            assertEquals("storage", variables.get("subscriberId").getAsString());
+            assertEquals(subscriptionId.toString(), variables.get("subscriptionId").getAsString());
+        }
+    }
+
+    @Test
+    void rejectsInvalidLeaseValuesAndMalformedSubscriptionEnvelopesWithoutRetrying() {
+        UUID subscriptionId = UUID.randomUUID();
+        for (String value : List.of("null", "true", "\"60\"", "14", "301", "60.5", "1e100", "{}", "[]")) {
+            respond("registerExternalDamSubscription", JsonParser.parseString(value));
+            assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null, "projects"));
+        }
+        for (String value : List.of("null", "\"true\"", "60", "{}", "[]")) {
+            respond("unregisterExternalDamSubscription", JsonParser.parseString(value));
+            assertRequestFails(() -> client.unregisterSubscription("account", subscriptionId));
+        }
+        for (String body : List.of("{", "null", "{}", "{\"data\":null}", "{\"errors\":[{\"message\":\"private\"}]}")) {
+            responseJson.set(body);
+            assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null, "projects"));
+            assertRequestFails(() -> client.unregisterSubscription("account", subscriptionId));
+        }
+    }
+
+    @Test
     void rejectsTheWholeListWhenAnyRequiredConnectionFieldIsInvalid() {
         for (String field : List.of("deploymentId", "applicationRunId", "connectionId", "product", "version")) {
             JsonObject missing = connection("connection-2");

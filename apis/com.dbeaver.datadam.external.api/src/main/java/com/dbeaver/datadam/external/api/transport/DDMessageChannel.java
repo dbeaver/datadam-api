@@ -20,8 +20,15 @@ import com.dbeaver.datadam.external.api.model.DDMessage;
 import org.jkiss.code.NotNull;
 
 import java.util.concurrent.CompletionStage;
+import java.util.function.Consumer;
 
 public interface DDMessageChannel extends AutoCloseable {
+    @NotNull
+    DDChannelStatus getStatus();
+
+    @NotNull
+    DDSubscription observeState(@NotNull Consumer<DDChannelStatus> observer);
+
     @NotNull
     CompletionStage<Void> send(@NotNull DDMessage message);
 

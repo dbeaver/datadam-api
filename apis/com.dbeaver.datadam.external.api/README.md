@@ -17,6 +17,8 @@ type Query {
 
 type Mutation {
     sendExternalDamMessage(accountId: ID!, connectionId: ID!, message: ExternalDamMessageInput!): Boolean!
+    registerExternalDamSubscription(input: ExternalDamSubscriptionInput!): Int!
+    unregisterExternalDamSubscription(subscriberId: String!, subscriptionId: ID!): Boolean!
 }
 
 type ExternalDamConnection {
@@ -32,9 +34,18 @@ input ExternalDamMessageInput {
     type: String!
     payload: JSON!
 }
+
+input ExternalDamSubscriptionInput {
+    subscriberId: String!
+    subscriptionId: ID!
+    accountId: ID!
+    connectionId: ID
+    topic: String!
+}
 ```
 
-- `accountId` is a UUID and is mandatory for both operations. Connection lookup and sending must use the account and connection ID together.
+- `accountId` is a UUID and is mandatory for connection queries, sends, and subscription registration.
+  Connection lookup and sending must use the account and connection ID together.
 - Connection queries return an immutable client-side snapshot of currently ready sockets, not persisted DAM installations or history.
 - Concurrent sockets can share a Deployment ID and application run ID. Consumers must not deduplicate sockets using either ID.
 - Product and version are Desktop-supplied presentation metadata, not authenticated identity or authorization claims.
@@ -59,7 +70,7 @@ HTTP error bodies, GraphQL error details, and malformed response contents are no
 
 The service secret authenticates a trusted backend, not an end user. A backend exposing these operations to users must
 derive `accountId` from its authorized account context rather than trusting an arbitrary account ID supplied by the caller.
-The server must validate the service secret before executing either GraphQL operation and fail closed when its secret
+The server must validate the service secret before executing internal GraphQL operations and fail closed when its secret
 is missing or invalid. A browser session or Desktop JWT must not grant access to this endpoint.
 The secret belongs to backend runtime configuration only and must never be distributed to Desktop or browser clients.
 It is separate from the Account backchannel secret used to verify Desktop JWTs.
@@ -71,3 +82,34 @@ boolean written = client.sendMessage(accountId, connectionId, message);
 ```
 
 Use one configured client per service endpoint instead of constructing one per request. No deployment-specific URL or secret is packaged here.
+
+## Backend callback subscriptions
+
+`registerSubscription(subscriberId, subscriptionId, accountId, connectionId, topic)` returns the lease in seconds.
+The receiving process generates the UUID `subscriptionId`; repeated registration with the same scope renews it.
+A null `connectionId` subscribes to the account's matching messages, including future Desktop connections.
+A non-null connection ID filters one physical connection and does not follow a replacement socket.
+The subscriber ID selects a trusted destination configured on External DAM; registration never supplies a callback URL.
+
+`DDExternalDamCallbackClient` delivers messages to the receiver's separately authenticated
+`POST /internal/external-dam/graphql` using its independent callback secret. Successful acknowledgement extends the
+lease. The acknowledgement does not describe local subscriber presence or business processing. Local cancellation
+uses `unregisterSubscription`, including cleanup when the receiver no longer recognizes an incoming registration.
+External DAM discards queued work on cancellation or expiry; an already claimed callback may finish.
+Messages are not retried or replayed after callback failure. Callback queues and workers have configured bounds.
+
+Spring services use the shared `com.dbeaver.datadam.external.base` module from the DataDam server repository.
+It supplies the callback endpoint, local dispatch, `DDSubscription.close()` cancellation, and automatic renewal
+during idle periods. Select a scoped channel once with `subscriptions.forConnection(accountId, connectionId)` or
+`subscriptions.forAccount(accountId)`, then call `channel.subscribe(topic, listener)` without repeating identifiers.
+The low-level registration protocol retains account and connection scope to enforce account ownership.
+Application handlers do not renew registrations themselves. Every callback destination must reach the exact
+receiving process that owns the local registration.
+
+## Channel state
+
+`DDMessageChannel.getStatus()` returns an immutable `DDChannelStatus`: `DISCONNECTED`, `CONNECTING`, `CONNECTED`,
+or `CLOSED`. Only `CONNECTED` contains connection information, and `status.isReady()` checks that state.
+`observeState(observer)` delivers the current state and subsequent changes in order without a snapshot/subscription
+race. Closing the returned subscription cancels only that observer. Initial notification can run synchronously;
+subsequent callbacks run on the notifying thread. Existing `addConnectionListener` remains transitions-only.
