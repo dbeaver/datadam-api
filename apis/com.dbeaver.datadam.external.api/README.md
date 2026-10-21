@@ -13,6 +13,7 @@ scalar JSON
 
 type Query {
     externalDamConnections(accountId: ID!): [ExternalDamConnection!]!
+    externalDamConnectionAccount(connectionId: ID!): ID
 }
 
 type Mutation {
@@ -44,9 +45,12 @@ input ExternalDamSubscriptionInput {
 }
 ```
 
-- `accountId` is a UUID and is mandatory for connection queries, sends, and subscription registration.
-  Connection lookup and sending must use the account and connection ID together.
-- Connection queries return an immutable client-side snapshot of currently ready sockets, not persisted DAM installations or history.
+- `accountId` is a UUID and is mandatory for account-wide connection lists, sends, and subscription registration.
+  Sending must use the account and connection ID together.
+- `externalDamConnectionAccount` resolves a unique physical connection ID to the account from its verified identity.
+  It returns null for a missing or not-ready connection. The backend client reports that result as a checked
+  `DDExternalDamException`. This backend-only lookup does not authorize end-user access to that account.
+- Connection lists return an immutable client-side snapshot of currently ready sockets, not persisted DAM installations or history.
 - Concurrent sockets can share a Deployment ID and application run ID. Consumers must not deduplicate sockets using either ID.
 - Product and version are Desktop-supplied presentation metadata, not authenticated identity or authorization claims.
 - Message payloads must be JSON objects. They are passed through GraphQL variables, not interpolated into query text or encoded as JSON strings.
@@ -70,6 +74,7 @@ HTTP error bodies, GraphQL error details, and malformed response contents are no
 
 The service secret authenticates a trusted backend, not an end user. A backend exposing these operations to users must
 derive `accountId` from its authorized account context rather than trusting an arbitrary account ID supplied by the caller.
+Likewise, a connection ID alone is not end-user authorization; only expose selections from an authorized account's list.
 The server must validate the service secret before executing internal GraphQL operations and fail closed when its secret
 is missing or invalid. A browser session or Desktop JWT must not grant access to this endpoint.
 The secret belongs to backend runtime configuration only and must never be distributed to Desktop or browser clients.
@@ -165,33 +170,30 @@ from starting; an already claimed HTTP send can finish. Physical channels report
 callbacks have no physical connection-state feed, so pending calls use their deadlines when the peer disappears.
 Timeout or interruption can leave the remote outcome unknown. No request or response is automatically retried.
 
+The direct-channel adapter orders message callbacks and disconnection callbacks through one bounded receiving mailbox.
+Source validation and mailbox insertion share the same lifecycle lock; listener callbacks run outside that lock.
+If a new physical source is visible before its state observer runs, the adapter inserts the generation boundary before
+that source's first message. Delayed observers read the current channel status instead of reverting to an old source.
+The mailbox holds at most 128 queued callbacks and adds no executor. Excess frames are dropped; a disconnection takes
+priority over a full queued batch so pending calls are still invalidated. Listener failure closes the receiving routes.
+
 ## Typed RPC
 
 `com.dbeaver.messaging.rpc` adds typed Java proxies and registered implementations without depending on DataDam or
 WebSocket. `DDRpcTransport` adapts the existing request/reply transport to the neutral `RpcMessage<JsonElement>` envelope.
 It contains only protocol framing; application serialization is selected by the developer through `RpcCodec<JsonElement>`.
 
-For example, an application can choose Gson once for an endpoint:
+For example, an application can choose Gson once for an endpoint using the supplied adapter:
 
 ```java
 Gson gson = new Gson();
-RpcCodec<JsonElement> codec = new RpcCodec<>() {
-    @Override
-    public JsonElement encode(Object value, Type type) {
-        return gson.toJsonTree(value, type);
-    }
-
-    @Override
-    public Object decode(JsonElement payload, Type type) {
-        return gson.fromJson(payload, type);
-    }
-};
+RpcCodec<JsonElement> codec = new DDGsonRpcCodec(gson);
 ```
 
 The Desktop side installs an implementation and can independently obtain proxies for backend services:
 
 ```java
-var transport = DDRpcTransport.forChannel(channel, "rpc.account");
+var transport = DDRpcTransport.forChannel(channel, DDRpcServices.topic(DDRpcServices.ACCOUNT));
 try (var rpc = RpcEndpoint.open(transport, codec);
      var registration = rpc.register("desktop.projects", DesktopProjects.class, implementation)) {
     ServerDocuments documents = rpc.proxy("server.documents", ServerDocuments.class);
@@ -203,7 +205,7 @@ The backend selects its physical account/connection scope once and uses the same
 
 ```java
 var scope = subscriptions.forConnection(accountId, connectionId);
-var transport = new DDRpcTransport(scope.requestReply("rpc.account"));
+var transport = new DDRpcTransport(scope.requestReply(DDRpcServices.topic(DDRpcServices.ACCOUNT)));
 try (var rpc = RpcEndpoint.open(transport, codec);
      var registration = rpc.register("server.documents", ServerDocuments.class, implementation)) {
     DesktopProjects projects = rpc.proxy("desktop.projects", DesktopProjects.class);
@@ -221,6 +223,105 @@ connection, use separate lanes such as `rpc.account` and `rpc.storage`, with a c
 Sharing a lane between multiple backend receivers is not remote service discovery: unrelated receivers could answer
 `UNKNOWN_SERVICE` before the intended service. Replica routing and callback ownership retain the existing process-local
 subscription constraints.
+
+`DDRpcServices` supplies the `account` and `storage` service IDs and maps configured service IDs to `rpc.<serviceId>`
+lanes. A service ID contains 1 to 128 ASCII letters, digits, dots, underscores, or hyphens. Other backend services use
+the same mapping without extending an enumeration. IDs and lane names are case-sensitive.
+
+`DDGsonRpcCodec` retains the supplied `Gson` instance, including application adapters and naming policies, and preserves
+the declared generic `Type` passed by RPC. Encoded JSON null is represented as a nullable application payload. The
+neutral messaging module remains independent of Gson, and applications can supply another compatible codec at setup.
+The resulting `RpcEndpoint` is not parameterized by JSON or by any other payload representation.
+
+### Ready endpoints in Account, Storage, and Desktop
+
+Account and Storage already import `DDExternalDamClientConfiguration` from `com.dbeaver.datadam.external.base`.
+That configuration supplies the callback receiver, subscriptions, the default RPC codec, and a shared
+`DDExternalDamRpc` connection owner. Inject that owner once, select a Desktop connection, and obtain its endpoint:
+
+```java
+var connections = rpcConnections.getConnections(accountId);
+var selected = chooseConnection(connections);
+RpcEndpoint rpc = rpcConnections.forConnection(selected.connectionId());
+```
+
+`rpcConnections` is the `DDExternalDamRpc` Spring bean. `getConnections(accountId)` returns an immutable current
+snapshot without opening RPC endpoints; `chooseConnection` represents application logic or a user selection from
+those descriptions. Selection and release require only the unique physical connection ID, with no account wrapper.
+The owner resolves the account through the authenticated private relay API when opening an endpoint, so a known
+connection ID also works without listing connections first. No local discovery cache is required. The transport
+retains the resolved account internally and preserves account-ownership checks for subscriptions and sends.
+The application's configured subscriber ID selects its lane: Account uses `rpc.account`, Storage uses `rpc.storage`.
+Repeated lookups return the same open endpoint; callers do not construct adapters or pass account/connection IDs
+to each registration or remote call.
+
+Desktop obtains the corresponding endpoint from its existing connection service:
+
+```java
+var connections = DDDesktopConnectionService.getInstance();
+RpcEndpoint accountRpc = connections.getRpc(DDRpcServices.ACCOUNT);
+RpcEndpoint storageRpc = connections.getRpc(DDRpcServices.STORAGE);
+```
+
+The Desktop connection must first become ready. Endpoint access never starts login or waits for a new connection.
+Account and Storage have independent receiving endpoints on the same WebSocket channel. Other configured backend
+services use their own service ID and the same lane mapping.
+
+Pass the obtained endpoint to ordinary Java objects. The receiving object registers an implementation at runtime:
+
+```java
+public final class GreetingReceiver {
+    private final RpcEndpoint rpc;
+
+    public GreetingReceiver(RpcEndpoint rpc) {
+        this.rpc = rpc;
+    }
+
+    public MessageSubscription enable(Greeting implementation) {
+        return rpc.register("greeting", Greeting.class, implementation);
+    }
+}
+```
+
+The other peer keeps its calling code separate:
+
+```java
+public final class GreetingCaller {
+    private final RpcEndpoint rpc;
+
+    public GreetingCaller(RpcEndpoint rpc) {
+        this.rpc = rpc;
+    }
+
+    public String hello(String value) {
+        Greeting greeting = rpc.proxy("greeting", Greeting.class);
+        return greeting.hello(value);
+    }
+}
+```
+
+The common business contract is shared between those two peers, not installed on the relay:
+
+```java
+/** Answers greeting requests. */
+public interface Greeting {
+    String hello(String value);
+}
+```
+
+For example, one peer enables `value -> value + " World"`, while the other calls `hello("Hello")`. Reverse-direction
+services are independently registered and called through the same endpoint. No business-interface beans are required.
+
+Keep the returned registration until the implementation should stop accepting new calls, then close that registration.
+Proxies require no separate close. Shared endpoint ownership belongs to the connection service, not an individual
+caller. Desktop retains endpoints and registrations across transient reconnects, but invalidates them before an
+authentication identity change and on shutdown. Backend owners close missing physical connections after a successful
+registry reconciliation; failed registry reads preserve existing endpoints. Applications can explicitly release a
+backend scope with `rpcConnections.closeConnection(selected.connectionId())`.
+
+Replacing a closed endpoint does not transfer its old registrations. After an identity change or explicit closure,
+obtain the new endpoint and register the appropriate implementations again. Backend connection owners and caches are
+process-local; the existing exact-owner callback routing requirement still applies.
 
 The inner JSON envelope uses `protocol: "dbeaver.rpc.v1"`, `type`, and `data`, plus `topic` and `operation` for requests
 or a fixed `error` code for failures. Application `data` can be any JSON value, including null; the outer DataDam message

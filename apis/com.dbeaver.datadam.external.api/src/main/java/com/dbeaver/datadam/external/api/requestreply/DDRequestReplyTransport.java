@@ -36,6 +36,7 @@ import org.jkiss.code.Nullable;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -48,6 +49,7 @@ import java.util.concurrent.Semaphore;
 public final class DDRequestReplyTransport implements RequestReplyTransport<JsonObject>, AutoCloseable {
     private static final String MESSAGE_TYPE = "datadam.requestreply.v1";
     private static final int MAX_PENDING_SENDS = 128;
+    private static final int MAX_PENDING_DELIVERIES = 128;
     private final Object lock = new Object();
     private final Semaphore sendBudget = new Semaphore(MAX_PENDING_SENDS);
     private final String topic;
@@ -263,10 +265,12 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
         private final String replyTopic;
         private final Listener<JsonObject> listener;
         private final List<DDSubscription> subscriptions = new ArrayList<>();
+        private final ArrayDeque<Delivery> deliveries = new ArrayDeque<>();
         @Nullable
         private DDChannelStatus status;
         private boolean opening = true;
         private boolean openingDisconnected;
+        private boolean delivering;
         private boolean closed;
 
         private Registration(@NotNull UUID endpointId, @NotNull Listener<JsonObject> listener) {
@@ -297,22 +301,37 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
         }
 
         private void state(@NotNull DDChannelStatus next) {
-            boolean disconnected;
+            boolean drain;
             synchronized (lock) {
-                if (closed || next.equals(status)) {
+                if (closed) {
                     return;
                 }
-                disconnected = !next.isReady() || status != null && status.isReady()
-                    && !Objects.equals(status.connection(), next.connection());
-                status = next;
-                openingDisconnected |= opening && disconnected;
+                openingDisconnected |= opening && !next.isReady();
+                drain = updateState(channel == null ? next : channel.getStatus());
             }
-            if (disconnected) {
-                listener.onDisconnect();
+            if (drain) {
+                drain();
             }
         }
 
+        private boolean updateState(@NotNull DDChannelStatus next) {
+            if (next.equals(status)) {
+                return false;
+            }
+            boolean disconnected = !next.isReady() || status != null && status.isReady()
+                && !Objects.equals(status.connection(), next.connection());
+            status = next;
+            openingDisconnected |= opening && disconnected;
+            return disconnected && enqueue(null);
+        }
+
         private void receive(@NotNull DDConnectionInfo connection, @NotNull DDMessage message, boolean requestTopic) {
+            RequestReplyMessage<JsonObject> frame = decode(message);
+            if (frame == null || (requestTopic ? frame.type() != RequestReplyMessage.Type.REQUEST
+                : frame.type() == RequestReplyMessage.Type.REQUEST || !endpointId.equals(frame.replyTo()))) {
+                return;
+            }
+            boolean drain = false;
             synchronized (lock) {
                 if (closed || !(requestTopic ? topic : replyTopic).equals(message.topic())) {
                     return;
@@ -322,12 +341,58 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
                     if (!current.isReady() || !connection.equals(current.connection())) {
                         return;
                     }
+                    drain = updateState(current);
                 }
+                drain |= enqueue(frame);
             }
-            RequestReplyMessage<JsonObject> frame = decode(message);
-            if (frame != null && (requestTopic ? frame.type() == RequestReplyMessage.Type.REQUEST
-                : frame.type() != RequestReplyMessage.Type.REQUEST && endpointId.equals(frame.replyTo()))) {
-                listener.onMessage(frame);
+            if (drain) {
+                drain();
+            }
+        }
+
+        private boolean enqueue(@Nullable RequestReplyMessage<JsonObject> message) {
+            if (message == null) {
+                if (!deliveries.isEmpty() && deliveries.getLast().message() == null) {
+                    return false;
+                }
+                if (deliveries.size() >= MAX_PENDING_DELIVERIES) {
+                    deliveries.clear();
+                }
+            } else if (deliveries.size() >= MAX_PENDING_DELIVERIES) {
+                return false;
+            }
+            deliveries.add(new Delivery(message));
+            if (delivering) {
+                return false;
+            }
+            delivering = true;
+            return true;
+        }
+
+        private void drain() {
+            try {
+                while (true) {
+                    Delivery delivery;
+                    synchronized (lock) {
+                        delivery = deliveries.poll();
+                        if (closed || delivery == null) {
+                            delivering = false;
+                            return;
+                        }
+                    }
+                    if (delivery.message() == null) {
+                        listener.onDisconnect();
+                    } else {
+                        listener.onMessage(delivery.message());
+                    }
+                }
+            } catch (RuntimeException | Error e) {
+                try {
+                    close();
+                } catch (RuntimeException closeFailure) {
+                    e.addSuppressed(closeFailure);
+                }
+                throw e;
             }
         }
 
@@ -339,6 +404,7 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
                     return;
                 }
                 closed = true;
+                deliveries.clear();
                 stopped = List.copyOf(subscriptions);
                 subscriptions.clear();
             }
@@ -358,5 +424,8 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
                 throw failure;
             }
         }
+    }
+
+    private record Delivery(@Nullable RequestReplyMessage<JsonObject> message) {
     }
 }

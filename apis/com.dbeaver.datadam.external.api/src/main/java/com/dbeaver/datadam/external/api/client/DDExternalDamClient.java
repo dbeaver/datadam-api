@@ -35,14 +35,21 @@ import java.util.UUID;
 public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
     private static final String CONNECTIONS_FIELD = "externalDamConnections";
+    private static final String CONNECTION_ACCOUNT_FIELD = "externalDamConnectionAccount";
     private static final String SEND_FIELD = "sendExternalDamMessage";
     private static final String CONNECTIONS_OPERATION = "ExternalDamConnections";
+    private static final String CONNECTION_ACCOUNT_OPERATION = "ExternalDamConnectionAccount";
     private static final String SEND_OPERATION = "SendExternalDamMessage";
     private static final String CONNECTIONS_QUERY = """
         query ExternalDamConnections($accountId: ID!) {
             externalDamConnections(accountId: $accountId) {
                 deploymentId applicationRunId connectionId product version
             }
+        }
+        """;
+    private static final String CONNECTION_ACCOUNT_QUERY = """
+        query ExternalDamConnectionAccount($connectionId: ID!) {
+            externalDamConnectionAccount(connectionId: $connectionId)
         }
         """;
     private static final String SEND_MUTATION = """
@@ -81,6 +88,28 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
             ));
         }
         return List.copyOf(connections);
+    }
+
+    @NotNull
+    public UUID getConnectionAccount(@NotNull String connectionId) throws DDExternalDamException {
+        if (connectionId.isBlank() || connectionId.length() > 256) {
+            throw new IllegalArgumentException("Invalid connection ID");
+        }
+        JsonElement result = request(CONNECTION_ACCOUNT_OPERATION, CONNECTION_ACCOUNT_QUERY,
+            Map.of("connectionId", connectionId), CONNECTION_ACCOUNT_FIELD);
+        if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isString()) {
+            throw invalidResponse();
+        }
+        UUID accountId;
+        try {
+            accountId = UUID.fromString(result.getAsString());
+        } catch (IllegalArgumentException e) {
+            throw invalidResponse();
+        }
+        if (!accountId.toString().equalsIgnoreCase(result.getAsString())) {
+            throw invalidResponse();
+        }
+        return accountId;
     }
 
     public boolean sendMessage(@NotNull UUID accountId, @NotNull String connectionId, @NotNull DDMessage message)

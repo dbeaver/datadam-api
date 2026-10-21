@@ -45,7 +45,10 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -236,6 +239,271 @@ class DDRequestReplyTransportTest {
     }
 
     @Test
+    void completesMessageDeliveryBeforeNotifyingAConcurrentConnectionReplacement() throws Exception {
+        FakeChannel channel = new FakeChannel();
+        DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
+        UUID endpoint = UUID.randomUUID();
+        CountDownLatch messageEntered = new CountDownLatch(1);
+        CountDownLatch releaseMessage = new CountDownLatch(1);
+        List<String> delivered = new CopyOnWriteArrayList<>();
+        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+            @Override
+            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+                messageEntered.countDown();
+                await(releaseMessage);
+                delivered.add("message");
+            }
+
+            @Override
+            public void onDisconnect() {
+                delivered.add("disconnect");
+            }
+        })) {
+            adapter.send(request(endpoint)).toCompletableFuture().join();
+            DDMessage wire = channel.sent.getLast();
+            FutureTask<Void> message = async(() -> channel.deliver(CONNECTION, wire));
+            try {
+                await(messageEntered);
+                CountDownLatch replacing = new CountDownLatch(1);
+                DDConnectionInfo replacement = new DDConnectionInfo("desktop", "next-run", "next-socket");
+                FutureTask<Void> state = async(() -> {
+                    replacing.countDown();
+                    channel.setStatus(new DDChannelStatus(DDChannelState.CONNECTED, replacement));
+                });
+                try {
+                    await(replacing);
+                    state.get(2, TimeUnit.SECONDS);
+                    Assertions.assertTrue(delivered.isEmpty());
+                } finally {
+                    releaseMessage.countDown();
+                }
+                message.get(2, TimeUnit.SECONDS);
+                state.get(2, TimeUnit.SECONDS);
+                Assertions.assertEquals(List.of("message", "disconnect"), delivered);
+
+                channel.deliver(CONNECTION, wire);
+                Assertions.assertEquals(List.of("message", "disconnect"), delivered);
+            } finally {
+                releaseMessage.countDown();
+                message.get(2, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    @Test
+    void notifiesConnectionReplacementBeforeDeliveringANewSourceMessage() throws Exception {
+        FakeChannel channel = new FakeChannel();
+        DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
+        UUID endpoint = UUID.randomUUID();
+        CountDownLatch disconnectEntered = new CountDownLatch(1);
+        CountDownLatch releaseDisconnect = new CountDownLatch(1);
+        List<String> delivered = new CopyOnWriteArrayList<>();
+        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+            @Override
+            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+                delivered.add("message");
+            }
+
+            @Override
+            public void onDisconnect() {
+                disconnectEntered.countDown();
+                await(releaseDisconnect);
+                delivered.add("disconnect");
+            }
+        })) {
+            adapter.send(request(endpoint)).toCompletableFuture().join();
+            DDMessage wire = channel.sent.getLast();
+            DDConnectionInfo replacement = new DDConnectionInfo("desktop", "next-run", "next-socket");
+            FutureTask<Void> state = async(() -> channel.setStatus(new DDChannelStatus(DDChannelState.CONNECTED, replacement)));
+            try {
+                await(disconnectEntered);
+                CountDownLatch receiving = new CountDownLatch(1);
+                FutureTask<Void> message = async(() -> {
+                    receiving.countDown();
+                    channel.deliver(replacement, wire);
+                });
+                try {
+                    await(receiving);
+                    message.get(2, TimeUnit.SECONDS);
+                    Assertions.assertTrue(delivered.isEmpty());
+                } finally {
+                    releaseDisconnect.countDown();
+                }
+                state.get(2, TimeUnit.SECONDS);
+                message.get(2, TimeUnit.SECONDS);
+                Assertions.assertEquals(List.of("disconnect", "message"), delivered);
+            } finally {
+                releaseDisconnect.countDown();
+                state.get(2, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    @Test
+    void defersReentrantStateNotificationsUntilTheCurrentMessageReturns() throws Exception {
+        FakeChannel channel = new FakeChannel();
+        DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
+        UUID endpoint = UUID.randomUUID();
+        List<String> delivered = new ArrayList<>();
+        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+            @Override
+            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+                channel.setStatus(new DDChannelStatus(DDChannelState.DISCONNECTED, null));
+                delivered.add("message");
+            }
+
+            @Override
+            public void onDisconnect() {
+                delivered.add("disconnect");
+            }
+        })) {
+            adapter.send(request(endpoint)).toCompletableFuture().join();
+
+            channel.deliver(CONNECTION, channel.sent.getLast());
+
+            Assertions.assertEquals(List.of("message", "disconnect"), delivered);
+        }
+    }
+
+    @Test
+    void establishesTheNewGenerationBeforeMessagesWhenStateObserversAreDelayed() throws Exception {
+        FakeChannel channel = new FakeChannel();
+        DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
+        UUID endpoint = UUID.randomUUID();
+        List<String> delivered = new ArrayList<>();
+        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+            @Override
+            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+                delivered.add("message");
+            }
+
+            @Override
+            public void onDisconnect() {
+                delivered.add("disconnect");
+            }
+        })) {
+            adapter.send(request(endpoint)).toCompletableFuture().join();
+            DDMessage wire = channel.sent.getLast();
+            DDConnectionInfo replacement = new DDConnectionInfo("desktop", "next-run", "next-socket");
+            DDChannelStatus ready = new DDChannelStatus(DDChannelState.CONNECTED, replacement);
+            channel.status = ready;
+
+            channel.deliver(replacement, wire);
+
+            Assertions.assertEquals(List.of("disconnect", "message"), delivered);
+            for (Consumer<DDChannelStatus> observer : List.copyOf(channel.observers)) {
+                observer.accept(new DDChannelStatus(DDChannelState.DISCONNECTED, null));
+                observer.accept(ready);
+            }
+            Assertions.assertEquals(List.of("disconnect", "message"), delivered);
+            channel.deliver(CONNECTION, wire);
+            Assertions.assertEquals(List.of("disconnect", "message"), delivered);
+            channel.deliver(replacement, wire);
+            Assertions.assertEquals(List.of("disconnect", "message", "message"), delivered);
+        }
+    }
+
+    @Test
+    void permitsConcurrentInlineRepliesWithoutHoldingCallbackLocks() throws Exception {
+        FakeChannel leftChannel = new FakeChannel();
+        FakeChannel rightChannel = new FakeChannel();
+        DDRequestReplyTransport left = DDRequestReplyTransport.forChannel(leftChannel, TOPIC);
+        DDRequestReplyTransport right = DDRequestReplyTransport.forChannel(rightChannel, TOPIC);
+        UUID leftId = UUID.randomUUID();
+        UUID rightId = UUID.randomUUID();
+        CountDownLatch requests = new CountDownLatch(2);
+        AtomicInteger replies = new AtomicInteger();
+        try (var leftSubscription = left.subscribe(leftId, inlineReplies(left, requests, replies));
+             var rightSubscription = right.subscribe(rightId, inlineReplies(right, requests, replies))) {
+            left.send(request(leftId)).toCompletableFuture().join();
+            right.send(request(rightId)).toCompletableFuture().join();
+            DDMessage toRight = leftChannel.sent.getLast();
+            DDMessage toLeft = rightChannel.sent.getLast();
+            leftChannel.forward = message -> rightChannel.deliver(CONNECTION, message);
+            rightChannel.forward = message -> leftChannel.deliver(CONNECTION, message);
+
+            FutureTask<Void> leftDelivery = async(() -> leftChannel.deliver(CONNECTION, toLeft));
+            FutureTask<Void> rightDelivery = async(() -> rightChannel.deliver(CONNECTION, toRight));
+
+            leftDelivery.get(2, TimeUnit.SECONDS);
+            rightDelivery.get(2, TimeUnit.SECONDS);
+            Assertions.assertEquals(2, replies.get());
+        }
+    }
+
+    @Test
+    void boundsQueuedCallbacksAndPreservesDisconnectWhenTheQueueIsFull() throws Exception {
+        for (boolean disconnect : List.of(false, true)) {
+            FakeChannel channel = new FakeChannel();
+            DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
+            UUID endpoint = UUID.randomUUID();
+            CountDownLatch entered = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            AtomicInteger messages = new AtomicInteger();
+            AtomicInteger disconnects = new AtomicInteger();
+            try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+                @Override
+                public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+                    entered.countDown();
+                    await(release);
+                    messages.incrementAndGet();
+                }
+
+                @Override
+                public void onDisconnect() {
+                    disconnects.incrementAndGet();
+                }
+            })) {
+                adapter.send(request(endpoint)).toCompletableFuture().join();
+                DDMessage wire = channel.sent.getLast();
+                FutureTask<Void> delivery = async(() -> channel.deliver(CONNECTION, wire));
+                try {
+                    await(entered);
+                    for (int i = 0; i < 130; i++) {
+                        channel.deliver(CONNECTION, wire);
+                    }
+                    if (disconnect) {
+                        channel.setStatus(new DDChannelStatus(DDChannelState.DISCONNECTED, null));
+                    }
+                } finally {
+                    release.countDown();
+                    delivery.get(2, TimeUnit.SECONDS);
+                }
+                Assertions.assertEquals(disconnect ? 1 : 129, messages.get());
+                Assertions.assertEquals(disconnect ? 1 : 0, disconnects.get());
+            }
+        }
+    }
+
+    @Test
+    void releasesReceivingResourcesWhenAListenerFails() throws Exception {
+        FakeChannel channel = new FakeChannel();
+        DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
+        UUID endpoint = UUID.randomUUID();
+        IllegalStateException failure = new IllegalStateException("Listener failed");
+        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+            @Override
+            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+                throw failure;
+            }
+
+            @Override
+            public void onDisconnect() {
+            }
+        })) {
+            adapter.send(request(endpoint)).toCompletableFuture().join();
+
+            Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                () -> channel.deliver(CONNECTION, channel.sent.getLast())));
+
+            assertFailure(RequestReplyException.Reason.CLOSED, adapter.send(request(endpoint)));
+            Assertions.assertTrue(channel.subscriptions.stream().noneMatch(value -> value.active));
+            Assertions.assertTrue(channel.observers.isEmpty());
+            Assertions.assertFalse(channel.closed);
+        }
+    }
+
+    @Test
     void rejectsMalformedRecognizedFramesAndWrongTypeTopicAndOrigin() throws Exception {
         FakeChannel channel = new FakeChannel();
         DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
@@ -403,6 +671,46 @@ class DDRequestReplyTransportTest {
         Assertions.assertEquals(reason, Assertions.assertInstanceOf(RequestReplyException.class, failure.getCause()).reason());
     }
 
+    @NotNull
+    private static FutureTask<Void> async(@NotNull Runnable action) {
+        FutureTask<Void> task = new FutureTask<>(action, null);
+        Thread.ofPlatform().daemon().start(task);
+        return task;
+    }
+
+    @NotNull
+    private static RequestReplyTransport.Listener<JsonObject> inlineReplies(
+        @NotNull DDRequestReplyTransport adapter,
+        @NotNull CountDownLatch requests,
+        @NotNull AtomicInteger replies
+    ) {
+        return new RequestReplyTransport.Listener<>() {
+            @Override
+            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+                if (message.type() == RequestReplyMessage.Type.REQUEST) {
+                    requests.countDown();
+                    await(requests);
+                    adapter.send(message.response(null)).toCompletableFuture().join();
+                } else {
+                    replies.incrementAndGet();
+                }
+            }
+
+            @Override
+            public void onDisconnect() {
+            }
+        };
+    }
+
+    private static void await(@NotNull CountDownLatch latch) {
+        try {
+            Assertions.assertTrue(latch.await(2, TimeUnit.SECONDS));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
+    }
+
     private static final class Received implements RequestReplyTransport.Listener<JsonObject> {
         private final List<RequestReplyMessage<JsonObject>> messages = new ArrayList<>();
         private int disconnects;
@@ -423,7 +731,7 @@ class DDRequestReplyTransportTest {
         private final List<Consumer<DDChannelStatus>> observers = new ArrayList<>();
         private final List<DDMessage> sent = new ArrayList<>();
         private final RuntimeException subscriptionFailure = new IllegalStateException("Subscription unavailable");
-        private DDChannelStatus status = new DDChannelStatus(DDChannelState.CONNECTED, CONNECTION);
+        private volatile DDChannelStatus status = new DDChannelStatus(DDChannelState.CONNECTED, CONNECTION);
         @Nullable
         private String failTopic;
         @Nullable

@@ -128,9 +128,55 @@ remote peer or prove service presence.
 
 Proxy methods block the calling thread. Call them from worker or virtual threads, not a transport listener or event loop.
 
-`RpcEndpoint<P>` consumes `RequestReplyTransport<RpcMessage<P>>`. The transport adapter encodes the neutral protocol
-envelope; `RpcCodec<P>` encodes only application arguments and results. A TCP, WebSocket, long-polling, or in-memory
-transport can implement this interface without changing RPC code. No WebSocket types or JSON library are used here.
+`RpcEndpoint` has no payload type parameter. Its generic `open` factories check that
+`RequestReplyTransport<RpcMessage<P>>` and `RpcCodec<P>` use the same payload representation, then retain that choice
+internally. Business code receives an ordinary `RpcEndpoint` and only uses its typed interfaces. The transport adapter
+encodes the neutral protocol envelope; the codec encodes application arguments and results. A TCP, WebSocket,
+long-polling, or in-memory transport can implement this interface without changing RPC code. No WebSocket types or
+JSON library are used here.
+
+### Application-owned registrations and callers
+
+Obtain an endpoint once from the application's connection owner, then pass it to ordinary Java objects. Registration
+and proxy creation are runtime operations and do not require Spring or a separate bean for each business interface.
+
+```java
+public final class DocumentReceiver {
+    private final RpcEndpoint rpc;
+
+    public DocumentReceiver(RpcEndpoint rpc) {
+        this.rpc = rpc;
+    }
+
+    public MessageSubscription enable(Documents implementation) {
+        return rpc.register("documents", Documents.class, implementation);
+    }
+}
+```
+
+The opposite peer uses its own endpoint in a separate caller:
+
+```java
+public final class DocumentCaller {
+    private final RpcEndpoint rpc;
+
+    public DocumentCaller(RpcEndpoint rpc) {
+        this.rpc = rpc;
+    }
+
+    public Document load(DocumentRequest request) {
+        Documents documents = rpc.proxy("documents", Documents.class);
+        return documents.load(request);
+    }
+}
+```
+
+Keep the receiving `MessageSubscription` while the implementation is available, then close it to unregister. A proxy
+is an ordinary business interface, not a registration handle, and requires no separate close. Application code sharing
+an endpoint closes its own registrations; the connection owner closes the endpoint when its scope ends. Owners can
+use `isClosed()` to reject new use once closure starts, and `isCloseComplete()` before releasing a cached endpoint's
+scope reservation. The latter becomes true after handler and receiving-subscription cleanup finishes, including when
+cleanup throws. A repeated `close()` does not wait for another thread's ongoing cleanup.
 
 ### Contracts and codecs
 

@@ -65,6 +65,7 @@ class DDExternalDamClientTest {
     private static final String SERVICE_SECRET = "external-dam-service-secret-2026-test";
     private static final String UPSTREAM_MARKER = "private-upstream-response-marker";
     private static final String CONNECTIONS_FIELD = "externalDamConnections";
+    private static final String CONNECTION_ACCOUNT_FIELD = "externalDamConnectionAccount";
     private static final String SEND_FIELD = "sendExternalDamMessage";
     private final AtomicReference<String> responseJson = new AtomicReference<>("{}");
     private final AtomicInteger responseStatus = new AtomicInteger(200);
@@ -114,6 +115,46 @@ class DDExternalDamClientTest {
             assertFalse(query.contains(ACCOUNT_ID.toString()));
         }
         assertEquals(2, requestCount.get());
+    }
+
+    @Test
+    void resolvesTheConnectionOwnerWithOneAuthenticatedReadAndNoDiscovery() throws DDExternalDamException {
+        String connectionId = "connection-\"\\\n) { injectedConnection }";
+        for (UUID accountId : List.of(ACCOUNT_ID, OTHER_ACCOUNT_ID)) {
+            respond(CONNECTION_ACCOUNT_FIELD, JsonParser.parseString("\"" + accountId + "\""));
+
+            assertEquals(accountId, client.getConnectionAccount(connectionId));
+
+            JsonObject body = posted();
+            assertEquals("ExternalDamConnectionAccount", body.get("operationName").getAsString());
+            String query = body.get("query").getAsString().replaceAll("\\s+", " ");
+            assertTrue(query.contains("query ExternalDamConnectionAccount($connectionId: ID!)"));
+            assertTrue(query.contains("externalDamConnectionAccount(connectionId: $connectionId)"));
+            assertEquals(Set.of("connectionId"), body.getAsJsonObject("variables").keySet());
+            assertEquals(connectionId, body.getAsJsonObject("variables").get("connectionId").getAsString());
+            assertFalse(query.contains("injectedConnection"));
+        }
+        assertEquals(2, requestCount.get());
+    }
+
+    @Test
+    void rejectsUnavailableNonStringAndMalformedConnectionOwnersWithoutRetrying() {
+        for (String value : List.of("null", "true", "false", "42", "{}", "[]", "\"\"", "\" \\t\"",
+            "\"not-a-uuid\"", "\"1-1-1-1-1\"", "\"" + ACCOUNT_ID + " \"", "\"" + UPSTREAM_MARKER + SERVICE_SECRET + "\"")) {
+            respond(CONNECTION_ACCOUNT_FIELD, JsonParser.parseString(value));
+
+            assertRequestFails(() -> client.getConnectionAccount("connection-1"));
+        }
+        responseJson.set("{\"data\":{}}");
+        assertRequestFails(() -> client.getConnectionAccount("connection-1"));
+    }
+
+    @Test
+    void rejectsBlankAndOversizedConnectionOwnerLookupIdsBeforeSendingAnyRequest() {
+        for (String connectionId : List.of("", " ", "\t\n", "s".repeat(257))) {
+            assertThrows(IllegalArgumentException.class, () -> client.getConnectionAccount(connectionId));
+        }
+        assertEquals(0, requestCount.get());
     }
 
     @Test
@@ -387,6 +428,7 @@ class DDExternalDamClientTest {
             responseStatus.set(status);
 
             assertRequestFails(() -> client.getConnections(ACCOUNT_ID));
+            assertRequestFails(() -> client.getConnectionAccount("connection-1"));
             assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "connection-1", message()));
         }
     }
