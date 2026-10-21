@@ -18,10 +18,10 @@ package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
-import com.dbeaver.datadam.sso.api.model.DDSsoDesktopApprovalRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoDesktopApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffResponse;
+import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
+import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenResponse;
 import com.dbeaver.rest.client.AbstractRestClient;
@@ -79,9 +79,9 @@ public class DDSsoClient extends AbstractRestClient {
     }
 
     @NotNull
-    public DDSsoDesktopApprovalResponse approveDesktop(@NotNull DDSsoDesktopApprovalRequest request) throws DDSsoClientException {
-        return postResponse(DDSsoConstants.DESKTOP_APPROVE_PATH, request, MediaType.JSON,
-            DDSsoDesktopApprovalResponse.class, "Invalid SSO desktop approval response");
+    public DDSsoLoginApprovalResponse approveLogin(@NotNull DDSsoLoginApprovalRequest request) throws DDSsoClientException {
+        return postResponse(DDSsoConstants.LOGIN_APPROVE_PATH, request, MediaType.JSON,
+            DDSsoLoginApprovalResponse.class, "Invalid SSO login approval response");
     }
 
     @NotNull

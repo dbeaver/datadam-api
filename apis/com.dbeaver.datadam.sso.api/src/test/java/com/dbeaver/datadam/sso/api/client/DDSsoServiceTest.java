@@ -23,6 +23,7 @@ import com.dbeaver.datadam.sso.api.model.DDSsoAuthorizeRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
+import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoPublicJwk;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
@@ -152,6 +153,32 @@ class DDSsoServiceTest {
             new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256"), "B".repeat(43));
         Assertions.assertThat(configured.createHandoff(request)).isEqualTo("https://sso.example.com/issuer/handoff?handoff=" + "A".repeat(43));
         Assertions.assertThat(requestPath).hasValue("/internal/handoff");
+    }
+
+    @Test
+    void approvesLoginOverAuthenticatedBackchannelAndResumesOnPublicIssuer() throws Exception {
+        responseJson.set(gson.toJson(Map.of("completion", "A".repeat(43))));
+        var identity = new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW);
+        Assertions.assertThat(service.approveLogin(new DDSsoLoginApprovalRequest("B".repeat(43), identity)))
+            .isEqualTo("https://sso.example.com/login/resume?completion=" + "A".repeat(43));
+        Assertions.assertThat(requestMethod).hasValue("POST");
+        Assertions.assertThat(requestPath).hasValue("/login/approve");
+        Assertions.assertThat(credentials).hasValue("Basic " + Base64.getEncoder()
+            .encodeToString("account:test-secret".getBytes(StandardCharsets.UTF_8)));
+        var body = JsonParser.parseString(posted.get()).getAsJsonObject();
+        Assertions.assertThat(body.get("requestId").getAsString()).isEqualTo("B".repeat(43));
+        Assertions.assertThat(body.getAsJsonObject("identity").get("subject").getAsString()).isEqualTo(identity.subject());
+        Assertions.assertThat(body.getAsJsonObject("identity").get("authTime").getAsString()).isEqualTo(NOW.toString());
+        Assertions.assertThat(jwksRequests).hasValue(0);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"completion\":null}", "{\"completion\":\"\"}", "{\"completion\":\"unsafe&state=other\"}"})
+    void rejectsInvalidLoginCompletionsBeforeBuildingRedirect(String json) {
+        responseJson.set(json);
+        Assertions.assertThatThrownBy(() -> service.approveLogin(new DDSsoLoginApprovalRequest("B".repeat(43),
+            new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW))))
+            .isInstanceOf(DDSsoClientException.class);
     }
 
     @Test

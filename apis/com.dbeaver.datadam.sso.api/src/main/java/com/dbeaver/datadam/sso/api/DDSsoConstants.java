@@ -23,6 +23,7 @@ public final class DDSsoConstants {
     public static final String AUTHORIZE_PATH = "/authorize";
     public static final String TOKEN_PATH = "/token";
     public static final String HANDOFF_PATH = "/handoff";
+    public static final String HANDOFF_START_PATH = "/handoff/start";
     public static final String LOGOUT_PATH = "/logout";
     public static final String JWKS_PATH = "/.well-known/jwks.json";
     public static final String HEALTH_PATH = "/health";
@@ -42,7 +43,6 @@ public final class DDSsoConstants {
     public static final String ERROR_INVALID_HANDOFF = "invalid_handoff";
     public static final String ERROR_INVALID_LOGOUT = "invalid_logout";
     public static final String ERROR_UNSUPPORTED_GRANT_TYPE = "unsupported_grant_type";
-    public static final String ERROR_LOGIN_REQUIRED = "login_required";
     public static final String ERROR_SERVER = "server_error";
     public static final String ERROR_TEMPORARILY_UNAVAILABLE = "temporarily_unavailable";
 
@@ -92,8 +92,10 @@ public final class DDSsoConstants {
     public static final String TOKEN_USE_ACCESS = "access";
     public static final String CLAIM_CLIENT_ID = "client_id";
     public static final String TOKEN_TYPE_BEARER = "Bearer";
-    public static final String DESKTOP_APPROVE_PATH = "/desktop/approve";
-    public static final String DESKTOP_RESUME_PATH = "/desktop/resume";
+    public static final String LOGIN_APPROVE_PATH = "/login/approve";
+    public static final String LOGIN_RESUME_PATH = "/login/resume";
+    public static final String APPLICATION_LOGIN_START_PATH = "/sso/login/start";
+    public static final String APPLICATION_CONFIG_PATH = "/sso/config";
     public static final String ACCESS_CONTEXT_PATH = "/api/internal/access-context";
     public static final String HEADER_SERVICE_TOKEN = "X-DD-Service-Token";
 
