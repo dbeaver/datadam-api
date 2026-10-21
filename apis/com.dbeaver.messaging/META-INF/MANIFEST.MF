@@ -5,7 +5,8 @@ Bundle-Name: DBeaver Messaging
 Bundle-SymbolicName: com.dbeaver.messaging
 Bundle-Version: 0.0.17.qualifier
 Bundle-RequiredExecutionEnvironment: JavaSE-21
-Export-Package: com.dbeaver.messaging.requestreply
+Export-Package: com.dbeaver.messaging.requestreply,
+ com.dbeaver.messaging.rpc
 Bundle-ActivationPolicy: lazy
 Require-Bundle: org.jkiss.utils
 Automatic-Module-Name: com.dbeaver.messaging

@@ -1,8 +1,8 @@
-# Messaging: request/reply
+# Messaging: request/reply and typed RPC
 
 This module supplies a transport-independent request/reply endpoint for Java 21. It has no dependency on DataDam,
 HTTP, WebSocket, JSON, Spring, or Eclipse runtime services. The only non-JDK production dependency supplies nullability
-annotations. Typed RPC is not part of this module's current API.
+annotations. The `rpc` package adds ordinary Java interface calls over the same request/reply mechanism.
 
 ## Usage
 
@@ -85,3 +85,94 @@ Implement `RequestReplyTransport<P>` to integrate a message transport:
 
 Transport write failure or a lost reply can prevent a caller from seeing a completed remote operation. Response send
 failure is not retried. An already claimed transport send can finish while closure or disconnection is taking place.
+
+## Typed RPC
+
+Both peers use the same classes. A local service registration and a proxy for a remote service are independent:
+neither requires a service in the reverse direction, and either peer can initiate calls after transport establishment.
+There is no client/server distinction in the RPC API.
+
+The application shares an interface between peers and supplies its implementation on the receiving side:
+
+```java
+public interface Documents {
+    Document load(DocumentRequest request);
+    void save(SaveRequest request);
+}
+```
+
+The receiver creates one reusable endpoint, selects its codec once, and registers its service under a logical topic:
+
+```java
+try (var rpc = RpcEndpoint.open(transport, codec);
+     var registration = rpc.register("documents", Documents.class, implementation)) {
+    serveApplication();
+}
+```
+
+The caller creates its own endpoint over the corresponding transport and obtains a proxy:
+
+```java
+try (var rpc = RpcEndpoint.open(transport, codec)) {
+    Documents documents = rpc.proxy("documents", Documents.class);
+    Document document = documents.load(request);
+    documents.save(saveRequest);
+}
+```
+
+The same endpoint can also register other local services or obtain proxies for services on the opposite peer. RPC topics
+are logical service keys within one request/reply channel, not new connections or subscriptions. Both peers must select
+the same underlying request/reply lane, with one receiving endpoint per peer. A topic can have one local implementation;
+different topics can use the same interface with different implementations. Proxy construction does not contact the
+remote peer or prove service presence.
+
+Proxy methods block the calling thread. Call them from worker or virtual threads, not a transport listener or event loop.
+
+`RpcEndpoint<P>` consumes `RequestReplyTransport<RpcMessage<P>>`. The transport adapter encodes the neutral protocol
+envelope; `RpcCodec<P>` encodes only application arguments and results. A TCP, WebSocket, long-polling, or in-memory
+transport can implement this interface without changing RPC code. No WebSocket types or JSON library are used here.
+
+### Contracts and codecs
+
+- Contracts are public, nonsealed interfaces with at least one abstract operation and exactly one argument per method.
+  Return values can be ordinary reference or primitive types, or `void`. Reference arguments and results can be null.
+- Inherited abstract operations and overloads are supported. Operation IDs combine the method name and its erased
+  argument type; only methods from the registered interface can be invoked. Incoming names never trigger class loading
+  or arbitrary reflective lookup on the implementation.
+- Concrete generic argument and result types, such as `List<Document>`, reach the codec as `Type` values. Unresolved
+  type variables, generic methods, default methods, varargs, and `Future`/`CompletionStage` returns are rejected during
+  proxy construction or registration. Generic-parent substitutions are not inferred. Inherited operations with
+  ambiguous generic argument or result types must be explicitly redeclared in the public contract.
+- `RpcCodec.encode(value, type)` and `decode(payload, type)` are selected once per endpoint. Implementations must handle
+  nulls and concurrent calls. Serialization remains application-owned; the RPC core does not construct application
+  types or select a serialization framework. Payload immutability and snapshot requirements are the same as request/reply.
+  Peers must use compatible contracts and codecs; no automatic contract negotiation or class transfer is performed.
+- Implementations may receive concurrent calls and must manage their own application state safely. Incoming execution
+  uses the existing bounded request/reply handlers; the RPC layer adds no executor or unbounded message queue.
+- `equals`, `hashCode`, and `toString` on a proxy are local identity operations and do not send requests or call codecs.
+
+### Failure and ownership
+
+`void` still waits for remote handler completion and a successful reply. It is not fire-and-forget, and its response
+does not invoke the application codec. `RpcException` is unchecked, so a business interface does not need a library
+exception declaration. Its reason distinguishes timeout, interruption, disconnection, overload, closure, send failure,
+codec failure, invalid response, and remote failure. Caller interruption restores the interrupt flag.
+
+An absent logical service returns `UNKNOWN_SERVICE`; an absent operation returns `UNKNOWN_OPERATION`. Invalid arguments,
+handler failures, and remote codec failures return fixed error codes, never exception types, messages, or stack traces.
+Declared application exceptions are not reconstructed on the caller. A peer with no receiving endpoint can only be
+detected through transport failure or timeout. Local failures retain their causes.
+
+`RpcEndpoint.open(transport, codec, options)` accepts the existing `RequestReplyOptions` for deadlines and capacity.
+The deadline covers the underlying request/reply call, not arbitrary application codec execution. Codecs should complete
+promptly. Timeout or interruption leaves the remote outcome potentially unknown; the RPC layer adds no retries or
+remote cancellation promises.
+
+Closing a service registration removes only that local implementation. It does not close the endpoint or its proxies,
+and work already dispatched to the implementation can finish. Repeatedly closing an old registration cannot remove a
+replacement. Closing the RPC endpoint invalidates its proxies, clears service registrations, and closes its underlying
+request/reply endpoint, failing pending calls. The borrowed physical transport remains open.
+
+The overload `RpcEndpoint.open(requests, codec)` accepts an existing `RequestReplyEndpoint<RpcMessage<P>>` with no
+registered handler and transfers its ownership on success. A failed opening does not remove another handler. Do not
+close or install other handlers on that request/reply endpoint while RPC owns it.

@@ -10,6 +10,7 @@ Export-Package: com.dbeaver.datadam.external.api,
  com.dbeaver.datadam.external.api.exception,
  com.dbeaver.datadam.external.api.model,
  com.dbeaver.datadam.external.api.requestreply,
+ com.dbeaver.datadam.external.api.rpc,
  com.dbeaver.datadam.external.api.transport
 Bundle-ActivationPolicy: lazy
 Require-Bundle: org.jkiss.utils,

@@ -164,3 +164,73 @@ channel or subscription facade. Closing the subscription facade rejects new back
 from starting; an already claimed HTTP send can finish. Physical channels report disconnects immediately; backend
 callbacks have no physical connection-state feed, so pending calls use their deadlines when the peer disappears.
 Timeout or interruption can leave the remote outcome unknown. No request or response is automatically retried.
+
+## Typed RPC
+
+`com.dbeaver.messaging.rpc` adds typed Java proxies and registered implementations without depending on DataDam or
+WebSocket. `DDRpcTransport` adapts the existing request/reply transport to the neutral `RpcMessage<JsonElement>` envelope.
+It contains only protocol framing; application serialization is selected by the developer through `RpcCodec<JsonElement>`.
+
+For example, an application can choose Gson once for an endpoint:
+
+```java
+Gson gson = new Gson();
+RpcCodec<JsonElement> codec = new RpcCodec<>() {
+    @Override
+    public JsonElement encode(Object value, Type type) {
+        return gson.toJsonTree(value, type);
+    }
+
+    @Override
+    public Object decode(JsonElement payload, Type type) {
+        return gson.fromJson(payload, type);
+    }
+};
+```
+
+The Desktop side installs an implementation and can independently obtain proxies for backend services:
+
+```java
+var transport = DDRpcTransport.forChannel(channel, "rpc.account");
+try (var rpc = RpcEndpoint.open(transport, codec);
+     var registration = rpc.register("desktop.projects", DesktopProjects.class, implementation)) {
+    ServerDocuments documents = rpc.proxy("server.documents", ServerDocuments.class);
+    serveApplication(documents);
+}
+```
+
+The backend selects its physical account/connection scope once and uses the same endpoint API:
+
+```java
+var scope = subscriptions.forConnection(accountId, connectionId);
+var transport = new DDRpcTransport(scope.requestReply("rpc.account"));
+try (var rpc = RpcEndpoint.open(transport, codec);
+     var registration = rpc.register("server.documents", ServerDocuments.class, implementation)) {
+    DesktopProjects projects = rpc.proxy("desktop.projects", DesktopProjects.class);
+    serveApplication(projects);
+}
+```
+
+Use the same underlying request/reply topic (`"rpc.account"` here) at both ends of the selected channel. Logical service topics
+such as `desktop.projects` and `server.documents` are multiplexed inside that lane; they do not open connections or add
+per-service transport subscriptions. Registering a local service never implicitly registers a service on the other peer.
+The existing private reply topic continues to route each answer back to the exact initiating process.
+
+Each lane has one receiving RPC endpoint at each peer. If Account, Storage, or other backend processes share one Desktop
+connection, use separate lanes such as `rpc.account` and `rpc.storage`, with a corresponding Desktop endpoint for each.
+Sharing a lane between multiple backend receivers is not remote service discovery: unrelated receivers could answer
+`UNKNOWN_SERVICE` before the intended service. Replica routing and callback ownership retain the existing process-local
+subscription constraints.
+
+The inner JSON envelope uses `protocol: "dbeaver.rpc.v1"`, `type`, and `data`, plus `topic` and `operation` for requests
+or a fixed `error` code for failures. Application `data` can be any JSON value, including null; the outer DataDam message
+remains an object and retains its existing request/reply correlation and source validation. Malformed inner envelopes
+are ignored without exposing raw contents. Transport validation and RPC validation do not replace authentication.
+
+The adapter bounds framing, snapshot copying, and outstanding sends to 128 operations without a waiting queue.
+Cancellation of a returned send future does not free its slot until the underlying send actually finishes.
+
+Interfaces declare ordinary one-argument methods returning values or `void`; applications do not implement transport
+listeners. A `void` call waits for handler completion. Local serialization errors and transport failures become unchecked
+`RpcException`; remote handler exceptions are represented only by safe error codes. See the messaging module's README
+for supported contract shapes, ownership, concurrent codec/handler requirements, and timeout semantics.
