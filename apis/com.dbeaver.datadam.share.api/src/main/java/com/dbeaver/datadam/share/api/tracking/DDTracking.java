@@ -22,7 +22,7 @@ import org.jkiss.code.Nullable;
 public record DDTracking(
     @NotNull String trackingId,
     boolean online,
-    @Nullable String startTime,
+    @NotNull String startTime,
     @Nullable String stopTime
 ) {
 }
