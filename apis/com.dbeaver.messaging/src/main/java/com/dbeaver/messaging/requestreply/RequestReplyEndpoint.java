@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -161,12 +162,22 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
         try {
             transport.send(RequestReplyMessage.request(requestId, endpointId, payload)).whenComplete((ignored, error) -> {
                 if (error != null) {
-                    fail(requestId, call, new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, error));
+                    fail(requestId, call, sendFailure(error));
                 }
             });
         } catch (RuntimeException e) {
-            fail(requestId, call, new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, e));
+            fail(requestId, call, sendFailure(e));
         }
+    }
+
+    @NotNull
+    private static RequestReplyException sendFailure(@NotNull Throwable error) {
+        Throwable cause = error;
+        while ((cause instanceof CompletionException || cause instanceof ExecutionException) && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause instanceof RequestReplyException failure
+            ? failure : new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, error);
     }
 
     private void fail(

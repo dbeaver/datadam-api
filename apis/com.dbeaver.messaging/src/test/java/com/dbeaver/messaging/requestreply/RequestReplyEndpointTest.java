@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -140,6 +141,85 @@ class RequestReplyEndpointTest {
             };
             assertEquals("recovered", endpoint.request("next request"));
             assertEquals(1, transport.sent.size());
+        }
+    }
+
+    @Test
+    void preservesTypedAsynchronousSendFailuresAndReleasesCapacityBeforeLateNotifications() throws Exception {
+        for (RequestReplyException expected : List.of(
+            new RequestReplyException(RequestReplyException.Reason.OVERLOADED),
+            new RequestReplyException(RequestReplyException.Reason.DISCONNECTED),
+            new RequestReplyException(RequestReplyException.Reason.CLOSED),
+            new RequestReplyException(RequestReplyException.Reason.TIMEOUT),
+            new RequestReplyException(RequestReplyException.Reason.SEND_FAILED),
+            new RequestReplyException(RequestReplyMessage.Error.OVERLOADED))) {
+            for (Throwable error : List.of(expected, new CompletionException(expected), new ExecutionException(expected),
+                new CompletionException(new ExecutionException(new CompletionException(expected))))) {
+                var transport = new MemoryTransport();
+                var acknowledgement = new CompletableFuture<Void>();
+                transport.sender = message -> acknowledgement;
+                try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+                    Future<String> pending = async(() -> endpoint.request("request"));
+                    final RequestReplyMessage<String> request = transport.next();
+
+                    acknowledgement.completeExceptionally(error);
+
+                    assertSame(expected, failure(expected.reason(), pending));
+                    transport.disconnect();
+                    transport.deliver(request.response("too late"));
+                    transport.sender = message -> {
+                        transport.deliver(message.response("recovered"));
+                        return CompletableFuture.completedFuture(null);
+                    };
+                    assertEquals("recovered", endpoint.request("next request"));
+                    assertEquals("next request", transport.next().payload());
+                    assertTrue(transport.sent.isEmpty());
+                }
+            }
+        }
+    }
+
+    @Test
+    void preservesTypedSynchronousSendFailuresWrappedByCompletionStages() throws Exception {
+        for (RequestReplyException expected : List.of(
+            new RequestReplyException(RequestReplyException.Reason.OVERLOADED),
+            new RequestReplyException(RequestReplyException.Reason.DISCONNECTED),
+            new RequestReplyException(RequestReplyException.Reason.CLOSED),
+            new RequestReplyException(RequestReplyMessage.Error.HANDLER_FAILED))) {
+            for (CompletionException error : List.of(new CompletionException(expected),
+                new CompletionException(new ExecutionException(expected)))) {
+                var transport = new MemoryTransport();
+                transport.sender = message -> {
+                    throw error;
+                };
+                try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+                    assertSame(expected, failure(expected.reason(), () -> endpoint.request("first")));
+                    assertSame(expected, failure(expected.reason(), () -> endpoint.request("second")));
+                    assertEquals(2, transport.sent.size());
+                }
+            }
+        }
+    }
+
+    @Test
+    void keepsUntypedAndUnrelatedWrappedSendErrorsAsSendFailures() throws Exception {
+        var cause = new IllegalStateException("untyped send failure");
+        for (RuntimeException error : List.of(cause, new CompletionException(cause),
+            new CompletionException(new ExecutionException(cause)), new CompletionException((Throwable) null),
+            new IllegalStateException(new RequestReplyException(RequestReplyException.Reason.DISCONNECTED)))) {
+            for (boolean asynchronous : List.of(false, true)) {
+                var transport = new MemoryTransport();
+                transport.sender = message -> {
+                    if (asynchronous) {
+                        return CompletableFuture.failedFuture(error);
+                    }
+                    throw error;
+                };
+                try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+                    assertSame(error, failure(RequestReplyException.Reason.SEND_FAILED, () -> endpoint.request("request")).getCause());
+                    assertEquals(1, transport.sent.size());
+                }
+            }
         }
     }
 

@@ -38,8 +38,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -585,6 +587,30 @@ public class RpcEndpointTest extends RpcTestSupport {
             assertTrue(transport.sent.isEmpty());
             transport.deliver(request.response(RpcMessage.response("completed")));
             assertEquals("completed", result(pending));
+        }
+    }
+
+    @Test
+    void preservesTypedSendFailureReasonsAtTheProxyBoundary() throws Exception {
+        for (var mapping : Map.of(
+            RequestReplyException.Reason.OVERLOADED, RpcException.Reason.OVERLOADED,
+            RequestReplyException.Reason.DISCONNECTED, RpcException.Reason.DISCONNECTED,
+            RequestReplyException.Reason.CLOSED, RpcException.Reason.CLOSED).entrySet()) {
+            var expected = new RequestReplyException(mapping.getKey());
+            var transport = new MemoryTransport();
+            try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+                EchoService proxy = endpoint.proxy("echo", EchoService.class, new TestCodec());
+                for (Throwable error : List.of(expected, new CompletionException(new ExecutionException(expected)))) {
+                    transport.sender = request -> CompletableFuture.failedFuture(error);
+
+                    assertSame(expected, failure(mapping.getValue(), () -> proxy.echo("asynchronous failure")).getCause());
+                }
+                transport.sender = request -> {
+                    throw new CompletionException(expected);
+                };
+                assertSame(expected, failure(mapping.getValue(), () -> proxy.echo("synchronous failure")).getCause());
+                assertEquals(3, transport.sent.size());
+            }
         }
     }
 
