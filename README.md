@@ -41,8 +41,11 @@ Every successful exchange returns an access JWT. Ordinary DataDam APIs use the f
 MCP access uses its authorized resource URI as `aud`.
 Account/Admin additionally use their
 internal identity JWT to establish local browser sessions; this is not an OpenID Connect contract.
-`DDSsoTokenVerifier.verifyAccessToken` requires the expected audience explicitly; API consumers must
-check their required scopes and current business permissions. Identity tokens are never API credentials.
+`DDSsoTokenVerifier.verifyAccessToken` requires the expected audience explicitly. API authentication intersects
+current database permissions with the permissions mapped from the token's individual or full-access scopes.
+Controllers use ordinary permission checks. Identity tokens are never API credentials.
+First-party clients request `account:full_access`, `dbeaver-storage:full_access` or `admin:full_access` as appropriate;
+these scopes limit delegated access and never grant rights missing from the user's current database roles.
 Failed exchanges return a JSON `error` (`invalid_request`, `unsupported_grant_type`, `invalid_client`,
 `invalid_grant`, `invalid_target` or `server_error`).
 

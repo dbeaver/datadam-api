@@ -18,7 +18,6 @@ package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
-import com.dbeaver.datadam.sso.api.exception.DDSsoInsufficientScopeException;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessContextResponse;
 import com.dbeaver.rest.client.AbstractRestClient;
 import com.dbeaver.rest.client.MediaType;
@@ -73,8 +72,6 @@ public class DDSsoAccountClient extends AbstractRestClient {
             UUID.fromString(context.userId());
             UUID.fromString(context.accountId());
             return context;
-        } catch (InsufficientScopeResponse e) {
-            throw new DDSsoInsufficientScopeException();
         } catch (DBException | IllegalArgumentException e) {
             throw new DDSsoClientException("Account service is unavailable");
         }
@@ -83,12 +80,6 @@ public class DDSsoAccountClient extends AbstractRestClient {
     @NotNull
     @Override
     protected DBException mapErrorResponse(int code, @NotNull String message, @NotNull URI uri) {
-        return code == 403 ? new InsufficientScopeResponse() : new DBException("Account access context unavailable");
-    }
-
-    private static final class InsufficientScopeResponse extends DBException {
-        private InsufficientScopeResponse() {
-            super("Insufficient storage access scope");
-        }
+        return new DBException("Account access context unavailable");
     }
 }

@@ -393,12 +393,12 @@ class DDSsoServiceTest {
     }
 
     @Test
-    void accountBackchannelPreservesInsufficientScopeResponse() {
-        responseJson.set("{\"error\":\"insufficient_scope\"}");
+    void accountBackchannelRejectsForbiddenResponses() {
+        responseJson.set("{\"error\":\"forbidden\"}");
         responseStatus.set(403);
         var account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
         Assertions.assertThatThrownBy(() -> account.exchange("header.payload.signature"))
-            .isInstanceOf(com.dbeaver.datadam.sso.api.exception.DDSsoInsufficientScopeException.class);
+            .isInstanceOf(DDSsoClientException.class);
     }
 
     @Test

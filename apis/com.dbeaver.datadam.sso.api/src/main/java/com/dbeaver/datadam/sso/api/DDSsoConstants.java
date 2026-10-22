@@ -98,9 +98,9 @@ public final class DDSsoConstants {
     public static final String DESKTOP_CALLBACK_TEMPLATE = "http://127.0.0.1/callback";
     /** Fixed audience for ordinary DataDam API access tokens; not a client resource setting or an endpoint URL. */
     public static final String API_AUDIENCE = "https://datadam.cloud/api";
-    public static final String SCOPE_ACCOUNT_ACCESS = "account:access";
-    public static final String SCOPE_DBEAVER_STORAGE_ACCESS = "dbeaver-storage:access";
-    public static final String SCOPE_ADMIN_ACCESS = "admin:access";
+    public static final String SCOPE_ACCOUNT_FULL_ACCESS = "account:full_access";
+    public static final String SCOPE_DBEAVER_STORAGE_FULL_ACCESS = "dbeaver-storage:full_access";
+    public static final String SCOPE_ADMIN_FULL_ACCESS = "admin:full_access";
     public static final String SCOPE_MCP_CONNECT = "mcp:connect";
     public static final String SCOPE_MCP_INVOKE = "mcp:invoke";
     public static final String TOKEN_USE_ACCESS = "access";
