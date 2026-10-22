@@ -23,7 +23,6 @@ import java.util.Objects;
 
 public record RpcMessage<P>(
     @NotNull Type type,
-    @Nullable String topic,
     @Nullable String operation,
     @Nullable P payload,
     @Nullable Error error
@@ -39,35 +38,27 @@ public record RpcMessage<P>(
     public RpcMessage {
         Objects.requireNonNull(type);
         if (type == Type.REQUEST) {
-            requireTopic(Objects.requireNonNull(topic));
             if (operation == null || operation.isBlank() || operation.length() > 1024 || error != null) {
                 throw new IllegalArgumentException("Invalid RPC request");
             }
-        } else if (topic != null || operation != null || type == Type.ERROR && (error == null || payload != null)
+        } else if (operation != null || type == Type.ERROR && (error == null || payload != null)
             || type == Type.RESPONSE && error != null) {
             throw new IllegalArgumentException("Invalid RPC response");
         }
     }
 
     @NotNull
-    public static <P> RpcMessage<P> request(@NotNull String topic, @NotNull String operation, @Nullable P payload) {
-        return new RpcMessage<>(Type.REQUEST, topic, operation, payload, null);
+    public static <P> RpcMessage<P> request(@NotNull String operation, @Nullable P payload) {
+        return new RpcMessage<>(Type.REQUEST, operation, payload, null);
     }
 
     @NotNull
     public static <P> RpcMessage<P> response(@Nullable P payload) {
-        return new RpcMessage<>(Type.RESPONSE, null, null, payload, null);
+        return new RpcMessage<>(Type.RESPONSE, null, payload, null);
     }
 
     @NotNull
     public static <P> RpcMessage<P> failure(@NotNull Error error) {
-        return new RpcMessage<>(Type.ERROR, null, null, null, Objects.requireNonNull(error));
-    }
-
-    static void requireTopic(@NotNull String topic) {
-        Objects.requireNonNull(topic);
-        if (topic.isBlank() || topic.length() > 256) {
-            throw new IllegalArgumentException("Expected a nonblank RPC topic of at most 256 characters");
-        }
+        return new RpcMessage<>(Type.ERROR, null, null, Objects.requireNonNull(error));
     }
 }

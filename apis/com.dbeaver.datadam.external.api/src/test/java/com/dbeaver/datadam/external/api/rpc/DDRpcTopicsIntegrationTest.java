@@ -25,15 +25,20 @@ import com.dbeaver.datadam.external.api.transport.DDMessageChannel;
 import com.dbeaver.datadam.external.api.transport.DDMessageListener;
 import com.dbeaver.datadam.external.api.transport.DDSubscription;
 import com.dbeaver.messaging.requestreply.RequestReplyOptions;
+import com.dbeaver.messaging.rpc.RpcCodec;
 import com.dbeaver.messaging.rpc.RpcEndpoint;
 import com.dbeaver.messaging.rpc.RpcException;
 import com.dbeaver.messaging.rpc.RpcMessage;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -42,48 +47,60 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 @Timeout(10)
-class DDRpcServicesIntegrationTest {
+class DDRpcTopicsIntegrationTest {
     private static final DDConnectionInfo CONNECTION = new DDConnectionInfo("desktop", "run", "physical-connection");
     private static final RequestReplyOptions OPTIONS = new RequestReplyOptions(Duration.ofSeconds(2), 16, 8);
 
     @Test
-    void servesAccountAndStorageBidirectionallyOverOneDesktopChannel() throws Exception {
+    void routesExactDeveloperTopicsBidirectionallyWithIndependentBindingCodecs() {
         Channel desktop = new Channel();
-        Channel account = new Channel();
-        Channel storage = new Channel();
+        Channel firstBackend = new Channel();
+        Channel secondBackend = new Channel();
         desktop.forward = message -> {
-            account.receive(message);
-            storage.receive(message);
+            firstBackend.receive(message);
+            secondBackend.receive(message);
         };
-        account.forward = desktop::receive;
-        storage.forward = desktop::receive;
+        firstBackend.forward = desktop::receive;
+        secondBackend.forward = desktop::receive;
         var codec = new DDGsonRpcCodec(new Gson());
-        try (var desktopAccount = RpcEndpoint.open(
-                 DDRpcTransport.forChannel(desktop, DDRpcServices.topic(DDRpcServices.ACCOUNT)), codec, OPTIONS);
-             var desktopStorage = RpcEndpoint.open(
-                 DDRpcTransport.forChannel(desktop, DDRpcServices.topic(DDRpcServices.STORAGE)), codec, OPTIONS);
-             var accountRpc = RpcEndpoint.open(
-                 DDRpcTransport.forChannel(account, DDRpcServices.topic(DDRpcServices.ACCOUNT)), codec, OPTIONS);
-             var storageRpc = RpcEndpoint.open(
-                 DDRpcTransport.forChannel(storage, DDRpcServices.topic(DDRpcServices.STORAGE)), codec, OPTIONS);
-             var accountGreeting = accountRpc.register("greeting", Greeting.class, value -> value + " World from Account");
-             var storageGreeting = storageRpc.register("greeting", Greeting.class, value -> value + " World from Storage");
-             var accountCounter = desktopAccount.register("counter", Counter.class, value -> value + 1);
-             var storageCounter = desktopStorage.register("counter", Counter.class, value -> value + 10)) {
-            Assertions.assertEquals("Hello World from Account", desktopAccount.proxy("greeting", Greeting.class).hello("Hello"));
-            Assertions.assertEquals("Hello World from Storage", desktopStorage.proxy("greeting", Greeting.class).hello("Hello"));
-            Assertions.assertEquals(2, accountRpc.proxy("counter", Counter.class).increment(1));
-            Assertions.assertEquals(11, storageRpc.proxy("counter", Counter.class).increment(1));
-
-            accountCounter.close();
-
+        String firstTopic = "hello.files.v2";
+        String secondTopic = "developer..chosen-topic";
+        var serviceCodec = new PrefixCodec("response:", "argument:");
+        var firstProxyCodec = new PrefixCodec("first:", "one:");
+        var secondProxyCodec = new PrefixCodec("second:", "two:");
+        try (var desktopRpc = RpcEndpoint.open(DDRpcTransport.forChannel(desktop), codec, OPTIONS);
+             var firstRpc = RpcEndpoint.open(DDRpcTransport.forChannel(firstBackend), OPTIONS);
+             var secondRpc = RpcEndpoint.open(DDRpcTransport.forChannel(secondBackend), OPTIONS);
+             var firstGreeting = firstRpc.register(firstTopic, Greeting.class, value -> value, serviceCodec);
+             var secondGreeting = secondRpc.register(secondTopic, Greeting.class, value -> "other:" + value, codec);
+             var reverseGreeting = desktopRpc.register(firstTopic, Greeting.class, value -> "desktop:" + value)) {
+            Greeting first = desktopRpc.proxy(firstTopic, Greeting.class, firstProxyCodec);
+            Greeting second = desktopRpc.proxy(firstTopic, Greeting.class, secondProxyCodec);
+            Assertions.assertEquals("one:response:argument:first:Hello", first.hello("Hello"));
+            Assertions.assertEquals("two:response:argument:second:Hello", second.hello("Hello"));
+            Assertions.assertEquals("other:Hello", desktopRpc.proxy(secondTopic, Greeting.class).hello("Hello"));
+            Assertions.assertEquals("desktop:reverse", firstRpc.proxy(firstTopic, Greeting.class, codec).hello("reverse"));
+            Assertions.assertEquals("response:argument:fallback", desktopRpc.proxy(firstTopic, Greeting.class).hello("fallback"));
+            Assertions.assertEquals(4, desktop.subscriptions.size());
+            Assertions.assertEquals(2, firstBackend.subscriptions.size());
+            Assertions.assertEquals(2, secondBackend.subscriptions.size());
+            Assertions.assertTrue(desktop.subscriptions.stream().anyMatch(value -> value.topic().equals(firstTopic)));
+            Assertions.assertTrue(desktop.subscriptions.stream().anyMatch(value -> value.topic().equals(secondTopic)));
+            for (DDMessage message : desktop.sent) {
+                if ("REQUEST".equals(message.payload().get("type").getAsString())) {
+                    Assertions.assertTrue(List.of(firstTopic, secondTopic).contains(message.topic()));
+                    JsonElement envelope = message.payload().get("data");
+                    Assertions.assertFalse(envelope.getAsJsonObject().has("topic"));
+                    Assertions.assertEquals("dbeaver.rpc.v2", envelope.getAsJsonObject().get("protocol").getAsString());
+                }
+            }
+            firstGreeting.close();
             RpcException missing = Assertions.assertThrows(RpcException.class,
-                () -> accountRpc.proxy("counter", Counter.class).increment(1));
+                () -> first.hello("closed"));
             Assertions.assertEquals(RpcMessage.Error.UNKNOWN_SERVICE, missing.remoteError());
-            Assertions.assertEquals(11, storageRpc.proxy("counter", Counter.class).increment(1));
-            Assertions.assertEquals("Still World from Account", desktopAccount.proxy("greeting", Greeting.class).hello("Still"));
+            Assertions.assertEquals("other:still", desktopRpc.proxy(secondTopic, Greeting.class).hello("still"));
         }
-        for (Channel channel : List.of(desktop, account, storage)) {
+        for (Channel channel : List.of(desktop, firstBackend, secondBackend)) {
             Assertions.assertFalse(channel.closed);
             Assertions.assertTrue(channel.subscriptions.isEmpty());
             Assertions.assertTrue(channel.observers.isEmpty());
@@ -96,14 +113,24 @@ class DDRpcServicesIntegrationTest {
         String hello(@NotNull String value);
     }
 
-    /** Increments a value on the selected Desktop lane. */
-    public interface Counter {
-        int increment(int value);
+    private record PrefixCodec(@NotNull String encodedPrefix, @NotNull String decodedPrefix) implements RpcCodec<JsonElement> {
+        @Override
+        @NotNull
+        public JsonElement encode(@Nullable Object value, @NotNull Type type) {
+            return new JsonPrimitive(encodedPrefix + value);
+        }
+
+        @Override
+        @NotNull
+        public Object decode(@Nullable JsonElement payload, @NotNull Type type) {
+            return decodedPrefix + payload.getAsString();
+        }
     }
 
     private static final class Channel implements DDMessageChannel {
         private final List<Subscription> subscriptions = new CopyOnWriteArrayList<>();
         private final List<Consumer<DDChannelStatus>> observers = new CopyOnWriteArrayList<>();
+        private final List<DDMessage> sent = new CopyOnWriteArrayList<>();
         private Consumer<DDMessage> forward = message -> { };
         private boolean closed;
 
@@ -124,6 +151,7 @@ class DDRpcServicesIntegrationTest {
         @Override
         @NotNull
         public CompletionStage<Void> send(@NotNull DDMessage message) {
+            sent.add(message);
             forward.accept(message);
             return CompletableFuture.completedFuture(null);
         }

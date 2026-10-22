@@ -39,18 +39,18 @@ public class RpcContractTest extends RpcTestSupport {
     void rejectsInvalidContractsBeforeSendingAndLeavesTheTopicAvailable() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, codec, OPTIONS)) {
+        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
             for (Class<?> type : List.of(
                 String.class, HiddenService.class, SealedService.class, GenericService.class, RawGenericService.class,
                 EmptyService.class, StaticOnlyService.class, ObjectOnlyService.class,
                 DefaultService.class, VarargsService.class, NoArgumentService.class, TwoArgumentService.class,
                 GenericMethodService.class, FutureService.class, StageService.class, CompletableService.class
             )) {
-                assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("service", type), type.getName());
-                assertThrows(IllegalArgumentException.class, () -> endpoint.register("service", type, null), type.getName());
+                assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("service", type, codec), type.getName());
+                assertThrows(IllegalArgumentException.class, () -> endpoint.register("service", type, null, codec), type.getName());
             }
-            assertThrows(IllegalArgumentException.class, () -> endpoint.register("service", DefaultService.class, value -> value));
-            try (var registration = endpoint.register("service", StaticService.class, value -> value)) {
+            assertThrows(IllegalArgumentException.class, () -> endpoint.register("service", DefaultService.class, value -> value, codec));
+            try (var registration = endpoint.register("service", StaticService.class, value -> value, codec)) {
                 assertTrue(transport.sent.isEmpty());
                 assertTrue(codec.encoded.isEmpty());
                 assertTrue(codec.decoded.isEmpty());
@@ -70,10 +70,10 @@ public class RpcContractTest extends RpcTestSupport {
         assertTrue(bridge.isSynthetic());
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, codec, OPTIONS)) {
-            assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("bridge", GenericBridgeChild.class));
+        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+            assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("bridge", GenericBridgeChild.class, codec));
             assertThrows(IllegalArgumentException.class,
-                () -> endpoint.register("bridge", GenericBridgeChild.class, value -> value));
+                () -> endpoint.register("bridge", GenericBridgeChild.class, value -> value, codec));
             assertTrue(codec.encoded.isEmpty());
             assertTrue(codec.decoded.isEmpty());
             assertTrue(transport.sent.isEmpty());
@@ -84,10 +84,10 @@ public class RpcContractTest extends RpcTestSupport {
     void rejectsUnrelatedParentsWithAmbiguousGenericParameterOrReturnTypesBeforeSending() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, codec, OPTIONS)) {
+        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
             for (Class<?> type : List.of(AmbiguousListCounter.class, AmbiguousListLoader.class)) {
-                assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("ambiguous", type), type.getName());
-                assertThrows(IllegalArgumentException.class, () -> endpoint.register("ambiguous", type, null), type.getName());
+                assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("ambiguous", type, codec), type.getName());
+                assertThrows(IllegalArgumentException.class, () -> endpoint.register("ambiguous", type, null, codec), type.getName());
             }
             assertTrue(codec.encoded.isEmpty());
             assertTrue(codec.decoded.isEmpty());
@@ -121,16 +121,16 @@ public class RpcContractTest extends RpcTestSupport {
         var clientCodec = new TestCodec();
         var serverCodec = new TestCodec();
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, clientCodec, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, serverCodec, OPTIONS);
-             var counter = server.register("count", ResolvedListCounter.class, List::size);
-             var loader = server.register("load", ResolvedListLoader.class, List::of)) {
-            ResolvedListCounter childCounter = client.proxy("count", ResolvedListCounter.class);
+        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
+             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+             var counter = server.register("count", ResolvedListCounter.class, List::size, serverCodec);
+             var loader = server.register("load", ResolvedListLoader.class, List::of, serverCodec)) {
+            ResolvedListCounter childCounter = client.proxy("count", ResolvedListCounter.class, clientCodec);
             TypedListCounter typedCounter = childCounter;
             assertEquals(2, typedCounter.count(List.of("one", "two")));
             assertEquals(1, childCounter.count(List.of("child")));
 
-            ResolvedListLoader childLoader = client.proxy("load", ResolvedListLoader.class);
+            ResolvedListLoader childLoader = client.proxy("load", ResolvedListLoader.class, clientCodec);
             WideListLoader wideLoader = childLoader;
             NarrowListLoader narrowLoader = childLoader;
             assertEquals(List.of("wide"), wideLoader.load("wide"));

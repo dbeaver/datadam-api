@@ -65,13 +65,13 @@ import java.util.function.Consumer;
 
 @Timeout(10)
 public class DDRpcTransportTest {
-    private static final String LANE = "rpc";
+    private static final String TOPIC = "custom.files";
     private static final DDConnectionInfo CONNECTION = new DDConnectionInfo("desktop", "run", "socket");
     private static final RequestReplyOptions OPTIONS = new RequestReplyOptions(Duration.ofSeconds(2), 16, 8);
     private static final RpcCodec<JsonElement> CODEC = new GsonCodec();
 
     @Test
-    void multiplexesIndependentBidirectionalServicesOnOneBorrowedLane() throws Exception {
+    void servesIndependentBidirectionalTopicsWithoutClosingTheBorrowedChannel() throws Exception {
         FakeChannel left = new FakeChannel();
         FakeChannel right = new FakeChannel();
         left.forward = right::deliver;
@@ -79,9 +79,8 @@ public class DDRpcTransportTest {
         AtomicInteger nullArguments = new AtomicInteger();
         AtomicInteger notifications = new AtomicInteger();
         final DDSubscription borrowed = left.subscribe("other", (connection, message) -> { });
-        RequestReplyTransport<JsonObject> backendLane = DDRequestReplyTransport.forChannel(left, LANE);
-        try (var caller = RpcEndpoint.open(new DDRpcTransport(backendLane), CODEC, OPTIONS);
-             var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right, LANE), CODEC, OPTIONS);
+        try (var caller = RpcEndpoint.open(topic -> new DDRpcTransport(DDRequestReplyTransport.forChannel(left, topic)), CODEC, OPTIONS);
+             var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right), CODEC, OPTIONS);
              var leftNames = caller.register("names", Names.class, values -> List.of("left", values.getFirst()));
              var rightNames = handler.register("names", Names.class, values -> List.of("right", values.getFirst()));
              var otherNames = handler.register("other-names", Names.class, values -> List.of("other"));
@@ -102,10 +101,10 @@ public class DDRpcTransportTest {
             Assertions.assertEquals(1, nullArguments.get());
             caller.proxy("notifications", Notification.class).accept(null);
             Assertions.assertEquals(1, notifications.get());
-            Assertions.assertEquals(3, left.subscriptions.size());
-            Assertions.assertEquals(2, right.subscriptions.size());
-            Assertions.assertEquals(LANE, left.subscriptions.getLast().topic);
-            Assertions.assertEquals(LANE, right.subscriptions.getLast().topic);
+            Assertions.assertEquals(11, left.subscriptions.size());
+            Assertions.assertEquals(10, right.subscriptions.size());
+            Assertions.assertEquals("notifications", left.subscriptions.getLast().topic);
+            Assertions.assertEquals("notifications", right.subscriptions.getLast().topic);
             otherNames.close();
             RpcException missing = Assertions.assertThrows(RpcException.class,
                 () -> caller.proxy("other-names", Names.class).apply(List.of()));
@@ -131,8 +130,8 @@ public class DDRpcTransportTest {
         right.forward = left::deliver;
         AtomicReference<Item> received = new AtomicReference<>();
         Item argument = new Item("argument", new ArrayList<>(List.of("initial")));
-        try (var caller = RpcEndpoint.open(DDRpcTransport.forChannel(left, LANE), CODEC, OPTIONS);
-             var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right, LANE), CODEC, OPTIONS);
+        try (var caller = RpcEndpoint.open(DDRpcTransport.forChannel(left), CODEC, OPTIONS);
+             var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right), CODEC, OPTIONS);
              var service = handler.register("records", Records.class, value -> {
                  received.set(value);
                  value.tags().add("handler");
@@ -164,7 +163,8 @@ public class DDRpcTransportTest {
             Assertions.assertEquals(request.requestId(), sent.requestId());
             Assertions.assertEquals(request.replyTo(), sent.replyTo());
             Assertions.assertEquals(RequestReplyMessage.Type.REQUEST, sent.type());
-            Assertions.assertEquals("dbeaver.rpc.v1", Objects.requireNonNull(sent.payload()).get("protocol").getAsString());
+            Assertions.assertEquals("dbeaver.rpc.v2", Objects.requireNonNull(sent.payload()).get("protocol").getAsString());
+            Assertions.assertFalse(sent.payload().has("topic"));
             delegate.deliver(sent);
             Assertions.assertEquals(request, received.messages.getLast());
             RequestReplyMessage<RpcMessage<JsonElement>> response = request.response(RpcMessage.response(new JsonPrimitive(42)));
@@ -262,7 +262,7 @@ public class DDRpcTransportTest {
         List<JsonElement> nonStrings = List.of(new JsonPrimitive(1), new JsonPrimitive(true), JsonNull.INSTANCE,
             new JsonObject(), new JsonArray());
         try (var subscription = adapter.subscribe(endpoint, received)) {
-            for (String field : List.of("protocol", "type", "topic", "operation")) {
+            for (String field : List.of("protocol", "type", "operation")) {
                 JsonObject missing = requestEnvelope();
                 missing.remove(field);
                 delegate.deliver(RequestReplyMessage.request(request.requestId(), endpoint, missing));
@@ -273,14 +273,13 @@ public class DDRpcTransportTest {
                 }
             }
             List<Consumer<JsonObject>> malformed = List.of(
-                envelope -> envelope.addProperty("protocol", "dbeaver.rpc.v2"),
+                envelope -> envelope.addProperty("protocol", "dbeaver.rpc.v1"),
                 envelope -> envelope.addProperty("protocol", "unrelated"),
                 envelope -> envelope.addProperty("type", "OTHER"),
                 envelope -> envelope.addProperty("type", "request"),
                 envelope -> envelope.addProperty("type", "RESPONSE"),
                 envelope -> envelope.addProperty("type", "ERROR"),
-                envelope -> envelope.addProperty("topic", " "),
-                envelope -> envelope.addProperty("topic", "x".repeat(257)),
+                envelope -> envelope.addProperty("topic", "legacy.topic"),
                 envelope -> envelope.addProperty("operation", "\t"),
                 envelope -> envelope.addProperty("operation", "x".repeat(1025)),
                 envelope -> envelope.remove("data"),
@@ -294,12 +293,10 @@ public class DDRpcTransportTest {
             }
             Assertions.assertTrue(received.messages.isEmpty());
             JsonObject boundary = requestEnvelope();
-            boundary.addProperty("topic", "x".repeat(256));
             boundary.addProperty("operation", "x".repeat(1024));
             delegate.deliver(RequestReplyMessage.request(request.requestId(), endpoint, boundary));
             Assertions.assertEquals(1, received.messages.size());
             RpcMessage<JsonElement> accepted = Objects.requireNonNull(received.messages.getLast().payload());
-            Assertions.assertEquals("x".repeat(256), accepted.topic());
             Assertions.assertEquals("x".repeat(1024), accepted.operation());
             Assertions.assertNull(accepted.payload());
         }
@@ -354,7 +351,7 @@ public class DDRpcTransportTest {
     @Test
     void requiresObjectEnvelopesThroughExistingDataDamFraming() throws Exception {
         FakeChannel channel = new FakeChannel();
-        DDRpcTransport adapter = DDRpcTransport.forChannel(channel, LANE);
+        DDRpcTransport adapter = DDRpcTransport.forChannel(channel, TOPIC);
         UUID endpoint = UUID.randomUUID();
         Received received = new Received();
         try (var subscription = adapter.subscribe(endpoint, received)) {
@@ -374,7 +371,7 @@ public class DDRpcTransportTest {
     @Test
     void neutralRpcDistinguishesNestedErrorsOuterErrorsAndInvalidResponses() throws Exception {
         MemoryTransport delegate = new MemoryTransport();
-        try (var endpoint = RpcEndpoint.open(new DDRpcTransport(delegate), CODEC, OPTIONS)) {
+        try (var endpoint = RpcEndpoint.open(topic -> new DDRpcTransport(delegate), CODEC, OPTIONS)) {
             Text proxy = endpoint.proxy("text", Text.class);
             for (RpcMessage.Error error : RpcMessage.Error.values()) {
                 delegate.forward = request -> delegate.deliver(request.response(errorEnvelope(error)));
@@ -401,9 +398,9 @@ public class DDRpcTransportTest {
     void malformedAndUnknownVersionRepliesRemainUnansweredUntilTimeout() throws Exception {
         MemoryTransport delegate = new MemoryTransport();
         RequestReplyOptions options = new RequestReplyOptions(Duration.ofMillis(100), 4, 2);
-        try (var endpoint = RpcEndpoint.open(new DDRpcTransport(delegate), CODEC, options)) {
+        try (var endpoint = RpcEndpoint.open(topic -> new DDRpcTransport(delegate), CODEC, options)) {
             for (Consumer<JsonObject> mutation : List.<Consumer<JsonObject>>of(
-                envelope -> envelope.addProperty("protocol", "dbeaver.rpc.v2"),
+                envelope -> envelope.addProperty("protocol", "dbeaver.rpc.v1"),
                 envelope -> envelope.addProperty("type", "UNKNOWN"),
                 envelope -> envelope.remove("data")
             )) {
@@ -424,19 +421,21 @@ public class DDRpcTransportTest {
         FakeChannel right = new FakeChannel();
         left.forward = right::deliver;
         right.forward = left::deliver;
-        try (var caller = RequestReplyEndpoint.open(DDRpcTransport.forChannel(left, LANE), OPTIONS);
-             var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right, LANE), CODEC, OPTIONS);
-             var service = handler.register("text", Text.class, value -> {
+        try (var caller = RequestReplyEndpoint.open(DDRpcTransport.forChannel(left, TOPIC), OPTIONS);
+             var missingCaller = RequestReplyEndpoint.open(DDRpcTransport.forChannel(left, "missing"), OPTIONS);
+             var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right), CODEC, OPTIONS);
+             var service = handler.register(TOPIC, Text.class, value -> {
                  throw new IllegalStateException("Handler failed");
              })) {
-            RpcMessage<JsonElement> missingService = caller.request(RpcMessage.request("missing", "apply", null));
+            handler.proxy("missing", Text.class);
+            RpcMessage<JsonElement> missingService = missingCaller.request(RpcMessage.request("apply", null));
             Assertions.assertEquals(RpcMessage.failure(RpcMessage.Error.UNKNOWN_SERVICE), missingService);
-            RpcMessage<JsonElement> missingOperation = caller.request(RpcMessage.request("text", "missing", null));
+            RpcMessage<JsonElement> missingOperation = caller.request(RpcMessage.request("missing", null));
             Assertions.assertEquals(RpcMessage.failure(RpcMessage.Error.UNKNOWN_OPERATION), missingOperation);
             String operation = "apply(" + String.class.getTypeName() + ")";
-            RpcMessage<JsonElement> codecFailure = caller.request(RpcMessage.request("text", operation, new JsonObject()));
+            RpcMessage<JsonElement> codecFailure = caller.request(RpcMessage.request(operation, new JsonObject()));
             Assertions.assertEquals(RpcMessage.failure(RpcMessage.Error.CODEC_FAILED), codecFailure);
-            RpcMessage<JsonElement> handlerFailure = caller.request(RpcMessage.request("text", operation, new JsonPrimitive("value")));
+            RpcMessage<JsonElement> handlerFailure = caller.request(RpcMessage.request(operation, new JsonPrimitive("value")));
             Assertions.assertEquals(RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED), handlerFailure);
             Assertions.assertTrue(right.sent.stream().allMatch(message ->
                 "RESPONSE".equals(message.payload().get("type").getAsString())));
@@ -610,8 +609,8 @@ public class DDRpcTransportTest {
     @Test
     void rollsBackDelegatedChannelSubscriptionsWithoutClosingTheBorrowedChannel() {
         FakeChannel channel = new FakeChannel();
-        channel.failTopic = LANE;
-        DDRpcTransport adapter = DDRpcTransport.forChannel(channel, LANE);
+        channel.failTopic = TOPIC;
+        DDRpcTransport adapter = DDRpcTransport.forChannel(channel, TOPIC);
         RequestReplyException failure = Assertions.assertThrows(RequestReplyException.class,
             () -> adapter.subscribe(UUID.randomUUID(), new Received()));
         Assertions.assertSame(channel.subscriptionFailure, failure.getCause());
@@ -623,10 +622,65 @@ public class DDRpcTransportTest {
     }
 
     @Test
+    void failedLazyTopicSubscriptionRollsBackAndCanBeRetried() {
+        FakeChannel channel = new FakeChannel();
+        channel.failTopic = TOPIC;
+        try (var endpoint = RpcEndpoint.open(DDRpcTransport.forChannel(channel), CODEC, OPTIONS)) {
+            RpcException failure = Assertions.assertThrows(RpcException.class, () -> endpoint.proxy(TOPIC, Text.class));
+            Assertions.assertEquals(RpcException.Reason.SEND_FAILED, failure.reason());
+            Assertions.assertSame(channel.subscriptionFailure, failure.getCause().getCause());
+            Assertions.assertTrue(channel.observers.isEmpty());
+            Assertions.assertTrue(channel.subscriptions.stream().noneMatch(subscription -> subscription.active));
+            channel.failTopic = null;
+            endpoint.proxy(TOPIC, Text.class);
+            Assertions.assertEquals(2, channel.subscriptions.stream().filter(subscription -> subscription.active).count());
+        }
+        Assertions.assertFalse(channel.closed);
+        Assertions.assertTrue(channel.observers.isEmpty());
+        Assertions.assertTrue(channel.subscriptions.stream().noneMatch(subscription -> subscription.active));
+    }
+
+    @Test
+    void incompatibleCodecPayloadsUseNormalSendAndRemoteCodecFailures() {
+        FakeChannel left = new FakeChannel();
+        FakeChannel right = new FakeChannel();
+        left.forward = right::deliver;
+        right.forward = left::deliver;
+        RpcCodec<String> incompatible = new RpcCodec<>() {
+            @Override
+            @Nullable
+            public String encode(@Nullable Object value, @NotNull Type type) {
+                return String.class.cast(value);
+            }
+
+            @Override
+            @Nullable
+            public Object decode(@Nullable String payload, @NotNull Type type) {
+                return payload;
+            }
+        };
+        try (var caller = RpcEndpoint.open(DDRpcTransport.forChannel(left), CODEC, OPTIONS);
+             var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right), CODEC, OPTIONS);
+             var service = handler.register(TOPIC, Text.class, value -> value)) {
+            RpcException sendFailure = Assertions.assertThrows(RpcException.class,
+                () -> caller.proxy(TOPIC, Text.class, incompatible).apply("incompatible"));
+            Assertions.assertEquals(RpcException.Reason.SEND_FAILED, sendFailure.reason());
+            Assertions.assertEquals("compatible", caller.proxy(TOPIC, Text.class).apply("compatible"));
+            service.close();
+            try (var replacement = handler.register(TOPIC, Text.class, value -> value, incompatible)) {
+                RpcException codecFailure = Assertions.assertThrows(RpcException.class,
+                    () -> caller.proxy(TOPIC, Text.class).apply("incompatible"));
+                Assertions.assertEquals(RpcException.Reason.REMOTE_ERROR, codecFailure.reason());
+                Assertions.assertEquals(RpcMessage.Error.CODEC_FAILED, codecFailure.remoteError());
+            }
+        }
+    }
+
+    @Test
     void channelDisconnectTerminatesPendingRpcAndClosingLeavesTheChannelIntact() throws Exception {
         FakeChannel channel = new FakeChannel();
         channel.forward = message -> channel.setStatus(new DDChannelStatus(DDChannelState.DISCONNECTED, null));
-        try (var endpoint = RpcEndpoint.open(DDRpcTransport.forChannel(channel, LANE), CODEC, OPTIONS)) {
+        try (var endpoint = RpcEndpoint.open(DDRpcTransport.forChannel(channel), CODEC, OPTIONS)) {
             RpcException failure = Assertions.assertThrows(RpcException.class,
                 () -> endpoint.proxy("text", Text.class).apply("request"));
             Assertions.assertEquals(RpcException.Reason.DISCONNECTED, failure.reason());
@@ -638,7 +692,7 @@ public class DDRpcTransportTest {
 
     @NotNull
     private static RequestReplyMessage<RpcMessage<JsonElement>> request(@NotNull UUID endpoint, @Nullable JsonElement value) {
-        return RequestReplyMessage.request(UUID.randomUUID(), endpoint, RpcMessage.request("projects", "apply", value));
+        return RequestReplyMessage.request(UUID.randomUUID(), endpoint, RpcMessage.request("apply", value));
     }
 
     private static void assertSendFailure(@NotNull Throwable expected, @NotNull CompletionStage<Void> result) {
@@ -656,18 +710,18 @@ public class DDRpcTransportTest {
 
     @NotNull
     private static JsonObject requestEnvelope() {
-        return JsonParser.parseString("{\"protocol\":\"dbeaver.rpc.v1\",\"type\":\"REQUEST\","
-            + "\"topic\":\"projects\",\"operation\":\"apply\",\"data\":null}").getAsJsonObject();
+        return JsonParser.parseString("{\"protocol\":\"dbeaver.rpc.v2\",\"type\":\"REQUEST\","
+            + "\"operation\":\"apply\",\"data\":null}").getAsJsonObject();
     }
 
     @NotNull
     private static JsonObject responseEnvelope() {
-        return JsonParser.parseString("{\"protocol\":\"dbeaver.rpc.v1\",\"type\":\"RESPONSE\",\"data\":null}").getAsJsonObject();
+        return JsonParser.parseString("{\"protocol\":\"dbeaver.rpc.v2\",\"type\":\"RESPONSE\",\"data\":null}").getAsJsonObject();
     }
 
     @NotNull
     private static JsonObject errorEnvelope(@NotNull RpcMessage.Error error) {
-        JsonObject result = JsonParser.parseString("{\"protocol\":\"dbeaver.rpc.v1\",\"type\":\"ERROR\"}").getAsJsonObject();
+        JsonObject result = JsonParser.parseString("{\"protocol\":\"dbeaver.rpc.v2\",\"type\":\"ERROR\"}").getAsJsonObject();
         result.addProperty("error", error.name());
         return result;
     }

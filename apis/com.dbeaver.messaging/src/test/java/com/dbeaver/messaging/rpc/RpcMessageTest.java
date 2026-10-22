@@ -31,22 +31,20 @@ class RpcMessageTest {
     @Test
     void preservesOpaquePayloadsAndAllowsNullApplicationValues() {
         Object payload = new Object();
-        RpcMessage<Object> request = RpcMessage.request("service", "echo(java.lang.String)", payload);
+        RpcMessage<Object> request = RpcMessage.request("echo(java.lang.String)", payload);
 
         assertEquals(RpcMessage.Type.REQUEST, request.type());
-        assertEquals("service", request.topic());
         assertEquals("echo(java.lang.String)", request.operation());
         assertSame(payload, request.payload());
         assertNull(request.error());
-        assertNull(RpcMessage.request("service", "echo(java.lang.String)", null).payload());
+        assertNull(RpcMessage.request("echo(java.lang.String)", null).payload());
 
         RpcMessage<Object> response = RpcMessage.response(payload);
         assertEquals(RpcMessage.Type.RESPONSE, response.type());
         assertSame(payload, response.payload());
-        assertNull(response.topic());
         assertNull(response.operation());
         assertNull(response.error());
-        assertEquals(new RpcMessage<>(RpcMessage.Type.RESPONSE, null, null, null, null), RpcMessage.response(null));
+        assertEquals(new RpcMessage<>(RpcMessage.Type.RESPONSE, null, null, null), RpcMessage.response(null));
     }
 
     @Test
@@ -56,7 +54,6 @@ class RpcMessageTest {
 
             assertEquals(RpcMessage.Type.ERROR, failure.type());
             assertEquals(error, failure.error());
-            assertNull(failure.topic());
             assertNull(failure.operation());
             assertNull(failure.payload());
         }
@@ -64,39 +61,32 @@ class RpcMessageTest {
     }
 
     @Test
-    void validatesTopicAndOperationBoundsWithoutRejectingTheBoundary() {
-        String topic = "t".repeat(256);
+    void validatesOperationBoundsWithoutRejectingTheBoundary() {
         String operation = "o".repeat(1024);
-        RpcMessage<Object> request = RpcMessage.request(topic, operation, null);
-        assertEquals(topic, request.topic());
+        RpcMessage<Object> request = RpcMessage.request(operation, null);
         assertEquals(operation, request.operation());
 
-        for (String invalid : List.of("", " ", "\n", "t".repeat(257))) {
-            assertThrows(IllegalArgumentException.class, () -> RpcMessage.request(invalid, operation, null));
-        }
         for (String invalid : List.of("", " ", "\n", "o".repeat(1025))) {
-            assertThrows(IllegalArgumentException.class, () -> RpcMessage.request(topic, invalid, null));
+            assertThrows(IllegalArgumentException.class, () -> RpcMessage.request(invalid, null));
         }
-        assertThrows(NullPointerException.class, () -> RpcMessage.request(null, operation, null));
-        assertThrows(IllegalArgumentException.class, () -> RpcMessage.request(topic, null, null));
-        assertThrows(NullPointerException.class, () -> new RpcMessage<>(null, null, null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> RpcMessage.request(null, null));
+        assertThrows(NullPointerException.class, () -> new RpcMessage<>(null, null, null, null));
     }
 
     @Test
     void rejectsRoutingFieldsOnRepliesAndInconsistentPayloadOrErrorFields() {
         for (RpcMessage.Type type : List.of(RpcMessage.Type.RESPONSE, RpcMessage.Type.ERROR)) {
             RpcMessage.Error error = type == RpcMessage.Type.ERROR ? RpcMessage.Error.HANDLER_FAILED : null;
-            assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(type, "service", null, null, error));
-            assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(type, null, "echo(int)", null, error));
+            assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(type, "echo(int)", null, error));
         }
-        assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(RpcMessage.Type.ERROR, null, null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(RpcMessage.Type.ERROR, null, null, null));
         for (RpcMessage.Error error : RpcMessage.Error.values()) {
             assertThrows(IllegalArgumentException.class,
-                () -> new RpcMessage<>(RpcMessage.Type.REQUEST, "service", "echo(int)", null, error));
+                () -> new RpcMessage<>(RpcMessage.Type.REQUEST, "echo(int)", null, error));
             assertThrows(IllegalArgumentException.class,
-                () -> new RpcMessage<>(RpcMessage.Type.RESPONSE, null, null, null, error));
+                () -> new RpcMessage<>(RpcMessage.Type.RESPONSE, null, null, error));
             assertThrows(IllegalArgumentException.class,
-                () -> new RpcMessage<>(RpcMessage.Type.ERROR, null, null, "private payload", error));
+                () -> new RpcMessage<>(RpcMessage.Type.ERROR, null, "private payload", error));
         }
     }
 }

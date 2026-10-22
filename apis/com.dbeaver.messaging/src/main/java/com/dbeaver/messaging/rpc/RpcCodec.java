@@ -21,7 +21,7 @@ import org.jkiss.code.Nullable;
 
 import java.lang.reflect.Type;
 
-/** Encodes and decodes application values using their declared RPC types. */
+/** Encodes and decodes declared RPC types using the payload representation accepted by the endpoint transport. */
 public interface RpcCodec<P> {
     @Nullable
     P encode(@Nullable Object value, @NotNull Type type) throws Exception;

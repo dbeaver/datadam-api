@@ -23,6 +23,7 @@ import com.dbeaver.messaging.requestreply.RequestReplyException;
 import com.dbeaver.messaging.requestreply.RequestReplyMessage;
 import com.dbeaver.messaging.requestreply.RequestReplyTransport;
 import com.dbeaver.messaging.rpc.RpcMessage;
+import com.dbeaver.messaging.rpc.RpcTransport;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -36,13 +37,19 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Semaphore;
 
 public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<JsonElement>> {
-    private static final String PROTOCOL = "dbeaver.rpc.v1";
+    private static final String PROTOCOL = "dbeaver.rpc.v2";
     private static final int MAX_PENDING_SENDS = 128;
     private final Semaphore sendBudget = new Semaphore(MAX_PENDING_SENDS);
     private final RequestReplyTransport<JsonObject> delegate;
 
     public DDRpcTransport(@NotNull RequestReplyTransport<JsonObject> delegate) {
         this.delegate = Objects.requireNonNull(delegate);
+    }
+
+    @NotNull
+    public static RpcTransport<JsonElement> forChannel(@NotNull DDMessageChannel channel) {
+        Objects.requireNonNull(channel);
+        return topic -> forChannel(channel, topic);
     }
 
     @NotNull
@@ -110,7 +117,6 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
             envelope.addProperty("error", Objects.requireNonNull(message.error()).name());
         } else {
             if (message.type() == RpcMessage.Type.REQUEST) {
-                envelope.addProperty("topic", message.topic());
                 envelope.addProperty("operation", message.operation());
             }
             envelope.add("data", message.payload() == null ? JsonNull.INSTANCE : message.payload().deepCopy());
@@ -138,12 +144,12 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
                 payload = RpcMessage.failure(RpcMessage.Error.valueOf(string(envelope, "error")));
             } else {
                 JsonElement data = envelope.get("data");
-                if (data == null || envelope.size() != (type == RpcMessage.Type.REQUEST ? 5 : 3)) {
+                if (data == null || envelope.size() != (type == RpcMessage.Type.REQUEST ? 4 : 3)) {
                     return null;
                 }
                 JsonElement snapshot = data.isJsonNull() ? null : data.deepCopy();
                 payload = type == RpcMessage.Type.REQUEST
-                    ? RpcMessage.request(string(envelope, "topic"), string(envelope, "operation"), snapshot)
+                    ? RpcMessage.request(string(envelope, "operation"), snapshot)
                     : RpcMessage.response(snapshot);
             }
             return new RequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), payload, message.error());

@@ -115,11 +115,11 @@ class RpcTestSupport {
 
     static void connect(@NotNull MemoryTransport first, @NotNull MemoryTransport second) {
         first.sender = message -> {
-            second.deliver(message);
+            second.deliver(first.routes.get(message.requestId()), message);
             return CompletableFuture.completedFuture(null);
         };
         second.sender = message -> {
-            first.deliver(message);
+            first.deliver(second.routes.get(message.requestId()), message);
             return CompletableFuture.completedFuture(null);
         };
     }
@@ -154,8 +154,10 @@ class RpcTestSupport {
         }
     }
 
-    static final class MemoryTransport implements RequestReplyTransport<RpcMessage<Object>> {
-        final Map<UUID, Listener<RpcMessage<Object>>> listeners = new ConcurrentHashMap<>();
+    static final class MemoryTransport implements RpcTransport<Object> {
+        final Map<UUID, RequestReplyTransport.Listener<RpcMessage<Object>>> listeners = new ConcurrentHashMap<>();
+        final Map<UUID, String> listenerTopics = new ConcurrentHashMap<>();
+        final Map<UUID, String> routes = new ConcurrentHashMap<>();
         final BlockingQueue<RequestReplyMessage<RpcMessage<Object>>> sent = new LinkedBlockingQueue<>();
         final AtomicInteger subscriptionCloses = new AtomicInteger();
         volatile Function<RequestReplyMessage<RpcMessage<Object>>, CompletionStage<Void>> sender =
@@ -163,28 +165,43 @@ class RpcTestSupport {
 
         @NotNull
         @Override
-        public MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<RpcMessage<Object>> listener) {
-            assertNull(listeners.putIfAbsent(endpointId, listener));
-            return () -> {
-                if (listeners.remove(endpointId, listener)) {
-                    subscriptionCloses.incrementAndGet();
+        public RequestReplyTransport<RpcMessage<Object>> forTopic(@NotNull String topic) {
+            return new RequestReplyTransport<>() {
+                @NotNull
+                @Override
+                public MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<RpcMessage<Object>> listener) {
+                    assertNull(listeners.putIfAbsent(endpointId, listener));
+                    listenerTopics.put(endpointId, topic);
+                    return () -> {
+                        if (listeners.remove(endpointId, listener)) {
+                            listenerTopics.remove(endpointId);
+                            subscriptionCloses.incrementAndGet();
+                        }
+                    };
+                }
+
+                @NotNull
+                @Override
+                public CompletionStage<Void> send(@NotNull RequestReplyMessage<RpcMessage<Object>> message) {
+                    routes.put(message.requestId(), topic);
+                    sent.add(message);
+                    return sender.apply(message);
                 }
             };
         }
 
-        @NotNull
-        @Override
-        public CompletionStage<Void> send(@NotNull RequestReplyMessage<RpcMessage<Object>> message) {
-            sent.add(message);
-            return sender.apply(message);
+        void deliver(@NotNull RequestReplyMessage<RpcMessage<Object>> message) {
+            deliver(routes.get(message.requestId()), message);
         }
 
-        void deliver(@NotNull RequestReplyMessage<RpcMessage<Object>> message) {
-            List.copyOf(listeners.values()).forEach(listener -> listener.onMessage(message));
+        void deliver(@NotNull String topic, @NotNull RequestReplyMessage<RpcMessage<Object>> message) {
+            routes.put(message.requestId(), topic);
+            List.copyOf(listeners.entrySet()).stream().filter(entry -> topic.equals(listenerTopics.get(entry.getKey())))
+                .forEach(entry -> entry.getValue().onMessage(message));
         }
 
         void disconnect() {
-            List.copyOf(listeners.values()).forEach(Listener::onDisconnect);
+            List.copyOf(listeners.values()).forEach(RequestReplyTransport.Listener::onDisconnect);
         }
 
         @NotNull

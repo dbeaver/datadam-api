@@ -24,6 +24,7 @@ import java.util.function.Consumer;
 
 /** Provides asynchronous DataDam messaging and connection-state observation. */
 public interface DDMessageChannel extends AutoCloseable {
+
     @NotNull
     DDChannelStatus getStatus();
 
