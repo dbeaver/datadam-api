@@ -45,4 +45,35 @@ class DDExternalDamApiTest {
             Assertions.assertFalse(DDExternalDamApi.isValidServiceSecret("x".repeat(31) + invalid));
         }
     }
+
+    @Test
+    void acceptsHttpAndHttpsServiceOrigins() {
+        for (String url : new String[] {
+            "http://localhost", "http://localhost/", "https://example.com", "HTTPS://example.com/",
+            "http://127.0.0.1:1", "https://example.com:65535/", "http://[::1]", "https://[::1]:8443/"
+        }) {
+            Assertions.assertTrue(DDExternalDamApi.isValidServiceUrl(url));
+        }
+    }
+
+    @Test
+    void rejectsMalformedServiceOrigins() {
+        for (String url : new String[] {
+            null, "", " ", "/relative", "example.com", "//example.com", "http://", "http:///", "http://bad host",
+            "ftp://example.com", "ws://example.com", "wss://example.com", "https://user@example.com",
+            "https://user:password@example.com", "https://example.com?", "https://example.com?token=value",
+            "https://example.com#", "https://example.com#fragment", "https://example.com/path", "https://example.com//",
+            "https://example.com/%2f", "https://example.com:0", "https://example.com:65536", "https://example.com:-1",
+            "https://example.com:port", "http://[::1", "http://example.com/\n"
+        }) {
+            Assertions.assertFalse(DDExternalDamApi.isValidServiceUrl(url));
+        }
+    }
+
+    @Test
+    void boundsServiceUrlLength() {
+        String prefix = "https://";
+        Assertions.assertTrue(DDExternalDamApi.isValidServiceUrl(prefix + "a".repeat(4096 - prefix.length())));
+        Assertions.assertFalse(DDExternalDamApi.isValidServiceUrl(prefix + "a".repeat(4097 - prefix.length())));
+    }
 }

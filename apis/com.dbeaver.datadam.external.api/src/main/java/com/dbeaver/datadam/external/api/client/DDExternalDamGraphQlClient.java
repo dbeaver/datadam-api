@@ -50,6 +50,10 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
         this.endpoint = endpoint;
     }
 
+    final boolean hasServiceSecret(@NotNull String secret) {
+        return serviceSecret.equals(secret);
+    }
+
     @NotNull
     final JsonElement request(
         @NotNull String operationName,
@@ -110,17 +114,9 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
 
     @NotNull
     private static String validateServiceUrl(@NotNull String serviceUrl) {
-        try {
-            URI uri = URI.create(serviceUrl);
-            if (uri.getHost() != null && uri.getUserInfo() == null && uri.getRawQuery() == null && uri.getRawFragment() == null
-                && ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
-                && (uri.getRawPath().isEmpty() || "/".equals(uri.getRawPath()))
-                && (uri.getPort() == -1 || uri.getPort() >= 1 && uri.getPort() <= 65535)) {
-                return uri.toString();
-            }
-        } catch (IllegalArgumentException e) {
+        if (!DDExternalDamApi.isValidServiceUrl(serviceUrl)) {
             throw new IllegalArgumentException("Invalid External DAM service URL");
         }
-        throw new IllegalArgumentException("Invalid External DAM service URL");
+        return serviceUrl;
     }
 }

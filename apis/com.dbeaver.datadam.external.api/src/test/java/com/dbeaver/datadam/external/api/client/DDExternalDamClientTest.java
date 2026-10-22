@@ -63,6 +63,8 @@ class DDExternalDamClientTest {
     private static final UUID ACCOUNT_ID = UUID.fromString("58c487c0-de34-4b45-83bb-705cb733cbcd");
     private static final UUID OTHER_ACCOUNT_ID = UUID.fromString("678d5732-708f-441e-bc59-719b92af1d64");
     private static final String SERVICE_SECRET = "external-dam-service-secret-2026-test";
+    private static final String CALLBACK_URL = "https://callback.example.com";
+    private static final String CALLBACK_SECRET = "external-dam-callback-secret-2026-test";
     private static final String UPSTREAM_MARKER = "private-upstream-response-marker";
     private static final String CONNECTIONS_FIELD = "externalDamConnections";
     private static final String CONNECTION_ACCOUNT_FIELD = "externalDamConnectionAccount";
@@ -276,33 +278,111 @@ class DDExternalDamClientTest {
     }
 
     @Test
-    void registersStableSubscriptionIdsAsVariablesAndPreservesOptionalConnectionScope() throws DDExternalDamException {
+    void registersDynamicCallbacksAsVariablesAndPreservesStableIdsAndOptionalConnectionScope() throws DDExternalDamException {
         UUID subscriptionId = UUID.randomUUID();
         for (String connectionId : List.of("", "socket")) {
+            String callbackUrl = connectionId.isEmpty() ? CALLBACK_URL : "http://127.0.0.1:8080/";
+            String callbackSecret = connectionId.isEmpty() ? CALLBACK_SECRET : CALLBACK_SECRET + "\"\\";
             respond("registerExternalDamSubscription", JsonParser.parseString("60"));
 
             assertEquals(60, client.registerSubscription("account", subscriptionId, ACCOUNT_ID,
-                connectionId.isEmpty() ? null : connectionId, "projects"));
+                connectionId.isEmpty() ? null : connectionId, "projects", callbackUrl, callbackSecret));
 
             JsonObject body = posted();
+            assertEquals(Set.of("operationName", "query", "variables"), body.keySet());
             assertEquals("RegisterExternalDamSubscription", body.get("operationName").getAsString());
             String query = body.get("query").getAsString().replaceAll("\\s+", " ");
             assertTrue(query.contains("$input: ExternalDamSubscriptionInput!"));
             assertTrue(query.contains("registerExternalDamSubscription(input: $input)"));
+            assertEquals(Set.of("input"), body.getAsJsonObject("variables").keySet());
             JsonObject input = body.getAsJsonObject("variables").getAsJsonObject("input");
             assertEquals("account", input.get("subscriberId").getAsString());
             assertEquals(subscriptionId.toString(), input.get("subscriptionId").getAsString());
             assertEquals(ACCOUNT_ID.toString(), input.get("accountId").getAsString());
             assertEquals("projects", input.get("topic").getAsString());
+            assertEquals(callbackUrl, input.get("callbackUrl").getAsString());
+            assertTrue(callbackSecret.equals(input.get("callbackSecret").getAsString()));
             if (connectionId.isEmpty()) {
                 assertTrue(!input.has("connectionId") || input.get("connectionId").isJsonNull());
             } else {
                 assertEquals(connectionId, input.get("connectionId").getAsString());
             }
+            assertEquals(input.has("connectionId") ? 7 : 6, input.size());
             assertFalse(input.has("url"));
             assertFalse(input.has("serviceSecret"));
             assertFalse(query.contains(subscriptionId.toString()));
+            assertFalse(query.contains(callbackUrl));
+            assertFalse(query.contains(callbackSecret));
         }
+        assertEquals(2, requestCount.get());
+    }
+
+    @Test
+    void acceptsCallbackRootOriginsAndPrintableSecretBoundaries() throws DDExternalDamException {
+        UUID subscriptionId = UUID.randomUUID();
+        respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+        for (String callbackUrl : List.of("http://127.0.0.1:8080", "https://callback.example.com/")) {
+            for (String callbackSecret : List.of("!".repeat(32), "~".repeat(512))) {
+                assertEquals(60, client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
+                    "projects", callbackUrl, callbackSecret));
+
+                JsonObject input = posted().getAsJsonObject("variables").getAsJsonObject("input");
+                assertEquals(callbackUrl, input.get("callbackUrl").getAsString());
+                assertTrue(callbackSecret.equals(input.get("callbackSecret").getAsString()));
+            }
+        }
+        assertEquals(4, requestCount.get());
+    }
+
+    @Test
+    void rejectsMalformedSubscriptionMetadataBeforeSendingAnyRequest() {
+        UUID subscriptionId = UUID.randomUUID();
+        for (String value : List.of("", " ", "\t\n", "s".repeat(257))) {
+            assertThrows(IllegalArgumentException.class, () -> client.registerSubscription(value, subscriptionId,
+                ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertThrows(IllegalArgumentException.class, () -> client.registerSubscription("account", subscriptionId,
+                ACCOUNT_ID, value, "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertThrows(IllegalArgumentException.class, () -> client.registerSubscription("account", subscriptionId,
+                ACCOUNT_ID, null, value, CALLBACK_URL, CALLBACK_SECRET));
+        }
+        assertEquals(0, requestCount.get());
+    }
+
+    @Test
+    void rejectsMalformedCallbackOriginsBeforeSendingAnyRequestWithoutExposingSecrets() {
+        UUID subscriptionId = UUID.randomUUID();
+        for (String callbackUrl : new String[] {
+            null, "", " ", "/relative", "callback.example.com", "//callback.example.com", "http://", "http:///",
+            "ftp://callback.example.com", "ws://callback.example.com", "wss://callback.example.com",
+            CALLBACK_URL + "/internal/external-dam/graphql", CALLBACK_URL + "/prefix/", CALLBACK_URL + "//",
+            CALLBACK_URL + "/%2f", CALLBACK_URL + "?secret=" + CALLBACK_SECRET, CALLBACK_URL + "#fragment",
+            "http://user:" + CALLBACK_SECRET + "@127.0.0.1", "http://127.0.0.1:0", "http://127.0.0.1:65536",
+            "http://127.0.0.1:-1", "http://127.0.0.1:port", "http://[::1", "https://" + "a".repeat(4096)
+        }) {
+            IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
+                    "projects", callbackUrl, CALLBACK_SECRET));
+            assertFalse(failure.toString().contains(CALLBACK_SECRET));
+            assertFalse(failure.toString().contains(SERVICE_SECRET));
+        }
+        assertEquals(0, requestCount.get());
+    }
+
+    @Test
+    void rejectsInvalidAndBrokerReusedCallbackSecretsBeforeSendingAnyRequest() {
+        UUID subscriptionId = UUID.randomUUID();
+        for (String callbackSecret : new String[] {
+            null, "", "s".repeat(31), "s".repeat(513), " ".repeat(32), "s".repeat(31) + "\n",
+            "s".repeat(31) + "\t", "s".repeat(31) + "\r", "s".repeat(31) + "\0",
+            "s".repeat(31) + "\u007f", "s".repeat(31) + "é", SERVICE_SECRET
+        }) {
+            IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
+                    "projects", CALLBACK_URL, callbackSecret));
+            assertFalse(failure.toString().contains(CALLBACK_SECRET));
+            assertFalse(failure.toString().contains(SERVICE_SECRET));
+        }
+        assertEquals(0, requestCount.get());
     }
 
     @Test
@@ -327,15 +407,18 @@ class DDExternalDamClientTest {
         UUID subscriptionId = UUID.randomUUID();
         for (String value : List.of("null", "true", "\"60\"", "14", "301", "60.5", "1e100", "{}", "[]")) {
             respond("registerExternalDamSubscription", JsonParser.parseString(value));
-            assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null, "projects"));
+            assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
+                "projects", CALLBACK_URL, CALLBACK_SECRET));
         }
         for (String value : List.of("null", "\"true\"", "60", "{}", "[]")) {
             respond("unregisterExternalDamSubscription", JsonParser.parseString(value));
             assertRequestFails(() -> client.unregisterSubscription("account", subscriptionId));
         }
-        for (String body : List.of("{", "null", "{}", "{\"data\":null}", "{\"errors\":[{\"message\":\"private\"}]}")) {
+        for (String body : List.of("{", "null", "{}", "{\"data\":null}",
+            "{\"errors\":[{\"message\":\"" + UPSTREAM_MARKER + CALLBACK_SECRET + "\"}]}")) {
             responseJson.set(body);
-            assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null, "projects"));
+            assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
+                "projects", CALLBACK_URL, CALLBACK_SECRET));
             assertRequestFails(() -> client.unregisterSubscription("account", subscriptionId));
         }
     }
@@ -422,7 +505,7 @@ class DDExternalDamClientTest {
     @Test
     void rejectsHttpFailuresWithoutExposingTheResponseOrRetrying() {
         JsonObject envelope = successfulEnvelope();
-        envelope.addProperty("message", UPSTREAM_MARKER + SERVICE_SECRET);
+        envelope.addProperty("message", UPSTREAM_MARKER + SERVICE_SECRET + CALLBACK_SECRET);
         responseJson.set(envelope.toString());
         for (int status : List.of(204, 400, 401, 403, 404, 429, 500, 503)) {
             responseStatus.set(status);
@@ -430,6 +513,8 @@ class DDExternalDamClientTest {
             assertRequestFails(() -> client.getConnections(ACCOUNT_ID));
             assertRequestFails(() -> client.getConnectionAccount("connection-1"));
             assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "connection-1", message()));
+            assertRequestFails(() -> client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
+                "projects", CALLBACK_URL, CALLBACK_SECRET));
         }
     }
 
@@ -458,6 +543,8 @@ class DDExternalDamClientTest {
 
                 assertRequestFails(() -> client.getConnections(ACCOUNT_ID));
                 assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "connection-1", message()));
+                assertRequestFails(() -> client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
+                    "projects", CALLBACK_URL, CALLBACK_SECRET));
                 assertEquals(0, forwarded.get());
                 assertNull(forwardedSecret.get());
             }
@@ -598,6 +685,7 @@ class DDExternalDamClientTest {
         StringWriter trace = new StringWriter();
         failure.printStackTrace(new PrintWriter(trace));
         assertFalse(trace.toString().contains(SERVICE_SECRET));
+        assertFalse(trace.toString().contains(CALLBACK_SECRET));
         assertFalse(trace.toString().contains(UPSTREAM_MARKER));
     }
 

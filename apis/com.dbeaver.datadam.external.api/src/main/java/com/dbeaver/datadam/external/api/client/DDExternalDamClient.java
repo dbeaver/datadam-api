@@ -132,12 +132,20 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
         @NotNull UUID subscriptionId,
         @NotNull UUID accountId,
         @Nullable String connectionId,
-        @NotNull String topic
+        @NotNull String topic,
+        @NotNull String callbackUrl,
+        @NotNull String callbackSecret
     ) throws DDExternalDamException {
         requireText(subscriberId);
         requireText(topic);
         if (connectionId != null) {
             requireText(connectionId);
+        }
+        if (!DDExternalDamApi.isValidServiceUrl(callbackUrl)) {
+            throw new IllegalArgumentException("Invalid External DAM callback URL");
+        }
+        if (!DDExternalDamApi.isValidServiceSecret(callbackSecret) || hasServiceSecret(callbackSecret)) {
+            throw new IllegalArgumentException("Invalid External DAM callback secret");
         }
         Map<String, Object> input = new HashMap<>();
         input.put("subscriberId", subscriberId);
@@ -145,6 +153,8 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
         input.put("accountId", Objects.requireNonNull(accountId).toString());
         input.put("connectionId", connectionId);
         input.put("topic", topic);
+        input.put("callbackUrl", callbackUrl);
+        input.put("callbackSecret", callbackSecret);
         JsonElement result = request("RegisterExternalDamSubscription", REGISTER_MUTATION,
             Map.of("input", input), "registerExternalDamSubscription");
         if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isNumber()) {

@@ -18,12 +18,15 @@ package com.dbeaver.datadam.external.api;
 
 import org.jkiss.code.Nullable;
 
+import java.net.URI;
+
 public final class DDExternalDamApi {
     public static final String GRAPHQL_PATH = "/internal/graphql";
     public static final String CALLBACK_GRAPHQL_PATH = "/internal/external-dam/graphql";
     public static final String HEADER_SERVICE_TOKEN = "X-DD-Service-Token";
     public static final int MIN_SERVICE_SECRET_LENGTH = 32;
     public static final int MAX_SERVICE_SECRET_LENGTH = 512;
+    private static final int MAX_SERVICE_URL_LENGTH = 4096;
 
     private DDExternalDamApi() {
     }
@@ -31,5 +34,20 @@ public final class DDExternalDamApi {
     public static boolean isValidServiceSecret(@Nullable String secret) {
         return secret != null && secret.length() >= MIN_SERVICE_SECRET_LENGTH && secret.length() <= MAX_SERVICE_SECRET_LENGTH
             && secret.chars().allMatch(value -> value >= 33 && value <= 126);
+    }
+
+    public static boolean isValidServiceUrl(@Nullable String serviceUrl) {
+        if (serviceUrl == null || serviceUrl.length() > MAX_SERVICE_URL_LENGTH) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(serviceUrl);
+            return uri.getHost() != null && uri.getUserInfo() == null && uri.getRawQuery() == null && uri.getRawFragment() == null
+                && ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
+                && (uri.getRawPath().isEmpty() || "/".equals(uri.getRawPath()))
+                && (uri.getPort() == -1 || uri.getPort() >= 1 && uri.getPort() <= 65535);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 }
