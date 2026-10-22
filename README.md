@@ -17,10 +17,13 @@ Used by DBeaver, dbvr, CloudBeaver and by DataDam itself
 `apis/com.dbeaver.datadam.sso.api` exports the shared SSO contracts in
 `com.dbeaver.datadam.sso.api.model`:
 
-* `DDSsoAuthorizeRequest`: client, redirect URI, state and PKCE challenge parameters.
+* `DDSsoAuthorizeRequest`: client, redirect URI, state, PKCE challenge, optional target resource URI and requested scopes.
 * `DDSsoIdentity`: source-scoped subject, email, identity source and original authentication time.
-* `DDSsoTokenRequest`: authorization code, PKCE verifier, client and redirect URI.
-* `DDSsoTokenResponse`: signed identity token (`id_token`) and lifetime in seconds (`expires_in`).
+* `DDSsoTokenRequest`: authorization code, PKCE verifier, client, redirect URI and optional resource URI.
+* `DDSsoTokenResponse`: `access_token`, `token_type`, access lifetime (`expires_in`), granted `scope`,
+  and an optional internal `id_token` for clients configured to receive identity assertions.
+* `DDSsoAccessIdentity`: verified subject, source, client ID, audience and granted scopes.
+* `DDSsoConfigResponse`: SSO issuer, obtained from the application's `/sso/config`.
 * `DDSsoHandoffRequest`: confirmed identity, original authorization request and browser-binding `flow_id`.
 * `DDSsoHandoffResponse`: opaque one-time `handoff` and lifetime in seconds (`expires_in`).
 
@@ -29,14 +32,27 @@ Token response JSON field names are declared with Gson `@SerializedName` annotat
 Handoff creation uses `POST /handoff` with HTTP Basic backend authentication and a JSON body. The nested
 authorization fields use their Java camelCase names; `flow_id` and `expires_in` use explicit Gson mappings.
 The identity's `authTime` uses ISO-8601 (`GsonUtils.InstantIsoAdapter`). Browser completion uses
-`GET /handoff?handoff=...` and requires the proof cookie set by the initial SSO authorization request.
+`GET /handoff?handoff=...` and requires the proof cookie set by `/handoff/start`.
 
 Token exchange uses `POST /token` with `application/x-www-form-urlencoded` fields `code`, `code_verifier`,
-`client_id` and `redirect_uri`. If supplied, `grant_type` must equal `authorization_code`. Clients with a
+`client_id`, `redirect_uri`, optional `resource` and mandatory `grant_type=authorization_code`. Clients with a
 configured secret authenticate through HTTP Basic; public clients use code and PKCE without credentials.
-The response is `DDSsoTokenResponse` with an application-specific identity JWT and `expires_in` in seconds.
+Every successful exchange returns an access JWT. Ordinary DataDam APIs use the fixed `DDSsoConstants.API_AUDIENCE`;
+MCP access uses its authorized resource URI as `aud`.
+Account/Admin additionally use their
+internal identity JWT to establish local browser sessions; this is not an OpenID Connect contract.
+`DDSsoTokenVerifier.verifyAccessToken` requires the expected audience explicitly; API consumers must
+check their required scopes and current business permissions. Identity tokens are never API credentials.
 Failed exchanges return a JSON `error` (`invalid_request`, `unsupported_grant_type`, `invalid_client`,
-`invalid_grant` or `server_error`).
+`invalid_grant`, `invalid_target` or `server_error`).
+
+Authorization uses `response_type=code`, space-separated `scope`, and S256 PKCE.
+Ordinary API access uses the client's top-level `scopes` without any resource configuration or request parameter.
+MCP access uses `allowed-resources` with its own scope sets. During code exchange a supplied resource must match the saved grant.
+MCP requires `resource` in both requests, configured with `require-resource: true` on its client resource entries.
+SSO publishes RFC 8414 metadata at `/.well-known/oauth-authorization-server` (with the issuer path appended
+to that suffix when applicable). Browser callbacks contain `iss` per RFC 9207: clients compare it exactly
+to the issuer selected before authorization. Scopes follow RFC 6749 syntax, parsed by `DDSsoScopes`.
 
 ## License Manager API
 

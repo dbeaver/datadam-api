@@ -51,7 +51,8 @@ public class DDSsoService {
 
     @NotNull
     public DDSsoIdentity exchange(@NotNull String code, @NotNull String codeVerifier) throws DDSsoClientException {
-        DDSsoTokenResponse token = client.exchange(new DDSsoTokenRequest(code, codeVerifier, properties.clientId(), properties.redirectUri()));
+        DDSsoTokenResponse token = client.exchange(new DDSsoTokenRequest(code, codeVerifier, properties.clientId(),
+            properties.redirectUri(), properties.resource()));
         if (token.idToken() == null || token.idToken().length() > DDSsoTokenVerifier.MAX_TOKEN_LENGTH || token.expiresIn() <= 0) {
             throw new DDSsoClientException("Invalid SSO token response");
         }

@@ -29,7 +29,9 @@ public record DDSsoClientConfig(
     @NotNull String clientSecret,
     @NotNull String redirectUri,
     @NotNull String identitySource,
-    @NotNull Duration jwksCacheTtl
+    @NotNull Duration jwksCacheTtl,
+    @Nullable String resource,
+    @NotNull String scope
 ) {
     @Override
     public String toString() {

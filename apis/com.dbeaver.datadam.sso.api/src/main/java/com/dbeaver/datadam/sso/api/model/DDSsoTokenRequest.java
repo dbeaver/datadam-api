@@ -18,6 +18,7 @@ package com.dbeaver.datadam.sso.api.model;
 
 import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 import org.jkiss.utils.oauth.OAuthConstants;
 
 /**
@@ -27,6 +28,7 @@ public record DDSsoTokenRequest(
     @NotNull String code,
     @SerializedName(OAuthConstants.PARAM_CODE_VERIFIER) @NotNull String codeVerifier,
     @SerializedName(OAuthConstants.AUTH_PROP_CLIENT_ID) @NotNull String clientId,
-    @SerializedName(OAuthConstants.PARAM_REDIRECT_URI) @NotNull String redirectUri
+    @SerializedName(OAuthConstants.PARAM_REDIRECT_URI) @NotNull String redirectUri,
+    @Nullable String resource
 ) {
 }

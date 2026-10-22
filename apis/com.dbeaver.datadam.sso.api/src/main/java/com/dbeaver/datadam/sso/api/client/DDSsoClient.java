@@ -31,6 +31,7 @@ import org.jkiss.dbeaver.DBException;
 import org.jkiss.utils.CommonUtils;
 import org.jkiss.utils.GsonUtils;
 import org.jkiss.utils.HttpConstants;
+import org.jkiss.utils.oauth.OAuthConstants;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -40,6 +41,7 @@ import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -68,7 +70,14 @@ public class DDSsoClient extends AbstractRestClient {
 
     @NotNull
     public DDSsoTokenResponse exchange(@NotNull DDSsoTokenRequest request) throws DDSsoClientException {
-        return postResponse(DDSsoConstants.TOKEN_PATH, request, MediaType.FORM_URLENCODED,
+        Map<String, String> parameters = new HashMap<>(Map.of(
+            OAuthConstants.PARAM_GRANT_TYPE, OAuthConstants.GRANT_TYPE_AUTH_CODE,
+            OAuthConstants.PARAM_CODE, request.code(), OAuthConstants.PARAM_CODE_VERIFIER, request.codeVerifier(),
+            OAuthConstants.AUTH_PROP_CLIENT_ID, request.clientId(), OAuthConstants.PARAM_REDIRECT_URI, request.redirectUri()));
+        if (request.resource() != null) {
+            parameters.put(DDSsoConstants.PARAM_RESOURCE, request.resource());
+        }
+        return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
     }
 
