@@ -16,16 +16,7 @@
  */
 package com.dbeaver.datadam.sso.api.model;
 
-import com.dbeaver.datadam.sso.api.DDSsoConstants;
-import com.google.gson.annotations.SerializedName;
 import org.jkiss.code.NotNull;
-import org.jkiss.utils.oauth.OAuthConstants;
 
-/** Tokens issued solely to the public desktop client. */
-public record DDSsoDesktopTokenResponse(
-    @SerializedName("access_token") @NotNull String accessToken,
-    @SerializedName("token_type") @NotNull String tokenType,
-    @SerializedName(DDSsoConstants.RESPONSE_EXPIRES_IN) long expiresIn,
-    @SerializedName(OAuthConstants.RESULT_PROP_TOKEN_ID) @NotNull String idToken
-) {
+public record DDSsoLoginApprovalResponse(@NotNull String completion) {
 }

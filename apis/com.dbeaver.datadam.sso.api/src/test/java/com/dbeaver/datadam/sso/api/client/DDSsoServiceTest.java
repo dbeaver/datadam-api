@@ -23,6 +23,7 @@ import com.dbeaver.datadam.sso.api.model.DDSsoAuthorizeRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
+import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoPublicJwk;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
@@ -113,7 +114,7 @@ class DDSsoServiceTest {
         server.start();
         DDSsoClientConfig config = new DDSsoClientConfig("https://sso.example.com",
             "http://127.0.0.1:" + server.getAddress().getPort(), "account", "test-secret",
-            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5));
+            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access");
         Clock clock = clock(ZoneOffset.UTC);
         http = new DDSsoClient(config);
         keyCache = new DDSsoJwksCache(http, config.jwksCacheTtl(), clock);
@@ -135,7 +136,7 @@ class DDSsoServiceTest {
     })
     void joinsSharedPathsWithoutLosingIssuerPathOrDuplicatingSlashes(@NotNull String issuer, @NotNull String expected) {
         var configured = new DDSsoClient(new DDSsoClientConfig(issuer, "", "account", "test-secret",
-            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5)));
+            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access"));
         Assertions.assertThat(configured.endpoint(DDSsoConstants.AUTHORIZE_PATH).toString()).isEqualTo(expected);
         Assertions.assertThat(configured.endpoint("authorize").toString()).isEqualTo(expected);
     }
@@ -145,33 +146,87 @@ class DDSsoServiceTest {
     void preservesBackchannelPathWithSharedEndpointPaths(@NotNull String path) throws Exception {
         var config = new DDSsoClientConfig("https://sso.example.com/issuer/",
             "http://127.0.0.1:" + server.getAddress().getPort() + path, "account", "test-secret",
-            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5));
+            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access");
         var configured = new DDSsoService(config, new DDSsoClient(config), verifier);
         responseJson.set(gson.toJson(Map.of("handoff", "A".repeat(43), "expires_in", 60)));
         var request = new DDSsoHandoffRequest(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW),
-            new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256"), "B".repeat(43));
+            new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256",
+                null, "account:access"), "B".repeat(43));
         Assertions.assertThat(configured.createHandoff(request)).isEqualTo("https://sso.example.com/issuer/handoff?handoff=" + "A".repeat(43));
         Assertions.assertThat(requestPath).hasValue("/internal/handoff");
     }
 
     @Test
-    void acceptsOnlyDesktopAccessTokensWithApiAudienceAndAccessPurpose() throws Exception {
-        var claims = claims();
-        claims.put("aud", DDSsoConstants.ACCESS_AUDIENCE);
-        claims.put("token_use", DDSsoConstants.TOKEN_USE_ACCESS);
-        claims.put("client_id", DDSsoConstants.DESKTOP_CLIENT_ID);
-        String access = signed(claims, header("key1"));
-        Assertions.assertThat(verifier.verifyAccessToken(access)).isEqualTo(new DDSsoAccessIdentity(
-            "user-id", "user@example.com", "datadam-account", DDSsoConstants.DESKTOP_CLIENT_ID, NOW.minusSeconds(60)));
-        Assertions.assertThatThrownBy(() -> verifier.verifyIdentity(access)).isInstanceOf(DDSsoClientException.class);
-        for (String name : List.of("aud", "token_use", "client_id")) {
-            var modified = new HashMap<>(claims);
-            modified.put(name, "unexpected");
-            String invalid = signed(modified, header("key1"));
-            Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(invalid)).isInstanceOf(DDSsoClientException.class);
-        }
-        Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(signed(claims(), header("key1"))))
+    void approvesLoginOverAuthenticatedBackchannelAndResumesOnPublicIssuer() throws Exception {
+        responseJson.set(gson.toJson(Map.of("completion", "A".repeat(43))));
+        var identity = new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW);
+        Assertions.assertThat(service.approveLogin(new DDSsoLoginApprovalRequest("B".repeat(43), identity)))
+            .isEqualTo("https://sso.example.com/login/resume?completion=" + "A".repeat(43));
+        Assertions.assertThat(requestMethod).hasValue("POST");
+        Assertions.assertThat(requestPath).hasValue("/login/approve");
+        Assertions.assertThat(credentials).hasValue("Basic " + Base64.getEncoder()
+            .encodeToString("account:test-secret".getBytes(StandardCharsets.UTF_8)));
+        var body = JsonParser.parseString(posted.get()).getAsJsonObject();
+        Assertions.assertThat(body.get("requestId").getAsString()).isEqualTo("B".repeat(43));
+        Assertions.assertThat(body.getAsJsonObject("identity").get("subject").getAsString()).isEqualTo(identity.subject());
+        Assertions.assertThat(body.getAsJsonObject("identity").get("authTime").getAsString()).isEqualTo(NOW.toString());
+        Assertions.assertThat(jwksRequests).hasValue(0);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"completion\":null}", "{\"completion\":\"\"}", "{\"completion\":\"unsafe&state=other\"}"})
+    void rejectsInvalidLoginCompletionsBeforeBuildingRedirect(String json) {
+        responseJson.set(json);
+        Assertions.assertThatThrownBy(() -> service.approveLogin(new DDSsoLoginApprovalRequest("B".repeat(43),
+            new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW))))
             .isInstanceOf(DDSsoClientException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dbeaver-desktop", "account", "external-client"})
+    void acceptsAccessTokensForAnyClientButOnlyTheExpectedAudienceAndPurpose(String clientId) throws Exception {
+        var claims = claims();
+        claims.put("aud", DDSsoConstants.API_AUDIENCE);
+        claims.put("token_use", DDSsoConstants.TOKEN_USE_ACCESS);
+        claims.put("client_id", clientId);
+        claims.put("scope", "account:access dbeaver-storage:access");
+        String access = signed(claims, header("key1"));
+        Assertions.assertThat(verifier.verifyAccessToken(access, DDSsoConstants.API_AUDIENCE)).isEqualTo(new DDSsoAccessIdentity(
+            "user-id", "user@example.com", "datadam-account", clientId, NOW.minusSeconds(60), DDSsoConstants.API_AUDIENCE,
+            java.util.Set.of("account:access", "dbeaver-storage:access")));
+        Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(access, "https://mcp.example.com"))
+            .isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThatThrownBy(() -> verifier.verifyIdentity(access)).isInstanceOf(DDSsoClientException.class);
+        for (String name : List.of("aud", "token_use", "client_id", "scope")) {
+            var modified = new HashMap<>(claims);
+            modified.put(name, "");
+            String invalid = signed(modified, header("key1"));
+            Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(invalid, DDSsoConstants.API_AUDIENCE))
+                .isInstanceOf(DDSsoClientException.class);
+        }
+        Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(signed(claims(), header("key1")), DDSsoConstants.API_AUDIENCE))
+            .isInstanceOf(DDSsoClientException.class);
+        var mcpClaims = new HashMap<>(claims);
+        mcpClaims.put("aud", "https://mcp.example.com");
+        mcpClaims.put("scope", "mcp:invoke");
+        String mcpToken = signed(mcpClaims, header("key1"));
+        Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(mcpToken, DDSsoConstants.API_AUDIENCE))
+            .isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThat(verifier.verifyAccessToken(mcpToken, "https://mcp.example.com").scopes()).containsExactly("mcp:invoke");
+    }
+
+    @Test
+    void accessIdentityPreservesExternalSourceForResourceSpecificUserResolution() throws Exception {
+        var claims = claims();
+        claims.put("aud", DDSsoConstants.API_AUDIENCE);
+        claims.put("token_use", "access");
+        claims.put("client_id", "external-client");
+        claims.put("scope", "account:access");
+        claims.put("source", "external-directory");
+        claims.put("sub", "external-user-42");
+        var identity = verifier.verifyAccessToken(signed(claims, header("key1")), DDSsoConstants.API_AUDIENCE);
+        Assertions.assertThat(identity.source()).isEqualTo("external-directory");
+        Assertions.assertThat(identity.subject()).isEqualTo("external-user-42");
     }
 
     @Test
@@ -182,6 +237,14 @@ class DDSsoServiceTest {
         Assertions.assertThat(verifier.verifyIdentity(token)).isEqualTo(first);
         Assertions.assertThat(jwksRequests).hasValue(1);
         Assertions.assertThat(jwksMethod).hasValue("GET");
+    }
+
+    @Test
+    void tokenTransportOmitsAbsentResource() throws Exception {
+        responseJson.set("{\"access_token\":\"test-token\",\"token_type\":\"Bearer\",\"expires_in\":60,\"scope\":\"account:access\"}");
+        http.exchangeCodeForTokens(new com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest(
+            "test-code", "A".repeat(43), "account", "https://account.example.com/sso/callback", null));
+        Assertions.assertThat(posted.get()).contains("grant_type=authorization_code", "code=test-code").doesNotContain("resource");
     }
 
     @Test
@@ -317,8 +380,8 @@ class DDSsoServiceTest {
             responseJson.set("{}");
             responseStatus.set(307);
             redirect.set("http://127.0.0.1:" + destination.getAddress().getPort());
-            Assertions.assertThatThrownBy(() -> http.exchange(new DDSsoTokenRequest(
-                "code", "verifier", "account", "https://account.example.com/sso/callback")))
+            Assertions.assertThatThrownBy(() -> http.exchangeCodeForTokens(new DDSsoTokenRequest(
+                "code", "verifier", "account", "https://account.example.com/sso/callback", null)))
                 .isInstanceOf(DDSsoClientException.class);
             var account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
             Assertions.assertThatThrownBy(() -> account.exchange("test-access-token"))
@@ -330,11 +393,20 @@ class DDSsoServiceTest {
     }
 
     @Test
+    void accountBackchannelRejectsForbiddenResponses() {
+        responseJson.set("{\"error\":\"forbidden\"}");
+        responseStatus.set(403);
+        var account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
+        Assertions.assertThatThrownBy(() -> account.exchange("header.payload.signature"))
+            .isInstanceOf(DDSsoClientException.class);
+    }
+
+    @Test
     void httpClientDeserializesTheEntireResponse() throws Exception {
         String token = "t".repeat(1_048_576);
         responseJson.set(gson.toJson(Map.of("id_token", token, "expires_in", 300)));
-        var response = http.exchange(new DDSsoTokenRequest(
-            "code", "verifier", "account", "https://account.example.com/sso/callback"));
+        var response = http.exchangeCodeForTokens(new DDSsoTokenRequest(
+            "code", "verifier", "account", "https://account.example.com/sso/callback", null));
         Assertions.assertThat(response.idToken()).isEqualTo(token);
         Assertions.assertThat(jwksRequests).hasValue(0);
     }
@@ -342,7 +414,7 @@ class DDSsoServiceTest {
     @Test
     void httpClientReturnsUnverifiedTokenWithoutFetchingSigningKeys() throws Exception {
         responseJson.set(gson.toJson(Map.of("id_token", "opaque-unverified-token", "expires_in", 300)));
-        var response = http.exchange(new DDSsoTokenRequest("code", "verifier", "account", "https://account.example.com/sso/callback"));
+        var response = http.exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", "account", "https://account.example.com/sso/callback", null));
         Assertions.assertThat(response.idToken()).isEqualTo("opaque-unverified-token");
         Assertions.assertThat(response.expiresIn()).isEqualTo(300);
         Assertions.assertThat(jwksRequests).hasValue(0);
@@ -353,7 +425,7 @@ class DDSsoServiceTest {
         var expired = claims();
         expired.put("exp", NOW.getEpochSecond());
         responseJson.set(gson.toJson(Map.of("id_token", signed(expired, header("key1")), "expires_in", 300)));
-        Assertions.assertThatThrownBy(() -> service.exchange("code", "verifier"))
+        Assertions.assertThatThrownBy(() -> service.exchangeCodeForIdentity("code", "verifier"))
             .isInstanceOf(DDSsoClientException.class).hasMessage("Invalid SSO identity token");
         Assertions.assertThat(jwksRequests).hasValue(1);
     }
@@ -361,7 +433,7 @@ class DDSsoServiceTest {
     @Test
     void exchangesCodeAndVerifierOnlyInAuthenticatedFormBody() throws Exception {
         responseJson.set(gson.toJson(Map.of("id_token", signed(claims(), header("key1")), "expires_in", 300)));
-        Assertions.assertThat(service.exchange("code+/%", "verifier")).isNotNull();
+        Assertions.assertThat(service.exchangeCodeForIdentity("code+/%", "verifier")).isNotNull();
         Assertions.assertThat(requestMethod).hasValue("POST");
         Assertions.assertThat(requestPath).hasValue("/token");
         Assertions.assertThat(contentType).hasValue("application/x-www-form-urlencoded");
@@ -373,10 +445,30 @@ class DDSsoServiceTest {
         }
         Assertions.assertThat(form).containsEntry("code", "code+/%").containsEntry("code_verifier", "verifier")
             .containsEntry("client_id", "account").containsEntry("redirect_uri", "https://account.example.com/sso/callback");
-        Assertions.assertThat(form).containsOnlyKeys("code", "code_verifier", "client_id", "redirect_uri");
+        Assertions.assertThat(form).containsOnlyKeys("grant_type", "code", "code_verifier", "client_id", "redirect_uri")
+            .containsEntry("grant_type", "authorization_code").doesNotContainKey("resource");
         Assertions.assertThat(gson.fromJson(gson.toJson(form), DDSsoTokenRequest.class)).isEqualTo(new DDSsoTokenRequest(
-            "code+/%", "verifier", "account", "https://account.example.com/sso/callback"
+            "code+/%", "verifier", "account", "https://account.example.com/sso/callback", null
         ));
+    }
+
+    @Test
+    void httpClientOmitsOptionalRedirectUri() throws Exception {
+        responseJson.set(gson.toJson(Map.of("access_token", "access", "expires_in", 300)));
+        Assertions.assertThat(http.exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", "account", null, null)).accessToken())
+            .isEqualTo("access");
+        Assertions.assertThat(posted.get().split("&"))
+            .containsExactlyInAnyOrder("grant_type=authorization_code", "code=code", "code_verifier=verifier", "client_id=account");
+    }
+
+    @Test
+    void httpClientFormEncodesEachBasicCredentialBeforeBase64() throws Exception {
+        var config = new DDSsoClientConfig("https://sso.example.com", "http://127.0.0.1:" + server.getAddress().getPort(),
+            "client:+ %é", "secret:+ %ß", "https://account.example.com/sso/callback", "account", Duration.ofMinutes(5), null, "account:access");
+        responseJson.set(gson.toJson(Map.of("access_token", "access", "expires_in", 300)));
+        new DDSsoClient(config).exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", config.clientId(), null, null));
+        Assertions.assertThat(credentials.get()).isEqualTo("Basic " + Base64.getEncoder().encodeToString(
+            "client%3A%2B+%25%C3%A9:secret%3A%2B+%25%C3%9F".getBytes(StandardCharsets.UTF_8)));
     }
 
     @Test
@@ -386,7 +478,7 @@ class DDSsoServiceTest {
         claims.put("sub", "wordpress-user-id");
         responseJson.set(gson.toJson(Map.of("id_token", signed(claims, header("key1")), "expires_in", 300)));
 
-        DDSsoIdentity identity = service.exchange("code", "verifier");
+        DDSsoIdentity identity = service.exchangeCodeForIdentity("code", "verifier");
 
         Assertions.assertThat(identity.source()).isEqualTo("dbeaver-com");
         Assertions.assertThat(identity.subject()).isEqualTo("wordpress-user-id");
@@ -397,7 +489,8 @@ class DDSsoServiceTest {
     void postsHandoffAndUsesPublicIssuerForBrowserRedirect() throws Exception {
         responseJson.set(gson.toJson(Map.of("handoff", "A".repeat(43), "expires_in", 60)));
         var request = new DDSsoHandoffRequest(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW),
-            new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256"), "B".repeat(43));
+            new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256",
+                null, "account:access"), "B".repeat(43));
         Assertions.assertThat(service.createHandoff(request)).isEqualTo("https://sso.example.com/handoff?handoff=" + "A".repeat(43));
         Assertions.assertThat(requestMethod).hasValue("POST");
         Assertions.assertThat(requestPath).hasValue("/handoff");
