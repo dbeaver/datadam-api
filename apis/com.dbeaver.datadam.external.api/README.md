@@ -270,6 +270,10 @@ The Desktop and backend connection owners provide an uncustomized `DDGsonRpcCode
 contracts can use `rpc.proxy(topic, Contract.class)` or `rpc.register(topic, Contract.class, implementation)`.
 The overloads accepting a codec override it only for that proxy or implementation registration, without modifying
 another caller's serialization or requiring a shared application codec bean.
+Callers can also override the response timeout when creating a proxy with `rpc.proxy(topic, Contract.class, timeout)`
+or `rpc.proxy(topic, Contract.class, codec, timeout)`, where `timeout` is a `Duration`. Other proxies and their shared
+connection keep their existing settings; overloads without a timeout use the endpoint default of 30 seconds unless
+the owner supplied different options.
 
 Desktop obtains the corresponding endpoint from its existing connection service:
 

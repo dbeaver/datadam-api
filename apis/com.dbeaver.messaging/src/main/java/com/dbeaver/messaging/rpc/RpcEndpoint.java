@@ -26,6 +26,7 @@ import org.jkiss.code.Nullable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,8 +91,23 @@ public final class RpcEndpoint implements AutoCloseable {
     }
 
     @NotNull
+    public <T> T proxy(@NotNull String topic, @NotNull Class<T> type, @NotNull Duration timeout) {
+        return proxy(topic, type, state.defaultCodec(), timeout);
+    }
+
+    @NotNull
     public <T> T proxy(@NotNull String topic, @NotNull Class<T> type, @NotNull RpcCodec<?> codec) {
-        return state.proxy(topic, type, codec);
+        return proxy(topic, type, codec, state.options.timeout());
+    }
+
+    @NotNull
+    public <T> T proxy(
+        @NotNull String topic,
+        @NotNull Class<T> type,
+        @NotNull RpcCodec<?> codec,
+        @NotNull Duration timeout
+    ) {
+        return state.proxy(topic, type, codec, timeout);
     }
 
     public boolean isClosed() {
@@ -159,8 +175,14 @@ public final class RpcEndpoint implements AutoCloseable {
         }
 
         @NotNull
-        private <T> T proxy(@NotNull String topic, @NotNull Class<T> type, @NotNull RpcCodec<?> codec) {
+        private <T> T proxy(
+            @NotNull String topic,
+            @NotNull Class<T> type,
+            @NotNull RpcCodec<?> codec,
+            @NotNull Duration timeout
+        ) {
             requireTopic(topic);
+            requireTimeout(timeout);
             RpcCodec<P> bindingCodec = bindingCodec(codec);
             RpcContract<T> contract = RpcContract.create(type);
             Topic selected = topic(topic);
@@ -177,7 +199,7 @@ public final class RpcEndpoint implements AutoCloseable {
                     };
                 }
                 Method operation = Objects.requireNonNull(contract.operation(RpcContract.operationId(method)));
-                return invoke(selected, operation, Objects.requireNonNull(arguments)[0], bindingCodec);
+                return invoke(selected, operation, Objects.requireNonNull(arguments)[0], bindingCodec, timeout);
             });
             return type.cast(proxy);
         }
@@ -187,7 +209,8 @@ public final class RpcEndpoint implements AutoCloseable {
             @NotNull Topic topic,
             @NotNull Method operation,
             @Nullable Object argument,
-            @NotNull RpcCodec<P> codec
+            @NotNull RpcCodec<P> codec,
+            @NotNull Duration timeout
         ) {
             synchronized (lock) {
                 requireOpen();
@@ -204,7 +227,7 @@ public final class RpcEndpoint implements AutoCloseable {
             }
             RpcMessage<P> response;
             try {
-                response = Objects.requireNonNull(topic.requests).request(request);
+                response = Objects.requireNonNull(topic.requests).request(request, timeout);
             } catch (RequestReplyException e) {
                 throw new RpcException(e);
             } catch (InterruptedException e) {
@@ -295,6 +318,18 @@ public final class RpcEndpoint implements AutoCloseable {
             if (topic.isBlank() || topic.length() > 256) {
                 throw new IllegalArgumentException("Expected a nonblank RPC topic of at most 256 characters");
             }
+        }
+
+        private static void requireTimeout(@NotNull Duration timeout) {
+            Objects.requireNonNull(timeout);
+            try {
+                if (timeout.toNanos() > 0) {
+                    return;
+                }
+            } catch (ArithmeticException e) {
+                throw new IllegalArgumentException("RPC timeout is too large", e);
+            }
+            throw new IllegalArgumentException("RPC timeout must be positive");
         }
 
         @NotNull

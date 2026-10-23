@@ -803,7 +803,7 @@ public class RpcEndpointTest extends RpcTestSupport {
             }
             assertThrows(NullPointerException.class, () -> endpoint.proxy(null, EchoService.class, codec));
             assertThrows(NullPointerException.class, () -> endpoint.proxy("echo", null, codec));
-            assertThrows(NullPointerException.class, () -> endpoint.proxy("echo", EchoService.class, null));
+            assertThrows(NullPointerException.class, () -> endpoint.proxy("echo", EchoService.class, (RpcCodec<?>) null));
             assertThrows(NullPointerException.class, () -> endpoint.register(null, EchoService.class, value -> value, codec));
             assertThrows(NullPointerException.class, () -> endpoint.register("echo", EchoService.class, null, codec));
             assertThrows(NullPointerException.class, () -> endpoint.register("echo", EchoService.class, value -> value, null));

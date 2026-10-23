@@ -19,6 +19,7 @@ package com.dbeaver.messaging.rpc;
 import com.dbeaver.messaging.requestreply.MessageSubscription;
 import com.dbeaver.messaging.requestreply.RequestReplyException;
 import com.dbeaver.messaging.requestreply.RequestReplyMessage;
+import com.dbeaver.messaging.requestreply.RequestReplyOptions;
 import com.dbeaver.messaging.requestreply.RequestReplyTransport;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.Timeout;
 
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -167,6 +169,100 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
     }
 
     @Test
+    void shorterProxyTimeoutDoesNotChangeOtherProxiesSharingTheTopic() throws Exception {
+        var transport = new MemoryTransport();
+        var codec = new TestCodec();
+        try (var endpoint = RpcEndpoint.open(transport, codec, OPTIONS)) {
+            TextService first = endpoint.proxy("text", TextService.class);
+            TextService expiring = endpoint.proxy("text", TextService.class, Duration.ofMillis(100));
+            TextService second = endpoint.proxy("text", TextService.class);
+            Future<String> firstCall = async(() -> first.apply("first"));
+            var firstRequest = transport.next();
+            Future<String> secondCall = async(() -> second.apply("second"));
+            var secondRequest = transport.next();
+
+            failure(RpcException.Reason.TIMEOUT, () -> expiring.apply("expire"));
+            var expiredRequest = transport.next();
+
+            assertFalse(firstCall.isDone());
+            assertFalse(secondCall.isDone());
+            transport.deliver(expiredRequest.response(RpcMessage.response("late")));
+            assertFalse(firstCall.isDone());
+            assertFalse(secondCall.isDone());
+            transport.deliver(firstRequest.response(RpcMessage.response("first reply")));
+            transport.deliver(secondRequest.response(RpcMessage.response("second reply")));
+            assertEquals("first reply", result(firstCall));
+            assertEquals("second reply", result(secondCall));
+            assertEquals(3, codec.encoded.size());
+            assertEquals(2, codec.decoded.size());
+            assertTrue(transport.sent.isEmpty());
+            assertEquals(1, transport.listeners.size());
+        }
+        assertEquals(1, transport.subscriptionCloses.get());
+    }
+
+    @Test
+    void longerProxyTimeoutAndExplicitCodecDoNotChangeTheEndpointDefaults() throws Exception {
+        var transport = new MemoryTransport();
+        var fallback = new TestCodec();
+        var custom = new TestCodec();
+        custom.encoder = (value, type) -> "custom:" + value;
+        custom.decoder = (value, type) -> "decoded:" + value;
+        var options = new RequestReplyOptions(Duration.ofMillis(100), 16, 16);
+        try (var endpoint = RpcEndpoint.open(transport, fallback, options)) {
+            TextService first = endpoint.proxy("text", TextService.class);
+            TextService extended = endpoint.proxy("text", TextService.class, custom, WAIT);
+            TextService second = endpoint.proxy("text", TextService.class, fallback);
+            Future<String> extendedCall = async(() -> extended.apply("extended"));
+            var extendedRequest = transport.next();
+            assertEquals("custom:extended", extendedRequest.payload().payload());
+
+            failure(RpcException.Reason.TIMEOUT, () -> first.apply("first"));
+            var firstRequest = transport.next();
+            failure(RpcException.Reason.TIMEOUT, () -> second.apply("second"));
+            var secondRequest = transport.next();
+
+            assertFalse(extendedCall.isDone());
+            transport.deliver(firstRequest.response(RpcMessage.response("first late reply")));
+            transport.deliver(secondRequest.response(RpcMessage.response("second late reply")));
+            assertFalse(extendedCall.isDone());
+            transport.deliver(extendedRequest.response(RpcMessage.response("extended reply")));
+            assertEquals("decoded:extended reply", result(extendedCall));
+            assertEquals(1, custom.encoded.size());
+            assertEquals(1, custom.decoded.size());
+            assertEquals(2, fallback.encoded.size());
+            assertTrue(fallback.decoded.isEmpty());
+            assertTrue(transport.sent.isEmpty());
+            assertEquals(1, transport.listeners.size());
+        }
+        assertEquals(1, transport.subscriptionCloses.get());
+    }
+
+    @Test
+    void validatesProxyTimeoutsBeforeOpeningAnyTopic() {
+        var transport = new MemoryTransport();
+        var codec = new TestCodec();
+        try (var endpoint = RpcEndpoint.open(transport, codec, OPTIONS)) {
+            for (Duration timeout : List.of(
+                Duration.ZERO, Duration.ofNanos(-1), Duration.ofSeconds(-1),
+                Duration.ofSeconds(Long.MAX_VALUE), Duration.ofSeconds(Long.MIN_VALUE)
+            )) {
+                assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("text", TextService.class, timeout));
+                assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("text", TextService.class, codec, timeout));
+            }
+            assertThrows(NullPointerException.class, () -> endpoint.proxy("text", TextService.class, (Duration) null));
+            assertThrows(NullPointerException.class, () -> endpoint.proxy("text", TextService.class, codec, null));
+            assertThrows(NullPointerException.class, () -> endpoint.proxy("text", TextService.class, null, WAIT));
+            assertTrue(transport.listeners.isEmpty());
+            for (Duration timeout : List.of(Duration.ofNanos(1), Duration.ofNanos(Long.MAX_VALUE))) {
+                endpoint.proxy("text", TextService.class, timeout);
+                endpoint.proxy("text", TextService.class, codec, timeout);
+            }
+            assertEquals(1, transport.listeners.size());
+        }
+    }
+
+    @Test
     void closesEveryTopicWhenOneSubscriptionCleanupFails() {
         var closes = new AtomicInteger();
         var failure = new IllegalStateException("Cleanup failed");
@@ -195,6 +291,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
             IllegalStateException proxyFailure = assertThrows(IllegalStateException.class,
                 () -> endpoint.proxy("text", TextService.class));
             assertTrue(proxyFailure.getMessage().contains("default codec"));
+            assertThrows(IllegalStateException.class, () -> endpoint.proxy("text", TextService.class, WAIT));
             assertThrows(IllegalStateException.class, () -> endpoint.register("text", TextService.class, value -> value));
             assertEquals(0, openings.get());
         }

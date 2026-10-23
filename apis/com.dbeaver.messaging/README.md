@@ -221,10 +221,23 @@ handler failures, and remote codec failures return fixed error codes, never exce
 Declared application exceptions are not reconstructed on the caller. A peer with no receiving endpoint can only be
 detected through transport failure or timeout. Local failures retain their causes.
 
-`RpcEndpoint.open(transports, options)` accepts the existing `RequestReplyOptions` for deadlines and capacity.
-The deadline covers the underlying request/reply call, not arbitrary application codec execution. Codecs should complete
-promptly. Timeout or interruption leaves the remote outcome potentially unknown; the RPC layer adds no retries or
-remote cancellation promises.
+`RpcEndpoint.open(transports, options)` accepts the existing `RequestReplyOptions` for default deadlines and shared
+capacity. Without explicit options, the default timeout is 30 seconds. Each proxy can override the request timeout
+with a positive `Duration` representable in nanoseconds:
+
+```java
+Documents documents = rpc.proxy("documents", Documents.class, Duration.ofMinutes(2));
+Documents customDocuments = rpc.proxy("documents", Documents.class, documentCodec, Duration.ofMinutes(2));
+```
+
+Overloads without a timeout retain the endpoint default. A timeout is fixed for that proxy and does not change other
+proxies, registrations, or shared topic scopes. Multiple proxies for the same interface and topic can use different
+timeouts without creating another remote implementation or changing the business interface. Topic establishment and
+capacity still use the endpoint options.
+
+The timeout covers each underlying request/reply call, not arbitrary application codec execution. Codecs should complete
+promptly. Timeout or interruption leaves the remote outcome potentially unknown; late replies are ignored, and the RPC
+layer adds no retries or remote cancellation promises.
 
 Closing a service registration removes only that local implementation. It does not close the endpoint or its proxies,
 and work already dispatched to the implementation can finish. Repeatedly closing an old registration cannot remove a
