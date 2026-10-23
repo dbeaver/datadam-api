@@ -318,6 +318,23 @@ class DDExternalDamClientTest {
     }
 
     @Test
+    void registersTheServiceSecretAsTheCallbackSecret() throws DDExternalDamException {
+        respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+
+        assertEquals(60, client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
+            "projects", CALLBACK_URL, SERVICE_SECRET));
+
+        CapturedRequest request = latestRequest.get();
+        assertNotNull(request);
+        assertEquals(SERVICE_SECRET, request.header(DDExternalDamApi.HEADER_SERVICE_TOKEN));
+        JsonObject body = JsonParser.parseString(request.body()).getAsJsonObject();
+        assertEquals(SERVICE_SECRET, body.getAsJsonObject("variables").getAsJsonObject("input")
+            .get("callbackSecret").getAsString());
+        assertFalse(body.get("query").getAsString().contains(SERVICE_SECRET));
+        assertEquals(1, requestCount.get());
+    }
+
+    @Test
     void acceptsCallbackRootOriginsAndPrintableSecretBoundaries() throws DDExternalDamException {
         UUID subscriptionId = UUID.randomUUID();
         respond("registerExternalDamSubscription", JsonParser.parseString("60"));
@@ -390,12 +407,12 @@ class DDExternalDamClientTest {
     }
 
     @Test
-    void rejectsInvalidAndBrokerReusedCallbackSecretsBeforeSendingAnyRequest() {
+    void rejectsInvalidCallbackSecretsBeforeSendingAnyRequest() {
         UUID subscriptionId = UUID.randomUUID();
         for (String callbackSecret : new String[] {
             null, "", "s".repeat(31), "s".repeat(513), " ".repeat(32), "s".repeat(31) + "\n",
             "s".repeat(31) + "\t", "s".repeat(31) + "\r", "s".repeat(31) + "\0",
-            "s".repeat(31) + "\u007f", "s".repeat(31) + "é", SERVICE_SECRET
+            "s".repeat(31) + "\u007f", "s".repeat(31) + "é"
         }) {
             IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
                 () -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,

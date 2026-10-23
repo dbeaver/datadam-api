@@ -50,10 +50,6 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
         this.endpoint = endpoint;
     }
 
-    final boolean hasServiceSecret(@NotNull String secret) {
-        return serviceSecret.equals(secret);
-    }
-
     @NotNull
     final JsonElement request(
         @NotNull String operationName,

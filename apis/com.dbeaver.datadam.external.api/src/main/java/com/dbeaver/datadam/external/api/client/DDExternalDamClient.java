@@ -144,7 +144,7 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
         if (!DDExternalDamApi.isValidServiceUrl(callbackUrl)) {
             throw new IllegalArgumentException("Invalid External DAM callback URL");
         }
-        if (!DDExternalDamApi.isValidServiceSecret(callbackSecret) || hasServiceSecret(callbackSecret)) {
+        if (!DDExternalDamApi.isValidServiceSecret(callbackSecret)) {
             throw new IllegalArgumentException("Invalid External DAM callback secret");
         }
         Map<String, Object> input = new HashMap<>();

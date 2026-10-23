@@ -69,9 +69,10 @@ input ExternalDamSubscriptionInput {
 The URL must use HTTP or HTTPS, have no credentials, query, fragment, or non-root path, and use a valid port.
 HTTP is supported for trusted private service networks; use HTTPS across untrusted networks.
 
-The broker service secret must contain 32–512 printable, non-space ASCII characters. It is sent only in the
-`X-DD-Service-Token` header, never in the URL or GraphQL variables. Subscription registration carries a separate
-receiver callback secret in its variables; protect that backend-only request and never log its body.
+The External DAM service secret must contain 32–512 printable, non-space ASCII characters. It authenticates
+both backend-to-broker requests and broker-to-backend callbacks through the `X-DD-Service-Token` header.
+Subscription registration also carries this same secret in its `callbackSecret` variable for protocol compatibility;
+protect that backend-only request and never log its body. The secret must never appear in URLs or GraphQL query text.
 Redirects are disabled to avoid forwarding credentials to another endpoint.
 Connection establishment uses the shared REST client's 5-second default connect timeout; responses have a 10-second deadline.
 HTTP error bodies, GraphQL error details, and malformed response contents are not copied into client exceptions.
@@ -99,15 +100,16 @@ returns the lease in seconds. The receiving process generates the UUID `subscrip
 with the same scope and callback renews it.
 A null `connectionId` subscribes to the account's matching messages, including future Desktop connections.
 A non-null connection ID filters one physical connection and does not follow a replacement socket.
-The receiver supplies its callback service root URL and independent callback secret during registration and renewal.
+The receiver supplies its callback service root URL and the External DAM service secret as `callbackSecret` during
+registration and renewal. The `callbackSecret` parameter and wire field remain part of the registration protocol.
 The broker keeps them only with its in-memory registrations; it has no configured subscriber list or separate
 service-registration step. The subscriber ID identifies the receiver and does not determine business topics.
-Callback URLs follow the same HTTP/HTTPS root-URL validation as the broker URL, and the callback secret must
-differ from the broker service secret. Only trusted authenticated backends may register callbacks; restrict the
-broker's outbound network access and use HTTPS outside a trusted private network.
+Callback URLs follow the same HTTP/HTTPS root-URL validation as the broker URL, and callback secrets follow the same
+32–512 printable, non-space ASCII validation as the service secret. Only trusted authenticated backends may register
+callbacks; restrict the broker's outbound network access and use HTTPS outside a trusted private network.
 
-`DDExternalDamCallbackClient` delivers messages to the receiver's separately authenticated
-`POST /internal/external-dam/graphql` using its independent callback secret. Successful acknowledgement extends the
+`DDExternalDamCallbackClient` delivers messages to the receiver's authenticated
+`POST /internal/external-dam/graphql` using the same External DAM service secret. Successful acknowledgement extends the
 lease. The acknowledgement does not describe local subscriber presence or business processing. Local cancellation
 uses `unregisterSubscription`, including cleanup when the receiver no longer recognizes an incoming registration.
 External DAM discards queued work on cancellation or expiry; an already claimed callback may finish.
@@ -115,8 +117,11 @@ Messages are not retried or replayed after callback failure. Callback queues and
 
 Spring services use the shared `com.dbeaver.datadam.external.base` module from the DataDam server repository.
 It supplies the callback endpoint, local dispatch, `DDSubscription.close()` cancellation, and automatic renewal
-during idle periods. Configure `datadam.external-dam-client.callback-url` and `callback-secret` on the receiver;
-the library sends them automatically when opening topic subscriptions, including RPC request/reply routes.
+during idle periods. Configure `datadam.external-dam-client.service-url`, `datadam.external-dam-client.service-secret`, and
+`datadam.external-dam-client.callback-url` on Account and Storage. Set `service-secret` to the External DAM service
+secret; the library uses it for outgoing requests, incoming callback authentication, and the registration's
+`callbackSecret` field automatically when opening topic subscriptions, including RPC request/reply routes.
+There is no separate `datadam.external-dam-client.callback-secret` configuration.
 Select a scoped channel once with `subscriptions.forConnection(accountId, connectionId)` or
 `subscriptions.forAccount(accountId)`, then call `channel.subscribe(topic, listener)` without repeating identifiers.
 The low-level registration protocol retains account and connection scope to enforce account ownership.
