@@ -36,6 +36,7 @@ import org.jkiss.utils.oauth.OAuthConstants;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
@@ -74,7 +75,10 @@ public class DDSsoClient extends AbstractRestClient {
         Map<String, String> parameters = new HashMap<>(Map.of(
             OAuthConstants.PARAM_GRANT_TYPE, OAuthConstants.GRANT_TYPE_AUTH_CODE,
             OAuthConstants.PARAM_CODE, request.code(), OAuthConstants.PARAM_CODE_VERIFIER, request.codeVerifier(),
-            OAuthConstants.AUTH_PROP_CLIENT_ID, request.clientId(), OAuthConstants.PARAM_REDIRECT_URI, request.redirectUri()));
+            OAuthConstants.AUTH_PROP_CLIENT_ID, request.clientId()));
+        if (request.redirectUri() != null) {
+            parameters.put(OAuthConstants.PARAM_REDIRECT_URI, request.redirectUri());
+        }
         if (request.resource() != null) {
             parameters.put(DDSsoConstants.PARAM_RESOURCE, request.resource());
         }
@@ -122,8 +126,11 @@ public class DDSsoClient extends AbstractRestClient {
     @Override
     protected <T> T execute(@NotNull HttpRequest.Builder builder, @NotNull Type type) throws DBException {
         if (HttpConstants.METHOD_POST.equals(builder.build().method())) {
+            // RFC 6749 section 2.3.1: form-encode each component before joining the Basic credentials.
+            String credentials = URLEncoder.encode(properties.clientId(), StandardCharsets.UTF_8) + ":"
+                + URLEncoder.encode(properties.clientSecret(), StandardCharsets.UTF_8);
             builder.setHeader(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.BASIC_PREFIX
-                + Base64.getEncoder().encodeToString((properties.clientId() + ":" + properties.clientSecret()).getBytes(StandardCharsets.UTF_8)));
+                + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8)));
         }
         return super.execute(builder, type);
     }

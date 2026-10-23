@@ -453,6 +453,25 @@ class DDSsoServiceTest {
     }
 
     @Test
+    void httpClientOmitsOptionalRedirectUri() throws Exception {
+        responseJson.set(gson.toJson(Map.of("access_token", "access", "expires_in", 300)));
+        Assertions.assertThat(http.exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", "account", null, null)).accessToken())
+            .isEqualTo("access");
+        Assertions.assertThat(posted.get().split("&"))
+            .containsExactlyInAnyOrder("grant_type=authorization_code", "code=code", "code_verifier=verifier", "client_id=account");
+    }
+
+    @Test
+    void httpClientFormEncodesEachBasicCredentialBeforeBase64() throws Exception {
+        var config = new DDSsoClientConfig("https://sso.example.com", "http://127.0.0.1:" + server.getAddress().getPort(),
+            "client:+ %é", "secret:+ %ß", "https://account.example.com/sso/callback", "account", Duration.ofMinutes(5), null, "account:access");
+        responseJson.set(gson.toJson(Map.of("access_token", "access", "expires_in", 300)));
+        new DDSsoClient(config).exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", config.clientId(), null, null));
+        Assertions.assertThat(credentials.get()).isEqualTo("Basic " + Base64.getEncoder().encodeToString(
+            "client%3A%2B+%25%C3%A9:secret%3A%2B+%25%C3%9F".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
     void preservesExternalSourceAndSubjectAfterVerifyingIdentityToken() throws Exception {
         Map<String, Object> claims = claims();
         claims.put("source", "dbeaver-com");

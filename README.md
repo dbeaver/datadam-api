@@ -35,8 +35,11 @@ The identity's `authTime` uses ISO-8601 (`GsonUtils.InstantIsoAdapter`). Browser
 `GET /handoff?handoff=...` and requires the proof cookie set by `/handoff/start`.
 
 Token exchange uses `POST /token` with `application/x-www-form-urlencoded` fields `code`, `code_verifier`,
-`client_id`, `redirect_uri`, optional `resource` and mandatory `grant_type=authorization_code`. Clients with a
-configured secret authenticate through HTTP Basic; public clients use code and PKCE without credentials.
+`client_id`, optional `redirect_uri` and `resource`, and mandatory `grant_type=authorization_code`.
+If supplied, `redirect_uri` must exactly match the original callback. External MCP grants require `resource`.
+Clients with a configured secret authenticate through HTTP Basic and may omit the body `client_id`;
+form-encode each credential before joining them with `:` and Base64-encoding the result (RFC 6749 section 2.3.1).
+Public clients supply `client_id` and use code and PKCE without credentials.
 Every successful exchange returns an access JWT. Ordinary DataDam APIs use the fixed `DDSsoConstants.API_AUDIENCE`;
 External MCP access uses its authorized resource URI as `aud`.
 Account/Admin additionally use their
