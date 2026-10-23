@@ -21,6 +21,20 @@ import org.junit.jupiter.api.Test;
 
 class DDExternalDamApiTest {
     @Test
+    void acceptsSubscriberIdsWithSubscriptionMetadataCharactersAndLengthBoundaries() {
+        for (String subscriberId : new String[] {"s", "service:account", "service account", "s".repeat(129), "s".repeat(256)}) {
+            Assertions.assertTrue(DDExternalDamApi.isValidSubscriberId(subscriberId));
+        }
+    }
+
+    @Test
+    void rejectsMissingBlankAndOversizedSubscriberIds() {
+        for (String subscriberId : new String[] {null, "", " ", "\t\n", "s".repeat(257)}) {
+            Assertions.assertFalse(DDExternalDamApi.isValidSubscriberId(subscriberId));
+        }
+    }
+
+    @Test
     void acceptsPrintableAsciiSecretsAtBothLengthBoundaries() {
         Assertions.assertTrue(DDExternalDamApi.isValidServiceSecret("!".repeat(32)));
         Assertions.assertTrue(DDExternalDamApi.isValidServiceSecret("~".repeat(512)));

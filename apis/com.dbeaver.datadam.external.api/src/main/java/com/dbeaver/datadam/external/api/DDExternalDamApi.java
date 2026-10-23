@@ -26,9 +26,16 @@ public final class DDExternalDamApi {
     public static final String HEADER_SERVICE_TOKEN = "X-DD-Service-Token";
     public static final int MIN_SERVICE_SECRET_LENGTH = 32;
     public static final int MAX_SERVICE_SECRET_LENGTH = 512;
+    public static final int MIN_SUBSCRIPTION_LEASE_SECONDS = 15;
+    public static final int MAX_SUBSCRIPTION_LEASE_SECONDS = 300;
+    private static final int MAX_SUBSCRIBER_ID_LENGTH = 256;
     private static final int MAX_SERVICE_URL_LENGTH = 4096;
 
     private DDExternalDamApi() {
+    }
+
+    public static boolean isValidSubscriberId(@Nullable String subscriberId) {
+        return subscriberId != null && !subscriberId.isBlank() && subscriberId.length() <= MAX_SUBSCRIBER_ID_LENGTH;
     }
 
     public static boolean isValidServiceSecret(@Nullable String secret) {

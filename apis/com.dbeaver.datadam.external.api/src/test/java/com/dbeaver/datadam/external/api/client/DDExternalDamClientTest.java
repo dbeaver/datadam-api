@@ -335,11 +335,32 @@ class DDExternalDamClientTest {
     }
 
     @Test
+    void preservesSubscriberIdsAcrossRegistrationAndCancellation() throws DDExternalDamException {
+        for (String subscriberId : List.of("service:account", "service account", "s".repeat(129), "s".repeat(256))) {
+            UUID subscriptionId = UUID.randomUUID();
+            respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+            assertEquals(60, client.registerSubscription(subscriberId, subscriptionId, ACCOUNT_ID, null,
+                "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertEquals(subscriberId, posted().getAsJsonObject("variables").getAsJsonObject("input")
+                .get("subscriberId").getAsString());
+
+            respond("unregisterExternalDamSubscription", JsonParser.parseString("true"));
+            assertTrue(client.unregisterSubscription(subscriberId, subscriptionId));
+            assertEquals(subscriberId, posted().getAsJsonObject("variables").get("subscriberId").getAsString());
+        }
+        assertEquals(8, requestCount.get());
+    }
+
+    @Test
     void rejectsMalformedSubscriptionMetadataBeforeSendingAnyRequest() {
         UUID subscriptionId = UUID.randomUUID();
+        assertThrows(IllegalArgumentException.class, () -> client.registerSubscription(null, subscriptionId,
+            ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET));
+        assertThrows(IllegalArgumentException.class, () -> client.unregisterSubscription(null, subscriptionId));
         for (String value : List.of("", " ", "\t\n", "s".repeat(257))) {
             assertThrows(IllegalArgumentException.class, () -> client.registerSubscription(value, subscriptionId,
                 ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertThrows(IllegalArgumentException.class, () -> client.unregisterSubscription(value, subscriptionId));
             assertThrows(IllegalArgumentException.class, () -> client.registerSubscription("account", subscriptionId,
                 ACCOUNT_ID, value, "projects", CALLBACK_URL, CALLBACK_SECRET));
             assertThrows(IllegalArgumentException.class, () -> client.registerSubscription("account", subscriptionId,
@@ -399,6 +420,15 @@ class DDExternalDamClientTest {
             assertEquals(Set.of("subscriberId", "subscriptionId"), variables.keySet());
             assertEquals("storage", variables.get("subscriberId").getAsString());
             assertEquals(subscriptionId.toString(), variables.get("subscriptionId").getAsString());
+        }
+    }
+
+    @Test
+    void acceptsBothSubscriptionLeaseBoundaries() throws DDExternalDamException {
+        for (int lease : List.of(15, 300)) {
+            respond("registerExternalDamSubscription", JsonParser.parseString(Integer.toString(lease)));
+            assertEquals(lease, client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
+                "projects", CALLBACK_URL, CALLBACK_SECRET));
         }
     }
 

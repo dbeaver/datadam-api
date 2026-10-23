@@ -136,7 +136,7 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
         @NotNull String callbackUrl,
         @NotNull String callbackSecret
     ) throws DDExternalDamException {
-        requireText(subscriberId);
+        requireSubscriberId(subscriberId);
         requireText(topic);
         if (connectionId != null) {
             requireText(connectionId);
@@ -162,7 +162,8 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
         }
         try {
             int leaseSeconds = result.getAsBigDecimal().intValueExact();
-            if (leaseSeconds >= 15 && leaseSeconds <= 300) {
+            if (leaseSeconds >= DDExternalDamApi.MIN_SUBSCRIPTION_LEASE_SECONDS
+                && leaseSeconds <= DDExternalDamApi.MAX_SUBSCRIPTION_LEASE_SECONDS) {
                 return leaseSeconds;
             }
         } catch (ArithmeticException | NumberFormatException e) {
@@ -172,7 +173,7 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
     }
 
     public boolean unregisterSubscription(@NotNull String subscriberId, @NotNull UUID subscriptionId) throws DDExternalDamException {
-        requireText(subscriberId);
+        requireSubscriberId(subscriberId);
         JsonElement result = request("UnregisterExternalDamSubscription", UNREGISTER_MUTATION,
             Map.of("subscriberId", subscriberId, "subscriptionId", Objects.requireNonNull(subscriptionId).toString()),
             "unregisterExternalDamSubscription");
@@ -189,6 +190,12 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
             throw invalidResponse();
         }
         return value.getAsString();
+    }
+
+    private static void requireSubscriberId(@Nullable String subscriberId) {
+        if (!DDExternalDamApi.isValidSubscriberId(subscriberId)) {
+            throw new IllegalArgumentException("Invalid subscription metadata");
+        }
     }
 
     private static void requireText(@NotNull String value) {

@@ -48,6 +48,11 @@ import java.util.concurrent.Semaphore;
 
 public final class DDRequestReplyTransport implements RequestReplyTransport<JsonObject>, AutoCloseable {
     private static final String MESSAGE_TYPE = "datadam.requestreply.v1";
+    private static final String FIELD_REQUEST_ID = "requestId";
+    private static final String FIELD_REPLY_TO = "replyTo";
+    private static final String FIELD_TYPE = "type";
+    private static final String FIELD_ERROR = "error";
+    private static final String FIELD_DATA = "data";
     private static final int MAX_PENDING_SENDS = 128;
     private static final int MAX_PENDING_DELIVERIES = 128;
     private final Object lock = new Object();
@@ -163,13 +168,13 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
         }
         try {
             JsonObject envelope = new JsonObject();
-            envelope.addProperty("requestId", message.requestId().toString());
-            envelope.addProperty("replyTo", message.replyTo().toString());
-            envelope.addProperty("type", message.type().name());
+            envelope.addProperty(FIELD_REQUEST_ID, message.requestId().toString());
+            envelope.addProperty(FIELD_REPLY_TO, message.replyTo().toString());
+            envelope.addProperty(FIELD_TYPE, message.type().name());
             if (message.type() == RequestReplyMessage.Type.ERROR) {
-                envelope.addProperty("error", Objects.requireNonNull(message.error()).name());
+                envelope.addProperty(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
             } else {
-                envelope.add("data", message.payload() == null ? JsonNull.INSTANCE : message.payload());
+                envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload());
             }
             String target = message.type() == RequestReplyMessage.Type.REQUEST ? topic : replyPrefix + message.replyTo();
             CompletableFuture<Void> result = new CompletableFuture<>();
@@ -217,19 +222,19 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
         }
         try {
             JsonObject envelope = message.payload();
-            UUID requestId = uuid(envelope, "requestId");
-            UUID replyTo = uuid(envelope, "replyTo");
-            RequestReplyMessage.Type type = RequestReplyMessage.Type.valueOf(string(envelope, "type"));
-            JsonElement data = envelope.get("data");
+            UUID requestId = uuid(envelope, FIELD_REQUEST_ID);
+            UUID replyTo = uuid(envelope, FIELD_REPLY_TO);
+            RequestReplyMessage.Type type = RequestReplyMessage.Type.valueOf(string(envelope, FIELD_TYPE));
+            JsonElement data = envelope.get(FIELD_DATA);
             RequestReplyMessage.Error error = null;
             JsonObject payload = null;
             if (type == RequestReplyMessage.Type.ERROR) {
                 if (data != null && !data.isJsonNull()) {
                     return null;
                 }
-                error = RequestReplyMessage.Error.valueOf(string(envelope, "error"));
+                error = RequestReplyMessage.Error.valueOf(string(envelope, FIELD_ERROR));
             } else {
-                if (envelope.has("error") || data == null || !data.isJsonObject() && !data.isJsonNull()
+                if (envelope.has(FIELD_ERROR) || data == null || !data.isJsonObject() && !data.isJsonNull()
                     || type == RequestReplyMessage.Type.REQUEST && data.isJsonNull()) {
                     return null;
                 }

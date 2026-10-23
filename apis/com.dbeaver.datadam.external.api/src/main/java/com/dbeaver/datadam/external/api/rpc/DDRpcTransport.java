@@ -38,6 +38,11 @@ import java.util.concurrent.Semaphore;
 
 public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<JsonElement>> {
     private static final String PROTOCOL = "dbeaver.rpc.v2";
+    private static final String FIELD_PROTOCOL = "protocol";
+    private static final String FIELD_TYPE = "type";
+    private static final String FIELD_ERROR = "error";
+    private static final String FIELD_OPERATION = "operation";
+    private static final String FIELD_DATA = "data";
     private static final int MAX_PENDING_SENDS = 128;
     private final Semaphore sendBudget = new Semaphore(MAX_PENDING_SENDS);
     private final RequestReplyTransport<JsonObject> delegate;
@@ -111,15 +116,15 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
     @NotNull
     private static JsonObject encode(@NotNull RpcMessage<JsonElement> message) {
         JsonObject envelope = new JsonObject();
-        envelope.addProperty("protocol", PROTOCOL);
-        envelope.addProperty("type", message.type().name());
+        envelope.addProperty(FIELD_PROTOCOL, PROTOCOL);
+        envelope.addProperty(FIELD_TYPE, message.type().name());
         if (message.type() == RpcMessage.Type.ERROR) {
-            envelope.addProperty("error", Objects.requireNonNull(message.error()).name());
+            envelope.addProperty(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
         } else {
             if (message.type() == RpcMessage.Type.REQUEST) {
-                envelope.addProperty("operation", message.operation());
+                envelope.addProperty(FIELD_OPERATION, message.operation());
             }
-            envelope.add("data", message.payload() == null ? JsonNull.INSTANCE : message.payload().deepCopy());
+            envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload().deepCopy());
         }
         return envelope;
     }
@@ -131,25 +136,25 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
         }
         try {
             JsonObject envelope = message.payload();
-            if (!PROTOCOL.equals(string(envelope, "protocol"))) {
+            if (!PROTOCOL.equals(string(envelope, FIELD_PROTOCOL))) {
                 return null;
             }
-            RpcMessage.Type type = RpcMessage.Type.valueOf(string(envelope, "type"));
+            RpcMessage.Type type = RpcMessage.Type.valueOf(string(envelope, FIELD_TYPE));
             requireType(message.type(), type);
             RpcMessage<JsonElement> payload;
             if (type == RpcMessage.Type.ERROR) {
                 if (envelope.size() != 3) {
                     return null;
                 }
-                payload = RpcMessage.failure(RpcMessage.Error.valueOf(string(envelope, "error")));
+                payload = RpcMessage.failure(RpcMessage.Error.valueOf(string(envelope, FIELD_ERROR)));
             } else {
-                JsonElement data = envelope.get("data");
+                JsonElement data = envelope.get(FIELD_DATA);
                 if (data == null || envelope.size() != (type == RpcMessage.Type.REQUEST ? 4 : 3)) {
                     return null;
                 }
                 JsonElement snapshot = data.isJsonNull() ? null : data.deepCopy();
                 payload = type == RpcMessage.Type.REQUEST
-                    ? RpcMessage.request(string(envelope, "operation"), snapshot)
+                    ? RpcMessage.request(string(envelope, FIELD_OPERATION), snapshot)
                     : RpcMessage.response(snapshot);
             }
             return new RequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), payload, message.error());
