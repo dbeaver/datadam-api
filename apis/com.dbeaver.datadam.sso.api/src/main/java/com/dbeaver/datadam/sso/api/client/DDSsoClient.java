@@ -68,8 +68,9 @@ public class DDSsoClient extends AbstractRestClient {
         return URI.create(base + (base.endsWith("/") ? "" : "/") + (path.startsWith("/") ? path.substring(1) : path));
     }
 
+    /** Exchanges an authorization code for the token response. JWTs are unverified and id_token is optional. */
     @NotNull
-    public DDSsoTokenResponse exchange(@NotNull DDSsoTokenRequest request) throws DDSsoClientException {
+    public DDSsoTokenResponse exchangeCodeForTokens(@NotNull DDSsoTokenRequest request) throws DDSsoClientException {
         Map<String, String> parameters = new HashMap<>(Map.of(
             OAuthConstants.PARAM_GRANT_TYPE, OAuthConstants.GRANT_TYPE_AUTH_CODE,
             OAuthConstants.PARAM_CODE, request.code(), OAuthConstants.PARAM_CODE_VERIFIER, request.codeVerifier(),

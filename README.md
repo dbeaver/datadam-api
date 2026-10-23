@@ -41,6 +41,9 @@ Every successful exchange returns an access JWT. Ordinary DataDam APIs use the f
 MCP access uses its authorized resource URI as `aud`.
 Account/Admin additionally use their
 internal identity JWT to establish local browser sessions; this is not an OpenID Connect contract.
+`DDSsoClient.exchangeCodeForTokens` returns the complete token response with an optional `id_token`, without JWT verification.
+`DDSsoService.exchangeCodeForIdentity` requires an internal `id_token`, verifies its signature and identity claims,
+and returns `DDSsoIdentity` for browser login.
 `DDSsoTokenVerifier.verifyAccessToken` requires the expected audience explicitly. API authentication intersects
 current database permissions with the permissions mapped from the token's individual or full-access scopes.
 Controllers use ordinary permission checks. Identity tokens are never API credentials.

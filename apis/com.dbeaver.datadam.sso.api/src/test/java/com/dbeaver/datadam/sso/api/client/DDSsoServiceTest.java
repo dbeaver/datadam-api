@@ -242,7 +242,7 @@ class DDSsoServiceTest {
     @Test
     void tokenTransportOmitsAbsentResource() throws Exception {
         responseJson.set("{\"access_token\":\"test-token\",\"token_type\":\"Bearer\",\"expires_in\":60,\"scope\":\"account:access\"}");
-        http.exchange(new com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest(
+        http.exchangeCodeForTokens(new com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest(
             "test-code", "A".repeat(43), "account", "https://account.example.com/sso/callback", null));
         Assertions.assertThat(posted.get()).contains("grant_type=authorization_code", "code=test-code").doesNotContain("resource");
     }
@@ -380,7 +380,7 @@ class DDSsoServiceTest {
             responseJson.set("{}");
             responseStatus.set(307);
             redirect.set("http://127.0.0.1:" + destination.getAddress().getPort());
-            Assertions.assertThatThrownBy(() -> http.exchange(new DDSsoTokenRequest(
+            Assertions.assertThatThrownBy(() -> http.exchangeCodeForTokens(new DDSsoTokenRequest(
                 "code", "verifier", "account", "https://account.example.com/sso/callback", null)))
                 .isInstanceOf(DDSsoClientException.class);
             var account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
@@ -405,7 +405,7 @@ class DDSsoServiceTest {
     void httpClientDeserializesTheEntireResponse() throws Exception {
         String token = "t".repeat(1_048_576);
         responseJson.set(gson.toJson(Map.of("id_token", token, "expires_in", 300)));
-        var response = http.exchange(new DDSsoTokenRequest(
+        var response = http.exchangeCodeForTokens(new DDSsoTokenRequest(
             "code", "verifier", "account", "https://account.example.com/sso/callback", null));
         Assertions.assertThat(response.idToken()).isEqualTo(token);
         Assertions.assertThat(jwksRequests).hasValue(0);
@@ -414,7 +414,7 @@ class DDSsoServiceTest {
     @Test
     void httpClientReturnsUnverifiedTokenWithoutFetchingSigningKeys() throws Exception {
         responseJson.set(gson.toJson(Map.of("id_token", "opaque-unverified-token", "expires_in", 300)));
-        var response = http.exchange(new DDSsoTokenRequest("code", "verifier", "account", "https://account.example.com/sso/callback", null));
+        var response = http.exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", "account", "https://account.example.com/sso/callback", null));
         Assertions.assertThat(response.idToken()).isEqualTo("opaque-unverified-token");
         Assertions.assertThat(response.expiresIn()).isEqualTo(300);
         Assertions.assertThat(jwksRequests).hasValue(0);
@@ -425,7 +425,7 @@ class DDSsoServiceTest {
         var expired = claims();
         expired.put("exp", NOW.getEpochSecond());
         responseJson.set(gson.toJson(Map.of("id_token", signed(expired, header("key1")), "expires_in", 300)));
-        Assertions.assertThatThrownBy(() -> service.exchange("code", "verifier"))
+        Assertions.assertThatThrownBy(() -> service.exchangeCodeForIdentity("code", "verifier"))
             .isInstanceOf(DDSsoClientException.class).hasMessage("Invalid SSO identity token");
         Assertions.assertThat(jwksRequests).hasValue(1);
     }
@@ -433,7 +433,7 @@ class DDSsoServiceTest {
     @Test
     void exchangesCodeAndVerifierOnlyInAuthenticatedFormBody() throws Exception {
         responseJson.set(gson.toJson(Map.of("id_token", signed(claims(), header("key1")), "expires_in", 300)));
-        Assertions.assertThat(service.exchange("code+/%", "verifier")).isNotNull();
+        Assertions.assertThat(service.exchangeCodeForIdentity("code+/%", "verifier")).isNotNull();
         Assertions.assertThat(requestMethod).hasValue("POST");
         Assertions.assertThat(requestPath).hasValue("/token");
         Assertions.assertThat(contentType).hasValue("application/x-www-form-urlencoded");
@@ -459,7 +459,7 @@ class DDSsoServiceTest {
         claims.put("sub", "wordpress-user-id");
         responseJson.set(gson.toJson(Map.of("id_token", signed(claims, header("key1")), "expires_in", 300)));
 
-        DDSsoIdentity identity = service.exchange("code", "verifier");
+        DDSsoIdentity identity = service.exchangeCodeForIdentity("code", "verifier");
 
         Assertions.assertThat(identity.source()).isEqualTo("dbeaver-com");
         Assertions.assertThat(identity.subject()).isEqualTo("wordpress-user-id");

@@ -49,9 +49,13 @@ public class DDSsoService {
         return client.endpoint(path);
     }
 
+    /**
+     * Exchanges an authorization code for a verified identity used to establish a local browser session.
+     * Requires an internal id_token; its signature and identity claims are validated before returning.
+     */
     @NotNull
-    public DDSsoIdentity exchange(@NotNull String code, @NotNull String codeVerifier) throws DDSsoClientException {
-        DDSsoTokenResponse token = client.exchange(new DDSsoTokenRequest(code, codeVerifier, properties.clientId(),
+    public DDSsoIdentity exchangeCodeForIdentity(@NotNull String code, @NotNull String codeVerifier) throws DDSsoClientException {
+        DDSsoTokenResponse token = client.exchangeCodeForTokens(new DDSsoTokenRequest(code, codeVerifier, properties.clientId(),
             properties.redirectUri(), properties.resource()));
         if (token.idToken() == null || token.idToken().length() > DDSsoTokenVerifier.MAX_TOKEN_LENGTH || token.expiresIn() <= 0) {
             throw new DDSsoClientException("Invalid SSO token response");
