@@ -393,25 +393,29 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
     }
 
     @Test
-    void boundsCachedTopicsWithoutReservingDefaultServiceNames() {
+    void supportsMoreThanSixtyFourReceiverTopicsAndReusesSharedSubscriptions() {
         var transport = new MemoryTransport();
         try (var endpoint = RpcEndpoint.open(transport, new TestCodec())) {
-            for (int index = 0; index < 64; index++) {
-                try (var registration = endpoint.register("topic." + index, TextService.class, value -> value)) {
-                    endpoint.proxy("topic." + index, TextService.class);
-                }
+            for (int index = 0; index < 128; index++) {
+                endpoint.register("topic." + index, TextService.class, value -> value);
+                endpoint.proxy("topic." + index, TextService.class);
             }
-            assertEquals(64, transport.listeners.size());
-            failure(RpcException.Reason.OVERLOADED, () -> endpoint.proxy("account", TextService.class));
-            failure(RpcException.Reason.OVERLOADED, () -> endpoint.register("storage", TextService.class, value -> value));
+            assertEquals(128, transport.listeners.size());
+            endpoint.proxy("account", TextService.class);
+            try (var registration = endpoint.register("storage", TextService.class, value -> value)) {
+                endpoint.proxy("storage", TextService.class);
+                assertEquals(130, transport.listeners.size());
+            }
+            endpoint.proxy("storage", TextService.class);
             endpoint.proxy("topic.0", TextService.class);
-            assertEquals(64, transport.listeners.size());
+            assertEquals(130, transport.listeners.size());
         }
-        assertEquals(64, transport.subscriptionCloses.get());
+        assertEquals(130, transport.subscriptionCloses.get());
+        assertTrue(transport.listeners.isEmpty());
     }
 
     @Test
-    void topicCapacityIncludesOpeningsUntilTheirLateRollbackCompletes() throws Exception {
+    void supportsMoreThanSixtyFourProxyTopicsAndWaitsForLateOpeningRollback() throws Exception {
         var transport = new MemoryTransport();
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -429,20 +433,26 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
             }
             return transport.forTopic(topic);
         }, new TestCodec(), OPTIONS)) {
-            for (int index = 0; index < 63; index++) {
+            for (int index = 0; index < 128; index++) {
                 endpoint.proxy("topic." + index, TextService.class);
             }
             Future<TextService> pending = async(() -> endpoint.proxy("reserved", TextService.class));
             try {
                 await(entered);
-                failure(RpcException.Reason.OVERLOADED, () -> endpoint.proxy("excess", TextService.class));
-                assertEquals(64, openings.get());
+                endpoint.proxy("independent", TextService.class);
+                endpoint.proxy("topic.0", TextService.class);
+                assertEquals(130, openings.get());
+                assertEquals(129, transport.listeners.size());
                 endpoint.close();
+                assertTrue(endpoint.isClosed());
                 assertFalse(endpoint.isCloseComplete());
+                assertEquals(129, transport.subscriptionCloses.get());
+                assertTrue(transport.listeners.isEmpty());
                 release.countDown();
                 failure(RpcException.Reason.CLOSED, pending);
                 assertTrue(endpoint.isCloseComplete());
-                assertEquals(64, transport.subscriptionCloses.get());
+                assertEquals(130, transport.subscriptionCloses.get());
+                assertTrue(transport.listeners.isEmpty());
             } finally {
                 release.countDown();
             }

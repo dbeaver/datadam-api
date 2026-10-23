@@ -124,7 +124,6 @@ public final class RpcEndpoint implements AutoCloseable {
     }
 
     private static final class State<P> {
-        private static final int MAX_TOPICS = 64;
         private final Object lock = new Object();
         private final RpcTransport<P> transport;
         @Nullable
@@ -340,9 +339,6 @@ public final class RpcEndpoint implements AutoCloseable {
                 requireOpen();
                 selected = topics.get(name);
                 if (selected == null) {
-                    if (topics.size() >= MAX_TOPICS) {
-                        throw new RpcException(RpcException.Reason.OVERLOADED);
-                    }
                     selected = new Topic(name);
                     topics.put(name, selected);
                     opening = true;
