@@ -38,7 +38,7 @@ Token exchange uses `POST /token` with `application/x-www-form-urlencoded` field
 `client_id`, `redirect_uri`, optional `resource` and mandatory `grant_type=authorization_code`. Clients with a
 configured secret authenticate through HTTP Basic; public clients use code and PKCE without credentials.
 Every successful exchange returns an access JWT. Ordinary DataDam APIs use the fixed `DDSsoConstants.API_AUDIENCE`;
-MCP access uses its authorized resource URI as `aud`.
+External MCP access uses its authorized resource URI as `aud`.
 Account/Admin additionally use their
 internal identity JWT to establish local browser sessions; this is not an OpenID Connect contract.
 `DDSsoClient.exchangeCodeForTokens` returns the complete token response with an optional `id_token`, without JWT verification.
@@ -54,8 +54,10 @@ Failed exchanges return a JSON `error` (`invalid_request`, `unsupported_grant_ty
 
 Authorization uses `response_type=code`, space-separated `scope`, and S256 PKCE.
 Ordinary API access uses the client's top-level `scopes` without any resource configuration or request parameter.
-MCP access uses `allowed-resources` with its own scope sets. During code exchange a supplied resource must match the saved grant.
-MCP requires `resource` in both requests, configured with `require-resource: true` on its client resource entries.
+Desktop requests `mcp:connect` alongside `account:full_access` and `dbeaver-storage:full_access` in one authorization,
+without `resource`. External MCP clients use `allowed-resources` with `mcp:invoke` and `require-resource: true`;
+their requests require `resource` at both endpoints. The requirement is registration-specific, not inferred from a scope name.
+During code exchange a supplied resource must match the saved grant.
 SSO publishes RFC 8414 metadata at `/.well-known/oauth-authorization-server` (with the issuer path appended
 to that suffix when applicable). Browser callbacks contain `iss` per RFC 9207: clients compare it exactly
 to the issuer selected before authorization. Scopes follow RFC 6749 syntax, parsed by `DDSsoScopes`.
