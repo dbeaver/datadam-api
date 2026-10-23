@@ -19,9 +19,8 @@
     <description>DataDam API</description>
 
     <modules>
-        <module>com.dbeaver.messaging</module>
         <module>com.dbeaver.datadam.dm.api</module>
-        <module>com.dbeaver.datadam.external.api</module>
+        <module>com.dbeaver.datadam.external-dam.api</module>
         <module>com.dbeaver.datadam.share.api</module>
         <module>com.dbeaver.datadam.lm.api</module>
         <module>com.dbeaver.datadam.sso.api</module>

@@ -1,8 +1,9 @@
 # Messaging: request/reply and typed RPC
 
-This module supplies a transport-independent request/reply endpoint for Java 21. It has no dependency on DataDam,
-HTTP, WebSocket, JSON, Spring, or Eclipse runtime services. The only non-JDK production dependency supplies nullability
-annotations. The `rpc` package adds ordinary Java interface calls over the same request/reply mechanism.
+The `com.dbeaver.messaging.requestreply` and `com.dbeaver.messaging.rpc` packages live in the
+`com.dbeaver.datadam.external-dam.api` module. They supply transport-independent request/reply and typed RPC for Java 21.
+These packages do not depend on DataDam, HTTP, WebSocket, JSON, Spring, or Eclipse runtime services; their only non-JDK
+production dependency supplies nullability annotations. DataDam adapters and codecs live in separate packages in the same module.
 
 ## Usage
 

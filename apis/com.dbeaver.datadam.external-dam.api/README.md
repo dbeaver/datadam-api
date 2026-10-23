@@ -1,7 +1,11 @@
 # External DAM API
 
-This module contains the Desktop WebSocket contracts and a backend-only client for the External DAM internal GraphQL API.
+The `com.dbeaver.datadam.external-dam.api` module contains the Desktop WebSocket contracts, a backend-only client for
+the External DAM internal GraphQL API, and the transport-independent messaging packages.
 Neither the models nor the WebSocket protocol depend on the HTTP client, Spring, or Eclipse runtime services.
+
+Java package names remain `com.dbeaver.datadam.external.api.*` and `com.dbeaver.messaging.*`.
+See [Messaging](MESSAGING.md) for the request/reply and typed RPC contracts.
 
 ## Internal GraphQL contract
 
@@ -141,7 +145,7 @@ subsequent callbacks run on the notifying thread. Existing `addConnectionListene
 
 ## Request/reply
 
-The independent `com.dbeaver.messaging` module supplies `RequestReplyEndpoint<P>`. It knows nothing about DataDam
+The `com.dbeaver.messaging.requestreply` package supplies `RequestReplyEndpoint<P>`. It knows nothing about DataDam
 accounts, deployment IDs, GraphQL, or JSON. `DDRequestReplyTransport` adapts an existing scoped DataDam channel to
 `RequestReplyEndpoint<JsonObject>` without changing the channel's asynchronous message API.
 
@@ -246,7 +250,7 @@ the same topic are not service discovery. Replica routing and exact callback-pro
 
 `DDGsonRpcCodec` retains the supplied `Gson` instance, including application adapters and naming policies, and preserves
 the declared generic `Type` passed by RPC. Encoded JSON null is represented as a nullable application payload. The
-neutral messaging module remains independent of Gson, and each proxy or registration can supply another compatible codec.
+neutral messaging packages remain independent of Gson, and each proxy or registration can supply another compatible codec.
 The resulting `RpcEndpoint` is not parameterized by JSON or by any other payload representation.
 
 ### Ready endpoints in Account, Storage, and Desktop
@@ -360,5 +364,5 @@ Cancellation of a returned send future does not free its slot until the underlyi
 
 Interfaces declare ordinary one-argument methods returning values or `void`; applications do not implement transport
 listeners. A `void` call waits for handler completion. Local serialization errors and transport failures become unchecked
-`RpcException`; remote handler exceptions are represented only by safe error codes. See the messaging module's README
+`RpcException`; remote handler exceptions are represented only by safe error codes. See [Messaging](MESSAGING.md)
 for supported contract shapes, ownership, concurrent codec/handler requirements, and timeout semantics.
