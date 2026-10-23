@@ -1,0 +1,21 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Vendor: DBeaver Corp
+Bundle-Name: DataDam External DAM API
+Bundle-SymbolicName: com.dbeaver.datadam.external-dam.api
+Bundle-Version: 0.0.17.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Export-Package: com.dbeaver.datadam.external.api,
+ com.dbeaver.datadam.external.api.client,
+ com.dbeaver.datadam.external.api.exception,
+ com.dbeaver.datadam.external.api.model,
+ com.dbeaver.datadam.external.api.requestreply,
+ com.dbeaver.datadam.external.api.rpc,
+ com.dbeaver.datadam.external.api.transport,
+ com.dbeaver.messaging.requestreply,
+ com.dbeaver.messaging.rpc
+Bundle-ActivationPolicy: lazy
+Require-Bundle: org.jkiss.utils,
+ com.dbeaver.rest.client;visibility:=reexport
+Import-Package: com.google.gson
+Automatic-Module-Name: com.dbeaver.datadam.external.dam.api
