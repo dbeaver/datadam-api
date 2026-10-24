@@ -29,6 +29,10 @@ public interface RequestReplyTransport<P> {
     @NotNull
     CompletionStage<Void> send(@NotNull RequestReplyMessage<P> message);
 
+    default void executeRequest(@NotNull Runnable request) {
+        request.run();
+    }
+
     /** Receives endpoint messages and disconnection notifications. */
     interface Listener<P> {
         void onMessage(@NotNull RequestReplyMessage<P> message);

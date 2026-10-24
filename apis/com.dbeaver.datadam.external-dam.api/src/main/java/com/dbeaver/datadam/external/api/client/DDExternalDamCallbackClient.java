@@ -22,11 +22,13 @@ import com.dbeaver.datadam.external.api.model.DDConnectionInfo;
 import com.dbeaver.datadam.external.api.model.DDMessage;
 import com.google.gson.JsonElement;
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletionStage;
 
 public final class DDExternalDamCallbackClient extends DDExternalDamGraphQlClient {
     private static final String DELIVER_MUTATION = """
@@ -37,7 +39,7 @@ public final class DDExternalDamCallbackClient extends DDExternalDamGraphQlClien
         """;
 
     public DDExternalDamCallbackClient(@NotNull String serviceUrl, @NotNull String serviceSecret) {
-        this(serviceUrl, serviceSecret, Duration.ofSeconds(5));
+        this(serviceUrl, serviceSecret, Duration.ofSeconds(30));
     }
 
     public DDExternalDamCallbackClient(@NotNull String serviceUrl, @NotNull String serviceSecret, @NotNull Duration deliveryTimeout) {
@@ -50,17 +52,42 @@ public final class DDExternalDamCallbackClient extends DDExternalDamGraphQlClien
         @NotNull DDConnectionInfo connection,
         @NotNull DDMessage message
     ) throws DDExternalDamException {
-        JsonElement result = request("DeliverExternalDamMessage", DELIVER_MUTATION, Map.of(
+        readDeliveryResult(request("DeliverExternalDamMessage", DELIVER_MUTATION,
+            deliveryVariables(subscriptionId, accountId, connection, message), "deliverExternalDamMessage"));
+    }
+
+    @NotNull
+    public CompletionStage<Void> deliverAsync(
+        @NotNull UUID subscriptionId,
+        @NotNull UUID accountId,
+        @NotNull DDConnectionInfo connection,
+        @NotNull DDMessage message
+    ) {
+        return requestAsync("DeliverExternalDamMessage", DELIVER_MUTATION,
+            deliveryVariables(subscriptionId, accountId, connection, message), "deliverExternalDamMessage",
+            DDExternalDamCallbackClient::readDeliveryResult);
+    }
+
+    @NotNull
+    private static Map<String, ?> deliveryVariables(
+        @NotNull UUID subscriptionId,
+        @NotNull UUID accountId,
+        @NotNull DDConnectionInfo connection,
+        @NotNull DDMessage message
+    ) {
+        return Map.of(
             "subscriptionId", Objects.requireNonNull(subscriptionId).toString(),
             "accountId", Objects.requireNonNull(accountId).toString(),
             "connection", Objects.requireNonNull(connection), "message", Objects.requireNonNull(message)
-        ), "deliverExternalDamMessage");
-        if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isBoolean()) {
-            throw invalidResponse();
-        }
-        if (!result.getAsBoolean()) {
+        );
+    }
+
+    @Nullable
+    private static Void readDeliveryResult(@NotNull JsonElement result) throws DDExternalDamException {
+        if (!readBoolean(result)) {
             throw new DDExternalDamException("External DAM callback was not accepted");
         }
+        return null;
     }
 
     private static int timeoutMillis(@NotNull Duration timeout) {

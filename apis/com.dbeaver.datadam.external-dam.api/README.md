@@ -96,6 +96,11 @@ boolean written = client.sendMessage(accountId, connectionId, message);
 ```
 
 Use one configured client per service endpoint instead of constructing one per request. No deployment-specific URL or secret is packaged here.
+The client also exposes `getConnectionsAsync`, `getConnectionAccountAsync`, `sendMessageAsync`,
+`registerSubscriptionAsync`, and `unregisterSubscriptionAsync`. These use the JDK HTTP client's nonblocking API and
+return completion stages without a wrapper executor; synchronous methods remain available to ordinary callers.
+The deadline covers the full HTTP exchange, including the response body. Cancelling a stage attempts to stop the
+HTTP exchange, but does not promise cancellation of an operation already running on the receiving service.
 
 ## Backend callback subscriptions
 
@@ -114,10 +119,15 @@ callbacks; restrict the broker's outbound network access and use HTTPS outside a
 
 `DDExternalDamCallbackClient` delivers messages to the receiver's authenticated
 `POST /internal/external-dam/graphql` using the same External DAM service secret. Successful acknowledgement extends the
-lease. The acknowledgement does not describe local subscriber presence or business processing. Local cancellation
+lease. The receiver calls its listener directly on the HTTP request thread and acknowledges after it returns.
+Concurrent callbacks may invoke the same listener concurrently and have no ordering guarantee; implementations must
+be thread-safe. An RPC reply, not the HTTP acknowledgement, carries the business result. Local cancellation
 uses `unregisterSubscription`, including cleanup when the receiver no longer recognizes an incoming registration.
-External DAM discards queued work on cancellation or expiry; an already claimed callback may finish.
-Messages are not retried or replayed after callback failure. Callback queues and workers have configured bounds.
+External DAM stops starting callbacks on cancellation or expiry; an already started callback may finish.
+Messages are not retried or replayed after callback failure. The broker bounds in-flight callbacks per subscription;
+neither side creates a delivery executor or per-subscription mailbox. `deliverAsync` sends callbacks using nonblocking
+HTTP. Its default deadline is 30 seconds, including listener execution, and an explicit duration remains supported.
+Timeout does not promise cancellation of the remote handler.
 
 Spring services use the shared `com.dbeaver.datadam.external.base` module from the DataDam server repository.
 It supplies the callback endpoint, local dispatch, `DDSubscription.close()` cancellation, and automatic renewal
@@ -183,14 +193,14 @@ The bridge uses message type `datadam.requestreply.v1`. Its envelope contains `r
 for a maximum-length request topic. Closing the endpoint cancels both topic subscriptions.
 
 `request` blocks a worker or virtual thread. The request/reply result acknowledges remote handler completion;
-ordinary channel sends and callback GraphQL acknowledgements retain their existing transport-only meaning. The backend
-adapter uses bounded asynchronous sending around its blocking HTTP client. It keeps the existing in-memory callback
-subscriptions and lease renewal, and exposes request/reply only for `forConnection`, with no implicit connection
+ordinary channel sends and callback GraphQL acknowledgements have transport-only meaning. The backend
+adapter uses nonblocking HTTP with at most 128 sends in flight, without a send pool or waiting queue. It keeps the existing
+in-memory callback subscriptions and lease renewal, and exposes request/reply only for `forConnection`, with no implicit connection
 selection from account-wide subscriptions.
 
 Closing the request/reply endpoint cancels its receiving subscriptions and owned work, without closing the shared
-channel or subscription facade. Closing the subscription facade rejects new backend sends and prevents queued sends
-from starting; an already claimed HTTP send can finish. Physical channels report disconnects immediately; backend
+channel or subscription facade. Closing the subscription facade rejects new backend sends and invalidates later send
+completions; an already started HTTP send can finish. Physical channels report disconnects immediately; backend
 callbacks have no physical connection-state feed, so pending calls use their deadlines when the peer disappears.
 Timeout or interruption can leave the remote outcome unknown. No request or response is automatically retried.
 
@@ -200,12 +210,15 @@ If a new physical source is visible before its state observer runs, the adapter 
 that source's first message. Delayed observers read the current channel status instead of reverting to an old source.
 The mailbox holds at most 128 queued callbacks and adds no executor. Excess frames are dropped; a disconnection takes
 priority over a full queued batch so pending calls are still invalidated. Listener failure closes the receiving routes.
+Backend callback adapters have no serialized receiving mailbox and invoke listeners directly on concurrent HTTP threads.
+The neutral request/reply endpoint owns no executor. A low-level physical-channel user must keep blocking handlers
+off a serialized receiver when they can make synchronous calls whose replies need that same receiver.
 
 ## Typed RPC
 
 `com.dbeaver.messaging.rpc` adds typed Java proxies and registered implementations without depending on DataDam or
 WebSocket. `DDRpcTransport` adapts the existing request/reply transport to the neutral `RpcMessage<JsonElement>` envelope.
-It contains only protocol framing; application serialization is selected by the developer through `RpcCodec<JsonElement>`.
+It owns no execution service or application serializer; the developer selects serialization through `RpcCodec<JsonElement>`.
 
 For example, a plugin can supply its own Gson instance and adapters for its proxies and implementations:
 
@@ -217,12 +230,17 @@ RpcCodec<JsonElement> codec = new DDGsonRpcCodec(gson);
 The Desktop side installs an implementation and can independently obtain proxies for backend services:
 
 ```java
-try (var rpc = RpcEndpoint.open(topic -> DDRpcTransport.forChannel(channel, topic));
+try (var rpc = RpcEndpoint.open(topic -> DDRpcTransport.forChannel(channel, topic, requestExecutor));
      var registration = rpc.register("desktop.projects", DesktopProjects.class, implementation, codec)) {
     ServerDocuments documents = rpc.proxy("server.documents", ServerDocuments.class, codec);
     serveApplication(documents);
 }
 ```
+
+`requestExecutor` is a borrowed application/platform execution service, used only for admitted incoming requests.
+Without that argument, the adapter uses its receiving thread. Responses and disconnects are never dispatched through
+the request executor. Prefer the ready Desktop connection service below; it uses Eclipse system Jobs so blocking
+handlers do not stall WebSocket reply delivery, without creating RPC-owned thread pools.
 
 The backend selects its physical account/connection scope once and uses the same endpoint API:
 
@@ -349,6 +367,9 @@ caller. Desktop retains endpoints and registrations across transient reconnects,
 authentication identity change and on shutdown. Backend owners close missing physical connections after a successful
 registry reconciliation; failed registry reads preserve existing endpoints. Applications can explicitly release a
 backend scope with `rpcConnections.closeConnection(selected.connectionId())`.
+Backend owners share asynchronous opening results while callers wait with a timeout. Idle reconciliation and
+subscription renewal run through Spring scheduling, not owner-created executors. Desktop authorization expiry and
+transport lifecycle jobs remain active even without business requests.
 
 Replacing a closed endpoint does not transfer its old registrations. After an identity change or explicit closure,
 obtain the new endpoint and register the appropriate implementations again. Backend connection owners and caches are

@@ -27,7 +27,6 @@ import org.junit.jupiter.api.function.Executable;
 
 import java.lang.reflect.Type;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -57,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RpcTestSupport {
     static final Duration WAIT = Duration.ofSeconds(5);
     static final RequestReplyOptions OPTIONS = new RequestReplyOptions(WAIT, 16, 16);
-    private final List<Thread> callers = new ArrayList<>();
+    private final List<Thread> callers = new CopyOnWriteArrayList<>();
 
     @AfterEach
     void stopCallers() throws InterruptedException {
@@ -113,13 +112,13 @@ class RpcTestSupport {
         assertTrue(latch.await(WAIT.toMillis(), TimeUnit.MILLISECONDS), "Latch was not released");
     }
 
-    static void connect(@NotNull MemoryTransport first, @NotNull MemoryTransport second) {
+    final void connect(@NotNull MemoryTransport first, @NotNull MemoryTransport second) {
         first.sender = message -> {
-            second.deliver(first.routes.get(message.requestId()), message);
+            start(() -> second.deliver(first.routes.get(message.requestId()), message));
             return CompletableFuture.completedFuture(null);
         };
         second.sender = message -> {
-            first.deliver(second.routes.get(message.requestId()), message);
+            start(() -> first.deliver(second.routes.get(message.requestId()), message));
             return CompletableFuture.completedFuture(null);
         };
     }

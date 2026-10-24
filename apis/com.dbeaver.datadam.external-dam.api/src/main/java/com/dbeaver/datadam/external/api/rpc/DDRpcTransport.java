@@ -34,6 +34,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
 
 public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<JsonElement>> {
@@ -46,9 +47,16 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
     private static final int MAX_PENDING_SENDS = 128;
     private final Semaphore sendBudget = new Semaphore(MAX_PENDING_SENDS);
     private final RequestReplyTransport<JsonObject> delegate;
+    @Nullable
+    private final Executor requestExecutor;
 
     public DDRpcTransport(@NotNull RequestReplyTransport<JsonObject> delegate) {
+        this(delegate, null);
+    }
+
+    public DDRpcTransport(@NotNull RequestReplyTransport<JsonObject> delegate, @Nullable Executor requestExecutor) {
         this.delegate = Objects.requireNonNull(delegate);
+        this.requestExecutor = requestExecutor;
     }
 
     @NotNull
@@ -60,6 +68,24 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
     @NotNull
     public static DDRpcTransport forChannel(@NotNull DDMessageChannel channel, @NotNull String topic) {
         return new DDRpcTransport(DDRequestReplyTransport.forChannel(channel, topic));
+    }
+
+    @NotNull
+    public static DDRpcTransport forChannel(
+        @NotNull DDMessageChannel channel,
+        @NotNull String topic,
+        @NotNull Executor requestExecutor
+    ) {
+        return new DDRpcTransport(DDRequestReplyTransport.forChannel(channel, topic), Objects.requireNonNull(requestExecutor));
+    }
+
+    @Override
+    public void executeRequest(@NotNull Runnable request) {
+        if (requestExecutor == null) {
+            delegate.executeRequest(request);
+        } else {
+            requestExecutor.execute(request);
+        }
     }
 
     @Override

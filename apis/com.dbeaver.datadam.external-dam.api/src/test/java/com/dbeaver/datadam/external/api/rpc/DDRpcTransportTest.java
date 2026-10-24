@@ -58,7 +58,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -69,6 +73,112 @@ public class DDRpcTransportTest {
     private static final DDConnectionInfo CONNECTION = new DDConnectionInfo("desktop", "run", "socket");
     private static final RequestReplyOptions OPTIONS = new RequestReplyOptions(Duration.ofSeconds(2), 16, 8);
     private static final RpcCodec<JsonElement> CODEC = new GsonCodec();
+
+    @Test
+    void delegatesRequestExecutionUnlessAnExplicitExecutorIsSupplied() {
+        MemoryTransport delegate = new MemoryTransport();
+        List<Runnable> queued = new ArrayList<>();
+        AtomicInteger calls = new AtomicInteger();
+        delegate.requestExecutor = queued::add;
+        DDRpcTransport adapter = new DDRpcTransport(delegate);
+        adapter.executeRequest(calls::incrementAndGet);
+        Assertions.assertEquals(1, queued.size());
+        Assertions.assertEquals(0, calls.get());
+        queued.removeFirst().run();
+        Assertions.assertEquals(1, calls.get());
+
+        RejectedExecutionException unavailable = new RejectedExecutionException("Request execution unavailable");
+        delegate.requestExecutor = request -> {
+            throw unavailable;
+        };
+        Assertions.assertSame(unavailable,
+            Assertions.assertThrows(RejectedExecutionException.class, () -> adapter.executeRequest(calls::incrementAndGet)));
+
+        DDRpcTransport inline = new DDRpcTransport(delegate, Runnable::run);
+        inline.executeRequest(calls::incrementAndGet);
+        Assertions.assertEquals(2, calls.get());
+    }
+
+    @Test
+    void channelRequestsRunInlineByDefaultAndCanUseABorrowedExecutor() throws Exception {
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            for (boolean supplied : List.of(false, true)) {
+                FakeChannel channel = new FakeChannel();
+                channel.forward = channel::deliver;
+                AtomicReference<Thread> handlerThread = new AtomicReference<>();
+                try (var endpoint = RpcEndpoint.open(topic -> supplied
+                    ? DDRpcTransport.forChannel(channel, topic, executor)
+                    : DDRpcTransport.forChannel(channel, topic), CODEC, OPTIONS);
+                     var service = endpoint.register(TOPIC, Text.class, value -> {
+                         handlerThread.set(Thread.currentThread());
+                         return "reply:" + value;
+                     })) {
+                    Assertions.assertEquals("reply:value", endpoint.proxy(TOPIC, Text.class).apply("value"));
+                    if (supplied) {
+                        Assertions.assertNotEquals(Thread.currentThread(), handlerThread.get());
+                    } else {
+                        Assertions.assertSame(Thread.currentThread(), handlerThread.get());
+                    }
+                }
+                Assertions.assertFalse(executor.isShutdown());
+                Assertions.assertEquals("still available", executor.submit(() -> "still available").get(2, TimeUnit.SECONDS));
+                Assertions.assertFalse(channel.closed);
+            }
+        }
+    }
+
+    @Test
+    void mapsSuppliedExecutorRejectionToRemoteOverloadAndAllowsFreshCalls() {
+        FakeChannel channel = new FakeChannel();
+        channel.forward = channel::deliver;
+        AtomicBoolean rejecting = new AtomicBoolean(true);
+        AtomicInteger calls = new AtomicInteger();
+        Executor executor = request -> {
+            if (rejecting.get()) {
+                throw new RejectedExecutionException("Request execution unavailable");
+            }
+            request.run();
+        };
+        var options = new RequestReplyOptions(Duration.ofSeconds(2), 1, 1);
+        try (var endpoint = RpcEndpoint.open(topic -> DDRpcTransport.forChannel(channel, topic, executor), CODEC, options);
+             var service = endpoint.register(TOPIC, Text.class, value -> {
+                 calls.incrementAndGet();
+                 return value;
+             })) {
+            Text proxy = endpoint.proxy(TOPIC, Text.class);
+            RpcException failure = Assertions.assertThrows(RpcException.class, () -> proxy.apply("rejected"));
+            Assertions.assertEquals(RpcException.Reason.REMOTE_ERROR, failure.reason());
+            Assertions.assertNull(failure.remoteError());
+            RequestReplyException outer = Assertions.assertInstanceOf(RequestReplyException.class, failure.getCause());
+            Assertions.assertEquals(RequestReplyMessage.Error.OVERLOADED, outer.remoteError());
+            Assertions.assertEquals(0, calls.get());
+
+            rejecting.set(false);
+            Assertions.assertEquals("recovered", proxy.apply("recovered"));
+            Assertions.assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void supportsSynchronousCallbacksWithBorrowedRequestExecutorsAndIndependentChannelDelivery() throws Exception {
+        try (var deliveries = Executors.newCachedThreadPool();
+             var requests = Executors.newCachedThreadPool()) {
+            FakeChannel left = new FakeChannel();
+            FakeChannel right = new FakeChannel();
+            left.forward = message -> deliveries.execute(() -> right.deliver(message));
+            right.forward = message -> deliveries.execute(() -> left.deliver(message));
+            try (var caller = RpcEndpoint.open(topic -> DDRpcTransport.forChannel(left, topic, requests), CODEC, OPTIONS);
+                 var handler = RpcEndpoint.open(topic -> DDRpcTransport.forChannel(right, topic, requests), CODEC, OPTIONS);
+                 var callback = caller.register(TOPIC, Text.class, value -> "callback:" + value);
+                 var service = handler.register(TOPIC, Text.class, value -> handler.proxy(TOPIC, Text.class).apply(value))) {
+                Assertions.assertEquals("callback:value", caller.proxy(TOPIC, Text.class).apply("value"));
+            }
+            Assertions.assertFalse(requests.isShutdown());
+            Assertions.assertFalse(deliveries.isShutdown());
+            Assertions.assertFalse(left.closed);
+            Assertions.assertFalse(right.closed);
+        }
+    }
 
     @Test
     void servesIndependentBidirectionalTopicsWithoutClosingTheBorrowedChannel() throws Exception {
@@ -788,6 +898,7 @@ public class DDRpcTransportTest {
         private final List<RequestReplyMessage<JsonObject>> sent = new ArrayList<>();
         private final MessageSubscription subscription = () -> this.closed = true;
         private CompletionStage<Void> sendResult = CompletableFuture.completedFuture(null);
+        private Executor requestExecutor = Runnable::run;
         @Nullable
         private UUID endpoint;
         @Nullable
@@ -823,6 +934,11 @@ public class DDRpcTransportTest {
                 forward.accept(message);
             }
             return sendResult;
+        }
+
+        @Override
+        public void executeRequest(@NotNull Runnable request) {
+            requestExecutor.execute(request);
         }
 
         private void deliver(@NotNull RequestReplyMessage<JsonObject> message) {

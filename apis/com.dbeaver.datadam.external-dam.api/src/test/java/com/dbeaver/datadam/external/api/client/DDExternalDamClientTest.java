@@ -46,13 +46,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -76,6 +82,8 @@ class DDExternalDamClientTest {
     private final AtomicReference<CapturedRequest> latestRequest = new AtomicReference<>();
     private final AtomicInteger requestCount = new AtomicInteger();
     private final AtomicReference<IOException> handlerFailure = new AtomicReference<>();
+    private final AtomicReference<CountDownLatch> requestReceived = new AtomicReference<>();
+    private final AtomicReference<CountDownLatch> responseGate = new AtomicReference<>();
     private HttpServer server;
     private DDExternalDamClient client;
 
@@ -120,6 +128,75 @@ class DDExternalDamClientTest {
     }
 
     @Test
+    void returnsAllAsyncOperationsBeforeDelayedResponsesAndParsesTheirResults() throws Exception {
+        JsonArray connections = new JsonArray();
+        connections.add(connection("connection-1"));
+        respond(CONNECTIONS_FIELD, connections);
+
+        List<DDExternalDamConnection> result = awaitDelayedResponse(() -> client.getConnectionsAsync(ACCOUNT_ID));
+
+        assertEquals(List.of(new DDExternalDamConnection("DI_desktop", "run-1", "connection-1", "DBeaver", "26.2.4")), result);
+        assertThrows(UnsupportedOperationException.class, () -> result.add(result.get(0)));
+        assertEquals("ExternalDamConnections", posted().get("operationName").getAsString());
+        assertEquals(ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
+
+        respond(CONNECTION_ACCOUNT_FIELD, JsonParser.parseString("\"" + ACCOUNT_ID + "\""));
+        assertEquals(ACCOUNT_ID, awaitDelayedResponse(() -> client.getConnectionAccountAsync("connection-1")));
+        assertEquals("ExternalDamConnectionAccount", posted().get("operationName").getAsString());
+        assertEquals("connection-1", posted().getAsJsonObject("variables").get("connectionId").getAsString());
+
+        respond(SEND_FIELD, JsonParser.parseString("false"));
+        assertFalse(awaitDelayedResponse(() -> client.sendMessageAsync(ACCOUNT_ID, "connection-1", message())));
+        assertEquals("SendExternalDamMessage", posted().get("operationName").getAsString());
+        assertEquals(ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
+        assertEquals("connection-1", posted().getAsJsonObject("variables").get("connectionId").getAsString());
+
+        UUID subscriptionId = UUID.randomUUID();
+        respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+        assertEquals(60, awaitDelayedResponse(() -> client.registerSubscriptionAsync("service account", subscriptionId,
+            ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET)).intValue());
+        JsonObject input = posted().getAsJsonObject("variables").getAsJsonObject("input");
+        assertEquals("RegisterExternalDamSubscription", posted().get("operationName").getAsString());
+        assertEquals("service account", input.get("subscriberId").getAsString());
+        assertEquals(subscriptionId.toString(), input.get("subscriptionId").getAsString());
+        assertEquals(ACCOUNT_ID.toString(), input.get("accountId").getAsString());
+        assertEquals("projects", input.get("topic").getAsString());
+        assertEquals(CALLBACK_URL, input.get("callbackUrl").getAsString());
+        assertEquals(CALLBACK_SECRET, input.get("callbackSecret").getAsString());
+        assertTrue(!input.has("connectionId") || input.get("connectionId").isJsonNull());
+
+        respond("unregisterExternalDamSubscription", JsonParser.parseString("false"));
+        assertFalse(awaitDelayedResponse(() -> client.unregisterSubscriptionAsync("service account", subscriptionId)));
+        assertEquals("UnregisterExternalDamSubscription", posted().get("operationName").getAsString());
+        assertEquals(Set.of("subscriberId", "subscriptionId"), posted().getAsJsonObject("variables").keySet());
+        assertEquals("service account", posted().getAsJsonObject("variables").get("subscriberId").getAsString());
+        assertEquals(subscriptionId.toString(), posted().getAsJsonObject("variables").get("subscriptionId").getAsString());
+        assertEquals(5, requestCount.get());
+    }
+
+    @Test
+    void sendsAsyncMessagesWithExactJsonNumbersNullsAndUtf8() throws Exception {
+        JsonObject payload = JsonParser.parseString("""
+            {"integer":9007199254740993,"decimal":1.2345678901234567890123456789,
+             "nothing":null,"nested":[null,{"text":"Привет"}]}
+            """).getAsJsonObject();
+        DDMessage message = new DDMessage("topic-\"\\\n", "type-\"\\\n", payload);
+        respond(SEND_FIELD, JsonParser.parseString("true"));
+
+        assertTrue(client.sendMessageAsync(ACCOUNT_ID, "connection-\"\\\n", message).toCompletableFuture().get(5, TimeUnit.SECONDS));
+
+        JsonObject variables = posted().getAsJsonObject("variables");
+        assertEquals("connection-\"\\\n", variables.get("connectionId").getAsString());
+        JsonObject sent = variables.getAsJsonObject("message");
+        assertEquals(message.topic(), sent.get("topic").getAsString());
+        assertEquals(message.type(), sent.get("type").getAsString());
+        assertEquals(payload, sent.getAsJsonObject("payload"));
+        assertEquals("9007199254740993", sent.getAsJsonObject("payload").get("integer").getAsString());
+        assertEquals("1.2345678901234567890123456789", sent.getAsJsonObject("payload").get("decimal").getAsString());
+        assertTrue(sent.getAsJsonObject("payload").get("nothing").isJsonNull());
+    }
+
+    @Test
     void resolvesTheConnectionOwnerWithOneAuthenticatedReadAndNoDiscovery() throws DDExternalDamException {
         String connectionId = "connection-\"\\\n) { injectedConnection }";
         for (UUID accountId : List.of(ACCOUNT_ID, OTHER_ACCOUNT_ID)) {
@@ -146,15 +223,18 @@ class DDExternalDamClientTest {
             respond(CONNECTION_ACCOUNT_FIELD, JsonParser.parseString(value));
 
             assertRequestFails(() -> client.getConnectionAccount("connection-1"));
+            assertAsyncRequestFails(() -> client.getConnectionAccountAsync("connection-1"));
         }
         responseJson.set("{\"data\":{}}");
         assertRequestFails(() -> client.getConnectionAccount("connection-1"));
+        assertAsyncRequestFails(() -> client.getConnectionAccountAsync("connection-1"));
     }
 
     @Test
     void rejectsBlankAndOversizedConnectionOwnerLookupIdsBeforeSendingAnyRequest() {
         for (String connectionId : List.of("", " ", "\t\n", "s".repeat(257))) {
             assertThrows(IllegalArgumentException.class, () -> client.getConnectionAccount(connectionId));
+            assertThrows(IllegalArgumentException.class, () -> client.getConnectionAccountAsync(connectionId));
         }
         assertEquals(0, requestCount.get());
     }
@@ -374,6 +454,9 @@ class DDExternalDamClientTest {
         assertThrows(IllegalArgumentException.class, () -> client.registerSubscription(null, subscriptionId,
             ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET));
         assertThrows(IllegalArgumentException.class, () -> client.unregisterSubscription(null, subscriptionId));
+        assertThrows(IllegalArgumentException.class, () -> client.registerSubscriptionAsync(null, subscriptionId,
+            ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET));
+        assertThrows(IllegalArgumentException.class, () -> client.unregisterSubscriptionAsync(null, subscriptionId));
         for (String value : List.of("", " ", "\t\n", "s".repeat(257))) {
             assertThrows(IllegalArgumentException.class, () -> client.registerSubscription(value, subscriptionId,
                 ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET));
@@ -381,6 +464,13 @@ class DDExternalDamClientTest {
             assertThrows(IllegalArgumentException.class, () -> client.registerSubscription("account", subscriptionId,
                 ACCOUNT_ID, value, "projects", CALLBACK_URL, CALLBACK_SECRET));
             assertThrows(IllegalArgumentException.class, () -> client.registerSubscription("account", subscriptionId,
+                ACCOUNT_ID, null, value, CALLBACK_URL, CALLBACK_SECRET));
+            assertThrows(IllegalArgumentException.class, () -> client.registerSubscriptionAsync(value, subscriptionId,
+                ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertThrows(IllegalArgumentException.class, () -> client.unregisterSubscriptionAsync(value, subscriptionId));
+            assertThrows(IllegalArgumentException.class, () -> client.registerSubscriptionAsync("account", subscriptionId,
+                ACCOUNT_ID, value, "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertThrows(IllegalArgumentException.class, () -> client.registerSubscriptionAsync("account", subscriptionId,
                 ACCOUNT_ID, null, value, CALLBACK_URL, CALLBACK_SECRET));
         }
         assertEquals(0, requestCount.get());
@@ -402,6 +492,11 @@ class DDExternalDamClientTest {
                     "projects", callbackUrl, CALLBACK_SECRET));
             assertFalse(failure.toString().contains(CALLBACK_SECRET));
             assertFalse(failure.toString().contains(SERVICE_SECRET));
+            IllegalArgumentException asyncFailure = assertThrows(IllegalArgumentException.class,
+                () -> client.registerSubscriptionAsync("account", subscriptionId, ACCOUNT_ID, null,
+                    "projects", callbackUrl, CALLBACK_SECRET));
+            assertFalse(asyncFailure.toString().contains(CALLBACK_SECRET));
+            assertFalse(asyncFailure.toString().contains(SERVICE_SECRET));
         }
         assertEquals(0, requestCount.get());
     }
@@ -419,6 +514,11 @@ class DDExternalDamClientTest {
                     "projects", CALLBACK_URL, callbackSecret));
             assertFalse(failure.toString().contains(CALLBACK_SECRET));
             assertFalse(failure.toString().contains(SERVICE_SECRET));
+            IllegalArgumentException asyncFailure = assertThrows(IllegalArgumentException.class,
+                () -> client.registerSubscriptionAsync("account", subscriptionId, ACCOUNT_ID, null,
+                    "projects", CALLBACK_URL, callbackSecret));
+            assertFalse(asyncFailure.toString().contains(CALLBACK_SECRET));
+            assertFalse(asyncFailure.toString().contains(SERVICE_SECRET));
         }
         assertEquals(0, requestCount.get());
     }
@@ -441,11 +541,16 @@ class DDExternalDamClientTest {
     }
 
     @Test
-    void acceptsBothSubscriptionLeaseBoundaries() throws DDExternalDamException {
+    void acceptsBothSubscriptionLeaseBoundaries() throws Exception {
         for (int lease : List.of(15, 300)) {
             respond("registerExternalDamSubscription", JsonParser.parseString(Integer.toString(lease)));
             assertEquals(lease, client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertEquals(lease, client.registerSubscriptionAsync("s".repeat(256), UUID.randomUUID(), ACCOUNT_ID, "socket",
+                "projects", CALLBACK_URL, CALLBACK_SECRET).toCompletableFuture().get(5, TimeUnit.SECONDS).intValue());
+            JsonObject input = posted().getAsJsonObject("variables").getAsJsonObject("input");
+            assertEquals("s".repeat(256), input.get("subscriberId").getAsString());
+            assertEquals("socket", input.get("connectionId").getAsString());
         }
     }
 
@@ -456,10 +561,13 @@ class DDExternalDamClientTest {
             respond("registerExternalDamSubscription", JsonParser.parseString(value));
             assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertAsyncRequestFails(() -> client.registerSubscriptionAsync("account", subscriptionId, ACCOUNT_ID, null,
+                "projects", CALLBACK_URL, CALLBACK_SECRET));
         }
         for (String value : List.of("null", "\"true\"", "60", "{}", "[]")) {
             respond("unregisterExternalDamSubscription", JsonParser.parseString(value));
             assertRequestFails(() -> client.unregisterSubscription("account", subscriptionId));
+            assertAsyncRequestFails(() -> client.unregisterSubscriptionAsync("account", subscriptionId));
         }
         for (String body : List.of("{", "null", "{}", "{\"data\":null}",
             "{\"errors\":[{\"message\":\"" + UPSTREAM_MARKER + CALLBACK_SECRET + "\"}]}")) {
@@ -467,6 +575,9 @@ class DDExternalDamClientTest {
             assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
             assertRequestFails(() -> client.unregisterSubscription("account", subscriptionId));
+            assertAsyncRequestFails(() -> client.registerSubscriptionAsync("account", subscriptionId, ACCOUNT_ID, null,
+                "projects", CALLBACK_URL, CALLBACK_SECRET));
+            assertAsyncRequestFails(() -> client.unregisterSubscriptionAsync("account", subscriptionId));
         }
     }
 
@@ -492,6 +603,7 @@ class DDExternalDamClientTest {
             respond(CONNECTIONS_FIELD, JsonParser.parseString(value));
 
             assertRequestFails(() -> client.getConnections(ACCOUNT_ID));
+            assertAsyncRequestFails(() -> client.getConnectionsAsync(ACCOUNT_ID));
         }
     }
 
@@ -507,6 +619,8 @@ class DDExternalDamClientTest {
 
             assertRequestFails(() -> client.getConnections(ACCOUNT_ID));
             assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "connection-1", message()));
+            assertAsyncRequestFails(() -> client.getConnectionsAsync(ACCOUNT_ID));
+            assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "connection-1", message()));
         }
     }
 
@@ -526,18 +640,23 @@ class DDExternalDamClientTest {
 
             assertRequestFails(() -> client.getConnections(ACCOUNT_ID));
             assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "connection-1", message()));
+            assertAsyncRequestFails(() -> client.getConnectionsAsync(ACCOUNT_ID));
+            DDExternalDamException failure = assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "connection-1", message()));
+            assertEquals("External DAM GraphQL request failed", failure.getMessage());
         }
     }
 
     @Test
-    void acceptsAnEmptyGraphqlErrorsArray() throws DDExternalDamException {
+    void acceptsAnEmptyGraphqlErrorsArray() throws Exception {
         JsonObject envelope = successfulEnvelope();
         envelope.add("errors", new JsonArray());
         responseJson.set(envelope.toString());
 
         assertEquals(List.of(), client.getConnections(ACCOUNT_ID));
         assertTrue(client.sendMessage(ACCOUNT_ID, "connection-1", message()));
-        assertEquals(2, requestCount.get());
+        assertEquals(List.of(), client.getConnectionsAsync(ACCOUNT_ID).toCompletableFuture().get(5, TimeUnit.SECONDS));
+        assertTrue(client.sendMessageAsync(ACCOUNT_ID, "connection-1", message()).toCompletableFuture().get(5, TimeUnit.SECONDS));
+        assertEquals(4, requestCount.get());
     }
 
     @Test
@@ -546,6 +665,7 @@ class DDExternalDamClientTest {
             respond(SEND_FIELD, JsonParser.parseString(value));
 
             assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "connection-1", message()));
+            assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "connection-1", message()));
         }
     }
 
@@ -562,6 +682,9 @@ class DDExternalDamClientTest {
             assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "connection-1", message()));
             assertRequestFails(() -> client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
+            DDExternalDamException failure = assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "connection-1", message()));
+            assertEquals(status == 204 ? "Invalid External DAM response" : "External DAM request failed: HTTP " + status,
+                failure.getMessage());
         }
     }
 
@@ -592,6 +715,10 @@ class DDExternalDamClientTest {
                 assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "connection-1", message()));
                 assertRequestFails(() -> client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
                     "projects", CALLBACK_URL, CALLBACK_SECRET));
+                assertAsyncRequestFails(() -> client.getConnectionAccountAsync("connection-1"));
+                assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "connection-1", message()));
+                assertAsyncRequestFails(() -> client.registerSubscriptionAsync("account", UUID.randomUUID(), ACCOUNT_ID, null,
+                    "projects", CALLBACK_URL, CALLBACK_SECRET));
                 assertEquals(0, forwarded.get());
                 assertNull(forwardedSecret.get());
             }
@@ -616,6 +743,35 @@ class DDExternalDamClientTest {
         truncateResponse.set(false);
         assertTrue(client.sendMessage(ACCOUNT_ID, "connection-1", message()));
         assertEquals(4, requestCount.get());
+    }
+
+    @Test
+    void preservesAsyncNetworkFailureCausesAndAllowsSubsequentRequests() throws Exception {
+        responseJson.set(successfulEnvelope().toString());
+        truncateResponse.set(true);
+
+        DDExternalDamException failure = assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "connection-1", message()));
+
+        assertEquals("External DAM service request failed", failure.getMessage());
+        assertInstanceOf(IOException.class, failure.getCause());
+        truncateResponse.set(false);
+        assertTrue(client.sendMessageAsync(ACCOUNT_ID, "connection-1", message()).toCompletableFuture().get(5, TimeUnit.SECONDS));
+        assertEquals(2, requestCount.get());
+    }
+
+    @Test
+    void reportsAsyncConnectionFailuresThroughTheStageWithTheirCause() {
+        server.stop(0);
+        server = null;
+
+        ExecutionException completion = assertThrows(ExecutionException.class,
+            () -> client.getConnectionsAsync(ACCOUNT_ID).toCompletableFuture().get(5, TimeUnit.SECONDS));
+
+        DDExternalDamException failure = assertInstanceOf(DDExternalDamException.class, completion.getCause());
+        assertEquals("External DAM service request failed", failure.getMessage());
+        assertInstanceOf(IOException.class, failure.getCause());
+        assertSafeFailure(failure);
+        assertEquals(0, requestCount.get());
     }
 
     @Test
@@ -652,8 +808,47 @@ class DDExternalDamClientTest {
         }
         for (String connectionId : List.of("", " ", "\t\n")) {
             assertThrows(IllegalArgumentException.class, () -> client.sendMessage(ACCOUNT_ID, connectionId, message()));
+            assertThrows(IllegalArgumentException.class, () -> client.sendMessageAsync(ACCOUNT_ID, connectionId, message()));
         }
+        assertThrows(NullPointerException.class, () -> client.getConnectionsAsync(null));
+        assertThrows(NullPointerException.class, () -> client.getConnectionAccountAsync(null));
+        assertThrows(NullPointerException.class, () -> client.sendMessageAsync(null, "connection-1", message()));
+        assertThrows(NullPointerException.class, () -> client.sendMessageAsync(ACCOUNT_ID, "connection-1", null));
         assertEquals(0, requestCount.get());
+    }
+
+    private <T> T awaitDelayedResponse(@NotNull Supplier<CompletionStage<T>> action) throws Exception {
+        CountDownLatch received = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch returned = new CountDownLatch(1);
+        AtomicReference<CompletionStage<T>> stage = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        requestReceived.set(received);
+        responseGate.set(release);
+        Thread caller = new Thread(() -> {
+            try {
+                stage.set(action.get());
+            } catch (Throwable e) {
+                failure.set(e);
+            } finally {
+                returned.countDown();
+            }
+        });
+        caller.start();
+        try {
+            assertTrue(received.await(5, TimeUnit.SECONDS));
+            assertTrue(returned.await(1, TimeUnit.SECONDS));
+            assertNull(failure.get());
+            assertNotNull(stage.get());
+            assertFalse(stage.get().toCompletableFuture().isDone());
+            release.countDown();
+            return stage.get().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            caller.join(5000);
+            requestReceived.set(null);
+            responseGate.set(null);
+        }
     }
 
     private void handleRequest(@NotNull HttpExchange exchange) {
@@ -663,6 +858,14 @@ class DDExternalDamClientTest {
             latestRequest.set(new CapturedRequest(exchange.getRequestMethod(), exchange.getRequestURI(), Map.copyOf(headers),
                 new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
             requestCount.incrementAndGet();
+            CountDownLatch received = requestReceived.get();
+            CountDownLatch gate = responseGate.get();
+            if (received != null) {
+                received.countDown();
+            }
+            if (gate != null && !gate.await(5, TimeUnit.SECONDS)) {
+                throw new IOException("Timed out waiting to release the response");
+            }
             String location = redirect.get();
             if (location != null) {
                 exchange.getResponseHeaders().set("Location", location);
@@ -682,6 +885,9 @@ class DDExternalDamClientTest {
             }
         } catch (IOException e) {
             handlerFailure.compareAndSet(null, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            handlerFailure.compareAndSet(null, new IOException(e));
         } finally {
             exchange.close();
         }
@@ -723,12 +929,29 @@ class DDExternalDamClientTest {
         connections.add(invalid);
         respond(CONNECTIONS_FIELD, connections);
         assertRequestFails(() -> client.getConnections(ACCOUNT_ID));
+        assertAsyncRequestFails(() -> client.getConnectionsAsync(ACCOUNT_ID));
     }
 
     private void assertRequestFails(@NotNull Executable action) {
         int before = requestCount.get();
         DDExternalDamException failure = assertThrows(DDExternalDamException.class, action);
         assertEquals(before + 1, requestCount.get());
+        assertSafeFailure(failure);
+    }
+
+    @NotNull
+    private DDExternalDamException assertAsyncRequestFails(@NotNull Supplier<? extends CompletionStage<?>> action) {
+        int before = requestCount.get();
+        CompletionStage<?> stage = action.get();
+        ExecutionException completion = assertThrows(ExecutionException.class,
+            () -> stage.toCompletableFuture().get(5, TimeUnit.SECONDS));
+        DDExternalDamException failure = assertInstanceOf(DDExternalDamException.class, completion.getCause());
+        assertEquals(before + 1, requestCount.get());
+        assertSafeFailure(failure);
+        return failure;
+    }
+
+    private static void assertSafeFailure(@NotNull DDExternalDamException failure) {
         StringWriter trace = new StringWriter();
         failure.printStackTrace(new PrintWriter(trace));
         assertFalse(trace.toString().contains(SERVICE_SECRET));

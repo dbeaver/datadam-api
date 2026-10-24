@@ -28,8 +28,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -47,7 +45,6 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
     private final LongSupplier nanoTime;
     private final Map<UUID, Pending> pending = new HashMap<>();
     private final Map<RequestKey, Incoming> incoming = new HashMap<>();
-    private final ExecutorService handlers = Executors.newVirtualThreadPerTaskExecutor();
     private final MessageSubscription subscription;
     @Nullable
     private HandlerRegistration handler;
@@ -62,22 +59,17 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
         this.transport = Objects.requireNonNull(transport);
         this.options = Objects.requireNonNull(options);
         this.nanoTime = Objects.requireNonNull(nanoTime);
-        try {
-            this.subscription = Objects.requireNonNull(transport.subscribe(endpointId, new RequestReplyTransport.Listener<>() {
-                @Override
-                public void onMessage(@NotNull RequestReplyMessage<P> message) {
-                    receive(message);
-                }
+        this.subscription = Objects.requireNonNull(transport.subscribe(endpointId, new RequestReplyTransport.Listener<>() {
+            @Override
+            public void onMessage(@NotNull RequestReplyMessage<P> message) {
+                receive(message);
+            }
 
-                @Override
-                public void onDisconnect() {
-                    disconnect();
-                }
-            }));
-        } catch (RequestReplyException | RuntimeException e) {
-            handlers.shutdownNow();
-            throw e;
-        }
+            @Override
+            public void onDisconnect() {
+                disconnect();
+            }
+        }));
     }
 
     @NotNull
@@ -214,7 +206,8 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
     }
 
     private void accept(@NotNull RequestReplyMessage<P> message) {
-        RequestReplyMessage.Error rejection;
+        Incoming accepted = null;
+        RequestReplyMessage.Error rejection = RequestReplyMessage.Error.OVERLOADED;
         synchronized (lock) {
             if (closed) {
                 return;
@@ -225,17 +218,19 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
             }
             if (handler == null) {
                 rejection = RequestReplyMessage.Error.NO_HANDLER;
-            } else if (incoming.size() >= options.maxConcurrentHandlers()) {
-                rejection = RequestReplyMessage.Error.OVERLOADED;
-            } else {
-                Incoming accepted = new Incoming(key, message, handler.requestHandler, generation);
+            } else if (incoming.size() < options.maxConcurrentHandlers()) {
+                accepted = new Incoming(key, message, handler.requestHandler, generation);
                 incoming.put(key, accepted);
-                try {
-                    handlers.execute(accepted);
-                    return;
-                } catch (RejectedExecutionException e) {
-                    incoming.remove(key, accepted);
-                    rejection = RequestReplyMessage.Error.OVERLOADED;
+            }
+        }
+        if (accepted != null) {
+            try {
+                transport.executeRequest(accepted);
+                return;
+            } catch (RejectedExecutionException e) {
+                accepted.task.cancel(false);
+                synchronized (lock) {
+                    incoming.remove(accepted.key, accepted);
                 }
             }
         }
@@ -282,11 +277,7 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
             stopped = List.copyOf(incoming.values());
         }
         stopped.forEach(request -> request.task.cancel(true));
-        try {
-            subscription.close();
-        } finally {
-            handlers.shutdownNow();
-        }
+        subscription.close();
     }
 
     private record RequestKey(@NotNull UUID replyTo, @NotNull UUID requestId) {

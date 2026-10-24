@@ -33,12 +33,22 @@ import org.jkiss.utils.HttpConstants;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
+import java.net.http.HttpResponse.BodyHandlers;
+import java.net.http.HttpTimeoutException;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
     private final String serviceSecret;
     private final String endpoint;
+    private final Duration requestTimeout;
 
     DDExternalDamGraphQlClient(@NotNull String serviceUrl, @NotNull String serviceSecret, @NotNull String endpoint, int timeoutMillis) {
         super(validateServiceUrl(serviceUrl), Math.min(DEFAULT_CONNECT_TIMEOUT, timeoutMillis), timeoutMillis,
@@ -48,6 +58,7 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
         }
         this.serviceSecret = serviceSecret;
         this.endpoint = endpoint;
+        this.requestTimeout = Duration.ofMillis(timeoutMillis > 0 ? timeoutMillis : DEFAULT_READ_TIMEOUT);
     }
 
     @NotNull
@@ -59,19 +70,96 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
     ) throws DDExternalDamException {
         String response;
         try {
-            HttpRequest.Builder request = HttpRequest.newBuilder(buildUri(CommonUtils.removeLeadingSlash(endpoint), Map.of()))
-                .header(DDExternalDamApi.HEADER_SERVICE_TOKEN, serviceSecret)
-                .header(HttpConstants.HEADER_CONTENT_TYPE, MediaType.JSON.toString())
-                .header(HttpConstants.HEADER_ACCEPT, MediaType.JSON.toString())
-                .header(HttpConstants.HEADER_CACHE_CONTROL, HttpConstants.CACHE_CONTROL_NO_STORE)
-                .POST(createBodyPublisher(Map.of("operationName", operationName, "query", query, "variables", variables), MediaType.JSON));
-            response = execute(request, String.class);
+            response = execute(createRequest(operationName, query, variables), String.class);
         } catch (DBException e) {
-            if (e instanceof DDExternalDamException failure) {
-                throw failure;
-            }
-            throw new DDExternalDamException("External DAM service request failed", e);
+            throw requestFailure(e);
         }
+        return readResult(response, field);
+    }
+
+    @NotNull
+    final CompletionStage<JsonElement> requestAsync(
+        @NotNull String operationName,
+        @NotNull String query,
+        @NotNull Map<String, ?> variables,
+        @NotNull String field
+    ) {
+        try {
+            HttpRequest request = createRequest(operationName, query, variables).build();
+            var exchange = getHttpClient().sendAsync(request, BodyHandlers.ofString(StandardCharsets.UTF_8));
+            var bounded = exchange.copy().orTimeout(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            var completed = bounded.whenComplete((response, error) -> {
+                if (error instanceof TimeoutException || bounded.isCancelled()) {
+                    exchange.cancel(true);
+                }
+            });
+            return propagateCancellation(completed.handle((response, error) -> {
+                if (error != null) {
+                    throw new CompletionException(requestFailure(error));
+                }
+                try {
+                    int code = response.statusCode();
+                    if (code < 200 || code >= 300) {
+                        throw mapErrorResponse(code, "", request.uri());
+                    }
+                    return readResult(response.body(), field);
+                } catch (DDExternalDamException e) {
+                    throw new CompletionException(e);
+                }
+            }), bounded);
+        } catch (DBException | RuntimeException e) {
+            return CompletableFuture.failedFuture(requestFailure(e));
+        }
+    }
+
+    @NotNull
+    final <T> CompletionStage<T> requestAsync(
+        @NotNull String operationName,
+        @NotNull String query,
+        @NotNull Map<String, ?> variables,
+        @NotNull String field,
+        @NotNull ResultReader<T> reader
+    ) {
+        CompletableFuture<JsonElement> response = requestAsync(operationName, query, variables, field).toCompletableFuture();
+        return propagateCancellation(response.thenApply(result -> {
+            try {
+                return reader.read(result);
+            } catch (DDExternalDamException e) {
+                throw new CompletionException(e);
+            }
+        }), response);
+    }
+
+    @NotNull
+    private static <T> CompletionStage<T> propagateCancellation(
+        @NotNull CompletableFuture<T> result,
+        @NotNull CompletableFuture<?> source
+    ) {
+        result.whenComplete((value, error) -> {
+            if (result.isCancelled()) {
+                source.cancel(true);
+            }
+        });
+        return result;
+    }
+
+    @NotNull
+    private HttpRequest.Builder createRequest(
+        @NotNull String operationName,
+        @NotNull String query,
+        @NotNull Map<String, ?> variables
+    ) throws DBException {
+        return HttpRequest.newBuilder(buildUri(CommonUtils.removeLeadingSlash(endpoint), Map.of()))
+            .timeout(requestTimeout)
+            .header(DDExternalDamApi.HEADER_SERVICE_TOKEN, serviceSecret)
+            .header(HttpConstants.HEADER_CONTENT_TYPE, MediaType.JSON.toString())
+            .header(HttpConstants.HEADER_ACCEPT, MediaType.JSON.toString())
+            .header(HttpConstants.HEADER_CACHE_CONTROL, HttpConstants.CACHE_CONTROL_NO_STORE)
+            .POST(createBodyPublisher(Map.of("operationName", operationName, "query", query, "variables", variables), MediaType.JSON));
+    }
+
+    @NotNull
+    private static JsonElement readResult(@NotNull String response, @NotNull String field) throws DDExternalDamException {
         JsonObject envelope;
         try {
             envelope = readObject(JsonParser.parseString(response));
@@ -91,8 +179,15 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
 
     @Override
     @NotNull
-    protected DBException mapErrorResponse(int code, @NotNull String message, @NotNull URI uri) {
+    protected DDExternalDamException mapErrorResponse(int code, @NotNull String message, @NotNull URI uri) {
         return new DDExternalDamException("External DAM request failed: HTTP " + code);
+    }
+
+    static boolean readBoolean(@NotNull JsonElement value) throws DDExternalDamException {
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isBoolean()) {
+            throw invalidResponse();
+        }
+        return value.getAsBoolean();
     }
 
     @NotNull
@@ -109,10 +204,29 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
     }
 
     @NotNull
+    private static DDExternalDamException requestFailure(@NotNull Throwable error) {
+        while (error instanceof CompletionException && error.getCause() != null) {
+            error = error.getCause();
+        }
+        if (error instanceof TimeoutException) {
+            HttpTimeoutException timeout = new HttpTimeoutException("External DAM service request timed out");
+            timeout.initCause(error);
+            error = timeout;
+        }
+        return error instanceof DDExternalDamException failure
+            ? failure : new DDExternalDamException("External DAM service request failed", error);
+    }
+
+    @NotNull
     private static String validateServiceUrl(@NotNull String serviceUrl) {
         if (!DDExternalDamApi.isValidServiceUrl(serviceUrl)) {
             throw new IllegalArgumentException("Invalid External DAM service URL");
         }
         return serviceUrl;
+    }
+
+    @FunctionalInterface
+    interface ResultReader<T> {
+        T read(@NotNull JsonElement result) throws DDExternalDamException;
     }
 }

@@ -25,8 +25,9 @@ try (var requests = RequestReplyEndpoint.open(transport);
 ```
 
 An endpoint can initiate and handle requests concurrently. `request` blocks the calling thread and returns the response
-payload, or null for successful completion without a value. Use a worker or virtual thread. Incoming handlers run on
-the endpoint's virtual threads, outside the transport listener. Future objects are internal.
+payload, or null for successful completion without a value. Use a worker or virtual thread. Incoming handlers run
+on the receiving thread by default. The endpoint owns no executor; the transport adapter chooses an execution
+boundary when its receiving loop must remain nonblocking. Future objects are internal.
 
 `RequestReplyEndpoint<P>` leaves the payload representation to the application and transport adapter. For example,
 `P` can be a string, an immutable application value, or an encoded JSON object. The core does not copy arbitrary `P`
@@ -79,6 +80,11 @@ Implement `RequestReplyTransport<P>` to integrate a message transport:
   destination. Correlation UUIDs do not replace authentication or account/peer authorization.
 - Disconnection is reported through `listener.onDisconnect()`. Incoming callbacks can be concurrent and can occur
   synchronously during subscription establishment or sending.
+- `executeRequest(request)` runs admitted incoming requests inline by default, outside the endpoint lock. An adapter
+  can override it to use a borrowed executor or platform job service. It must execute the supplied task or throw
+  `RejectedExecutionException`; the core maps rejection to `OVERLOADED`. The core never closes that execution service.
+  Responses and disconnects do not use this dispatch hook. A serialized receiver must dispatch requests elsewhere
+  if handlers can wait synchronously for replies arriving through that same receiver.
 - Closing the returned `MessageSubscription` removes receiving routes and releases adapter-owned resources. It must
   leave a caller-owned physical connection available to other consumers.
 - The adapter owns wire validation, payload snapshots, message size limits, and bounded transport send work. It must
@@ -135,7 +141,8 @@ subscriptions belong to the application. Proxy construction establishes local re
 the remote implementation or prove service presence.
 Opening a topic can establish subscriptions synchronously; use a worker thread when the adapter performs network I/O.
 
-Proxy methods block the calling thread. Call them from worker or virtual threads, not a transport listener or event loop.
+Proxy methods block the calling thread. They may run in concurrent HTTP request handlers or worker/virtual threads,
+but not on an event loop or serialized receiver needed to deliver their replies.
 
 `RpcEndpoint` has no payload type parameter. Its transport factory supplies topic-scoped
 `RequestReplyTransport<RpcMessage<P>>` adapters. Each proxy and registration supplies a codec compatible with that

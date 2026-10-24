@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletionStage;
 
 public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
@@ -74,8 +75,85 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
 
     @NotNull
     public List<DDExternalDamConnection> getConnections(@NotNull UUID accountId) throws DDExternalDamException {
-        JsonElement result = request(CONNECTIONS_OPERATION, CONNECTIONS_QUERY,
-            Map.of("accountId", Objects.requireNonNull(accountId).toString()), CONNECTIONS_FIELD);
+        return readConnections(request(CONNECTIONS_OPERATION, CONNECTIONS_QUERY,
+            Map.of("accountId", Objects.requireNonNull(accountId).toString()), CONNECTIONS_FIELD));
+    }
+
+    @NotNull
+    public CompletionStage<List<DDExternalDamConnection>> getConnectionsAsync(@NotNull UUID accountId) {
+        return requestAsync(CONNECTIONS_OPERATION, CONNECTIONS_QUERY,
+            Map.of("accountId", Objects.requireNonNull(accountId).toString()), CONNECTIONS_FIELD, DDExternalDamClient::readConnections);
+    }
+
+    @NotNull
+    public UUID getConnectionAccount(@NotNull String connectionId) throws DDExternalDamException {
+        return readConnectionAccount(request(CONNECTION_ACCOUNT_OPERATION, CONNECTION_ACCOUNT_QUERY,
+            connectionAccountVariables(connectionId), CONNECTION_ACCOUNT_FIELD));
+    }
+
+    @NotNull
+    public CompletionStage<UUID> getConnectionAccountAsync(@NotNull String connectionId) {
+        return requestAsync(CONNECTION_ACCOUNT_OPERATION, CONNECTION_ACCOUNT_QUERY,
+            connectionAccountVariables(connectionId), CONNECTION_ACCOUNT_FIELD, DDExternalDamClient::readConnectionAccount);
+    }
+
+    public boolean sendMessage(@NotNull UUID accountId, @NotNull String connectionId, @NotNull DDMessage message)
+            throws DDExternalDamException {
+        return readBoolean(request(SEND_OPERATION, SEND_MUTATION, messageVariables(accountId, connectionId, message), SEND_FIELD));
+    }
+
+    @NotNull
+    public CompletionStage<Boolean> sendMessageAsync(
+        @NotNull UUID accountId,
+        @NotNull String connectionId,
+        @NotNull DDMessage message
+    ) {
+        return requestAsync(SEND_OPERATION, SEND_MUTATION, messageVariables(accountId, connectionId, message), SEND_FIELD,
+            DDExternalDamGraphQlClient::readBoolean);
+    }
+
+    public int registerSubscription(
+        @NotNull String subscriberId,
+        @NotNull UUID subscriptionId,
+        @NotNull UUID accountId,
+        @Nullable String connectionId,
+        @NotNull String topic,
+        @NotNull String callbackUrl,
+        @NotNull String callbackSecret
+    ) throws DDExternalDamException {
+        return readLease(request("RegisterExternalDamSubscription", REGISTER_MUTATION,
+            subscriptionVariables(subscriberId, subscriptionId, accountId, connectionId, topic, callbackUrl, callbackSecret),
+            "registerExternalDamSubscription"));
+    }
+
+    @NotNull
+    public CompletionStage<Integer> registerSubscriptionAsync(
+        @NotNull String subscriberId,
+        @NotNull UUID subscriptionId,
+        @NotNull UUID accountId,
+        @Nullable String connectionId,
+        @NotNull String topic,
+        @NotNull String callbackUrl,
+        @NotNull String callbackSecret
+    ) {
+        return requestAsync("RegisterExternalDamSubscription", REGISTER_MUTATION,
+            subscriptionVariables(subscriberId, subscriptionId, accountId, connectionId, topic, callbackUrl, callbackSecret),
+            "registerExternalDamSubscription", DDExternalDamClient::readLease);
+    }
+
+    public boolean unregisterSubscription(@NotNull String subscriberId, @NotNull UUID subscriptionId) throws DDExternalDamException {
+        return readBoolean(request("UnregisterExternalDamSubscription", UNREGISTER_MUTATION,
+            unsubscriptionVariables(subscriberId, subscriptionId), "unregisterExternalDamSubscription"));
+    }
+
+    @NotNull
+    public CompletionStage<Boolean> unregisterSubscriptionAsync(@NotNull String subscriberId, @NotNull UUID subscriptionId) {
+        return requestAsync("UnregisterExternalDamSubscription", UNREGISTER_MUTATION,
+            unsubscriptionVariables(subscriberId, subscriptionId), "unregisterExternalDamSubscription", DDExternalDamGraphQlClient::readBoolean);
+    }
+
+    @NotNull
+    private static List<DDExternalDamConnection> readConnections(@NotNull JsonElement result) throws DDExternalDamException {
         if (!result.isJsonArray()) {
             throw invalidResponse();
         }
@@ -91,12 +169,7 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
     }
 
     @NotNull
-    public UUID getConnectionAccount(@NotNull String connectionId) throws DDExternalDamException {
-        if (connectionId.isBlank() || connectionId.length() > 256) {
-            throw new IllegalArgumentException("Invalid connection ID");
-        }
-        JsonElement result = request(CONNECTION_ACCOUNT_OPERATION, CONNECTION_ACCOUNT_QUERY,
-            Map.of("connectionId", connectionId), CONNECTION_ACCOUNT_FIELD);
+    private static UUID readConnectionAccount(@NotNull JsonElement result) throws DDExternalDamException {
         if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isString()) {
             throw invalidResponse();
         }
@@ -112,22 +185,43 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
         return accountId;
     }
 
-    public boolean sendMessage(@NotNull UUID accountId, @NotNull String connectionId, @NotNull DDMessage message)
-            throws DDExternalDamException {
+    private static int readLease(@NotNull JsonElement result) throws DDExternalDamException {
+        if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isNumber()) {
+            throw invalidResponse();
+        }
+        try {
+            int leaseSeconds = result.getAsBigDecimal().intValueExact();
+            if (leaseSeconds >= DDExternalDamApi.MIN_SUBSCRIPTION_LEASE_SECONDS
+                && leaseSeconds <= DDExternalDamApi.MAX_SUBSCRIPTION_LEASE_SECONDS) {
+                return leaseSeconds;
+            }
+        } catch (ArithmeticException | NumberFormatException e) {
+            throw invalidResponse();
+        }
+        throw invalidResponse();
+    }
+
+    @NotNull
+    private static Map<String, ?> connectionAccountVariables(@NotNull String connectionId) {
+        if (connectionId.isBlank() || connectionId.length() > 256) {
+            throw new IllegalArgumentException("Invalid connection ID");
+        }
+        return Map.of("connectionId", connectionId);
+    }
+
+    @NotNull
+    private static Map<String, ?> messageVariables(@NotNull UUID accountId, @NotNull String connectionId, @NotNull DDMessage message) {
         if (connectionId.isBlank()) {
             throw new IllegalArgumentException("A connection ID is required");
         }
-        JsonElement result = request(SEND_OPERATION, SEND_MUTATION, Map.of(
+        return Map.of(
             "accountId", Objects.requireNonNull(accountId).toString(), "connectionId", connectionId,
             "message", Objects.requireNonNull(message)
-        ), SEND_FIELD);
-        if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isBoolean()) {
-            throw invalidResponse();
-        }
-        return result.getAsBoolean();
+        );
     }
 
-    public int registerSubscription(
+    @NotNull
+    private static Map<String, ?> subscriptionVariables(
         @NotNull String subscriberId,
         @NotNull UUID subscriptionId,
         @NotNull UUID accountId,
@@ -135,7 +229,7 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
         @NotNull String topic,
         @NotNull String callbackUrl,
         @NotNull String callbackSecret
-    ) throws DDExternalDamException {
+    ) {
         requireSubscriberId(subscriberId);
         requireText(topic);
         if (connectionId != null) {
@@ -155,32 +249,13 @@ public final class DDExternalDamClient extends DDExternalDamGraphQlClient {
         input.put("topic", topic);
         input.put("callbackUrl", callbackUrl);
         input.put("callbackSecret", callbackSecret);
-        JsonElement result = request("RegisterExternalDamSubscription", REGISTER_MUTATION,
-            Map.of("input", input), "registerExternalDamSubscription");
-        if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isNumber()) {
-            throw invalidResponse();
-        }
-        try {
-            int leaseSeconds = result.getAsBigDecimal().intValueExact();
-            if (leaseSeconds >= DDExternalDamApi.MIN_SUBSCRIPTION_LEASE_SECONDS
-                && leaseSeconds <= DDExternalDamApi.MAX_SUBSCRIPTION_LEASE_SECONDS) {
-                return leaseSeconds;
-            }
-        } catch (ArithmeticException | NumberFormatException e) {
-            throw invalidResponse();
-        }
-        throw invalidResponse();
+        return Map.of("input", input);
     }
 
-    public boolean unregisterSubscription(@NotNull String subscriberId, @NotNull UUID subscriptionId) throws DDExternalDamException {
+    @NotNull
+    private static Map<String, ?> unsubscriptionVariables(@NotNull String subscriberId, @NotNull UUID subscriptionId) {
         requireSubscriberId(subscriberId);
-        JsonElement result = request("UnregisterExternalDamSubscription", UNREGISTER_MUTATION,
-            Map.of("subscriberId", subscriberId, "subscriptionId", Objects.requireNonNull(subscriptionId).toString()),
-            "unregisterExternalDamSubscription");
-        if (!result.isJsonPrimitive() || !result.getAsJsonPrimitive().isBoolean()) {
-            throw invalidResponse();
-        }
-        return result.getAsBoolean();
+        return Map.of("subscriberId", subscriberId, "subscriptionId", Objects.requireNonNull(subscriptionId).toString());
     }
 
     @NotNull

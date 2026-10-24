@@ -347,10 +347,21 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
                         return;
                     }
                     drain = updateState(current);
+                    drain |= enqueue(frame);
                 }
-                drain |= enqueue(frame);
             }
-            if (drain) {
+            if (channel == null) {
+                try {
+                    listener.onMessage(frame);
+                } catch (RuntimeException | Error e) {
+                    try {
+                        close();
+                    } catch (RuntimeException closeFailure) {
+                        e.addSuppressed(closeFailure);
+                    }
+                    throw e;
+                }
+            } else if (drain) {
                 drain();
             }
         }

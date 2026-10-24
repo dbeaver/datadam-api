@@ -37,11 +37,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -63,7 +66,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Timeout(30)
 class RequestReplyEndpointTest {
     private static final Duration WAIT = Duration.ofSeconds(5);
-    private final List<Thread> callers = new ArrayList<>();
+    private final List<Thread> callers = new CopyOnWriteArrayList<>();
 
     @AfterEach
     void stopCallers() throws InterruptedException {
@@ -256,27 +259,22 @@ class RequestReplyEndpointTest {
     }
 
     @Test
-    void invokesTheRemoteHandlerOnAVirtualThreadAndReturnsANullResult() throws Exception {
-        var clientTransport = new MemoryTransport();
-        var serverTransport = new MemoryTransport();
-        connect(clientTransport, serverTransport);
+    void invokesTheHandlerInlineOnTheReceivingThreadAndReturnsANullResult() throws Exception {
+        var transport = new MemoryTransport();
         var handlerThread = new AtomicReference<Thread>();
         var handled = new AtomicReference<String>();
-        try (var client = RequestReplyEndpoint.open(clientTransport);
-             var server = RequestReplyEndpoint.open(serverTransport);
-             var registration = server.handle(payload -> {
+        try (var endpoint = RequestReplyEndpoint.open(transport);
+             var registration = endpoint.handle(payload -> {
                  handlerThread.set(Thread.currentThread());
                  handled.set(payload);
                  return null;
              })) {
-            assertNull(client.request("nullable result"));
+            var request = request("nullable result");
+            transport.deliver(request);
 
             assertEquals("nullable result", handled.get());
-            assertTrue(handlerThread.get().isVirtual());
-            assertNotEquals(Thread.currentThread(), handlerThread.get());
-            RequestReplyMessage<String> request = clientTransport.next();
-            assertEquals(request.response(null), serverTransport.next());
-            join(handlerThread.get());
+            assertSame(Thread.currentThread(), handlerThread.get());
+            assertEquals(request.response(null), transport.next());
         }
     }
 
@@ -309,12 +307,8 @@ class RequestReplyEndpointTest {
     @Test
     void releasesHandlerCapacityWhenReplySendingFails() throws Exception {
         var transport = new MemoryTransport();
-        var handlerThread = new AtomicReference<Thread>();
         try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1));
-             var registration = endpoint.handle(payload -> {
-                 handlerThread.set(Thread.currentThread());
-                 return "reply:" + payload;
-             })) {
+             var registration = endpoint.handle(payload -> "reply:" + payload)) {
             for (boolean asynchronous : List.of(false, true)) {
                 transport.sender = message -> {
                     var failure = new IllegalStateException("reply send failure");
@@ -327,13 +321,81 @@ class RequestReplyEndpointTest {
 
                 assertDoesNotThrow(() -> transport.deliver(request));
                 assertEquals(request.response("reply:request"), transport.next());
-                join(handlerThread.get());
             }
             transport.sender = message -> CompletableFuture.completedFuture(null);
             var request = request("recovered");
             transport.deliver(request);
             assertEquals(request.response("reply:recovered"), transport.next());
-            join(handlerThread.get());
+        }
+    }
+
+    @Test
+    void mapsTransportExecutionRejectionToOverloadAndReleasesAdmission() throws Exception {
+        var transport = new MemoryTransport();
+        var rejected = new AtomicReference<Runnable>();
+        var calls = new AtomicInteger();
+        transport.requestExecutor = request -> {
+            rejected.set(request);
+            throw new RejectedExecutionException("Request execution unavailable");
+        };
+        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1));
+             var registration = endpoint.handle(payload -> {
+                 calls.incrementAndGet();
+                 return "reply:" + payload;
+             })) {
+            var request = request("rejected");
+            assertDoesNotThrow(() -> transport.deliver(request));
+            assertEquals(request.failure(RequestReplyMessage.Error.OVERLOADED), transport.next());
+            assertEquals(0, calls.get());
+            rejected.get().run();
+            assertEquals(0, calls.get());
+            assertTrue(transport.sent.isEmpty());
+
+            transport.requestExecutor = null;
+            transport.deliver(request);
+            assertEquals(request.response("reply:rejected"), transport.next());
+            assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
+    void countsQueuedRequestsAndCancelsThemBeforeExecutionOnDisconnectOrClose() throws Exception {
+        for (boolean closing : List.of(false, true)) {
+            var transport = new MemoryTransport();
+            var queued = new LinkedBlockingQueue<Runnable>();
+            var calls = new AtomicInteger();
+            transport.requestExecutor = queued::add;
+            try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1));
+                 var registration = endpoint.handle(payload -> {
+                     calls.incrementAndGet();
+                     return "reply:" + payload;
+                 })) {
+                var first = request("queued");
+                transport.deliver(first);
+                transport.deliver(first);
+                assertEquals(1, queued.size());
+                var excess = request("excess");
+                transport.deliver(excess);
+                assertEquals(excess.failure(RequestReplyMessage.Error.OVERLOADED), transport.next());
+                assertEquals(0, calls.get());
+
+                if (closing) {
+                    endpoint.close();
+                } else {
+                    transport.disconnect();
+                }
+                queued.remove().run();
+                assertEquals(0, calls.get());
+                assertTrue(transport.sent.isEmpty());
+
+                if (!closing) {
+                    var fresh = request("fresh");
+                    transport.deliver(fresh);
+                    queued.remove().run();
+                    assertEquals(fresh.response("reply:fresh"), transport.next());
+                    assertEquals(1, calls.get());
+                }
+            }
         }
     }
 
@@ -387,6 +449,38 @@ class RequestReplyEndpointTest {
 
             assertEquals("next reply", result(next));
             assertTrue(transport.sent.isEmpty());
+        }
+    }
+
+    @Test
+    void timesOutWhileAnIndependentReceivingThreadIsStillHandlingTheRequest() throws Exception {
+        var clientTransport = new MemoryTransport();
+        var serverTransport = new MemoryTransport();
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var handlerThread = new AtomicReference<Thread>();
+        connect(clientTransport, serverTransport);
+        try (var client = RequestReplyEndpoint.open(clientTransport, options(1, 1));
+             var server = RequestReplyEndpoint.open(serverTransport, options(1, 1));
+             var registration = server.handle(payload -> {
+                 handlerThread.set(Thread.currentThread());
+                 entered.countDown();
+                 await(release);
+                 return "reply:" + payload;
+             })) {
+            try {
+                Future<String> expired = async(() -> client.request("expired", Duration.ofMillis(100)));
+                await(entered);
+                failure(RequestReplyException.Reason.TIMEOUT, expired);
+                assertTrue(handlerThread.get().isAlive());
+                release.countDown();
+                join(handlerThread.get());
+                assertEquals(clientTransport.next().response("reply:expired"), serverTransport.next());
+                assertEquals("reply:fresh", client.request("fresh"));
+                assertEquals(clientTransport.next().response("reply:fresh"), serverTransport.next());
+            } finally {
+                release.countDown();
+            }
         }
     }
 
@@ -500,9 +594,9 @@ class RequestReplyEndpointTest {
              })) {
             try {
                 var first = request("first");
-                transport.deliver(first);
+                Thread firstDelivery = start(() -> transport.deliver(first));
                 await(entered);
-                assertTrue(handlerThread.get().isVirtual());
+                assertSame(firstDelivery, handlerThread.get());
                 var excess = request("excess");
 
                 transport.deliver(excess);
@@ -513,11 +607,11 @@ class RequestReplyEndpointTest {
 
                 release.countDown();
                 assertEquals(first.response("reply:first"), transport.next());
-                join(handlerThread.get());
+                join(firstDelivery);
                 var next = request("next");
                 transport.deliver(next);
                 assertEquals(next.response("reply:next"), transport.next());
-                join(handlerThread.get());
+                assertSame(Thread.currentThread(), handlerThread.get());
                 assertEquals(2, calls.get());
                 assertTrue(transport.sent.isEmpty());
             } finally {
@@ -545,9 +639,11 @@ class RequestReplyEndpointTest {
                 UUID requestId = UUID.randomUUID();
                 var first = RequestReplyMessage.request(requestId, UUID.randomUUID(), "first origin");
                 var second = RequestReplyMessage.request(requestId, UUID.randomUUID(), "second origin");
-                transport.deliver(first);
-                transport.deliver(second);
+                Thread firstDelivery = start(() -> transport.deliver(first));
+                Thread secondDelivery = start(() -> transport.deliver(second));
                 await(entered);
+                assertSame(firstDelivery, handlerThreads.get("first origin"));
+                assertSame(secondDelivery, handlerThreads.get("second origin"));
                 transport.deliver(first);
                 transport.deliver(second);
                 assertEquals(2, calls.get());
@@ -582,7 +678,7 @@ class RequestReplyEndpointTest {
                 try {
                     assertThrows(IllegalStateException.class, () -> endpoint.handle(payload -> "duplicate handler"));
                     var accepted = request("accepted");
-                    transport.deliver(accepted);
+                    Thread delivery = start(() -> transport.deliver(accepted));
                     await(entered);
                     original.close();
                     try (var replacement = endpoint.handle(payload -> "replacement reply")) {
@@ -592,6 +688,7 @@ class RequestReplyEndpointTest {
                         assertEquals(next.response("replacement reply"), transport.next());
                         release.countDown();
                         assertEquals(accepted.response("original reply"), transport.next());
+                        join(delivery);
                         assertEquals(1, transport.listeners.size());
                         assertEquals(0, transport.subscriptionCloses.get());
                     }
@@ -629,7 +726,7 @@ class RequestReplyEndpointTest {
                     RequestReplyMessage<String> outgoing = transport.next();
                     RequestReplyTransport.Listener<String> oldListener = transport.listeners.get(outgoing.replyTo());
                     assertNotNull(oldListener);
-                    oldListener.onMessage(request("incoming"));
+                    start(() -> oldListener.onMessage(request("incoming")));
                     await(entered);
 
                     endpoint.close();
@@ -695,7 +792,7 @@ class RequestReplyEndpointTest {
     void disconnectKeepsInterruptIgnoringHandlersCountedAndInvalidatesTheirReplies() throws Exception {
         var transport = new MemoryTransport();
         transport.sender = message -> {
-            transport.deliver(message);
+            start(() -> transport.deliver(message));
             return CompletableFuture.completedFuture(null);
         };
         var entered = new CountDownLatch(1);
@@ -855,13 +952,13 @@ class RequestReplyEndpointTest {
         }
     }
 
-    private static void connect(@NotNull MemoryTransport first, @NotNull MemoryTransport second) {
+    private void connect(@NotNull MemoryTransport first, @NotNull MemoryTransport second) {
         first.sender = message -> {
-            second.deliver(message);
+            start(() -> second.deliver(message));
             return CompletableFuture.completedFuture(null);
         };
         second.sender = message -> {
-            first.deliver(message);
+            start(() -> first.deliver(message));
             return CompletableFuture.completedFuture(null);
         };
     }
@@ -872,6 +969,8 @@ class RequestReplyEndpointTest {
         private final AtomicInteger subscriptionCloses = new AtomicInteger();
         private volatile Function<RequestReplyMessage<String>, CompletionStage<Void>> sender =
             message -> CompletableFuture.completedFuture(null);
+        @Nullable
+        private Executor requestExecutor;
         private boolean closed;
 
         @NotNull
@@ -892,6 +991,15 @@ class RequestReplyEndpointTest {
             assertFalse(closed);
             sent.add(message);
             return sender.apply(message);
+        }
+
+        @Override
+        public void executeRequest(@NotNull Runnable request) {
+            if (requestExecutor == null) {
+                RequestReplyTransport.super.executeRequest(request);
+            } else {
+                requestExecutor.execute(request);
+            }
         }
 
         private void deliver(@NotNull RequestReplyMessage<String> message) {

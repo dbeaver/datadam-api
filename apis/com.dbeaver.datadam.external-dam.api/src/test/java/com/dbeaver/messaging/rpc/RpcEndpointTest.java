@@ -45,6 +45,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -57,6 +58,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(30)
 public class RpcEndpointTest extends RpcTestSupport {
+    @Test
+    void supportsSynchronousReentrantCallbacksOnIndependentReceivingThreads() throws Exception {
+        var leftTransport = new MemoryTransport();
+        var rightTransport = new MemoryTransport();
+        var serviceThread = new AtomicReference<Thread>();
+        var callbackThread = new AtomicReference<Thread>();
+        connect(leftTransport, rightTransport);
+        try (var left = RpcEndpoint.open(leftTransport, OPTIONS);
+             var right = RpcEndpoint.open(rightTransport, OPTIONS);
+             var callback = left.register("echo", EchoService.class, value -> {
+                 callbackThread.set(Thread.currentThread());
+                 return "callback:" + value;
+             }, new TestCodec());
+             var service = right.register("echo", EchoService.class, value -> {
+                 serviceThread.set(Thread.currentThread());
+                 return right.proxy("echo", EchoService.class, new TestCodec()).echo(value);
+             }, new TestCodec())) {
+            assertEquals("callback:value", left.proxy("echo", EchoService.class, new TestCodec()).echo("value"));
+            assertNotEquals(Thread.currentThread(), serviceThread.get());
+            assertNotEquals(serviceThread.get(), callbackThread.get());
+            assertNotEquals(Thread.currentThread(), callbackThread.get());
+        }
+    }
+
     @Test
     void servesIndependentServicesInBothDirectionsAndAcrossTopics() throws Exception {
         var leftTransport = new MemoryTransport();
