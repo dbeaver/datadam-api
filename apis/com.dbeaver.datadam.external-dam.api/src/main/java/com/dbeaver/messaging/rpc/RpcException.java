@@ -30,6 +30,8 @@ public class RpcException extends RuntimeException {
     private final Reason reason;
     @Nullable
     private final RpcMessage.Error remoteError;
+    @Nullable
+    private final RpcExceptionDetails remoteException;
 
     public RpcException(@NotNull Reason reason) {
         this(reason, null);
@@ -39,12 +41,21 @@ public class RpcException extends RuntimeException {
         super("RPC call failed: " + Objects.requireNonNull(reason), cause);
         this.reason = reason;
         this.remoteError = null;
+        this.remoteException = null;
     }
 
     public RpcException(@NotNull RpcMessage.Error remoteError) {
-        super("Remote RPC call failed: " + Objects.requireNonNull(remoteError));
+        this(remoteError, null);
+    }
+
+    public RpcException(@NotNull RpcMessage.Error remoteError, @Nullable RpcExceptionDetails remoteException) {
+        super("Remote RPC call failed: " + Objects.requireNonNull(remoteError)
+            + (remoteException == null ? "" : ": " + remoteException.type()
+                + (remoteException.message() == null ? "" : ": " + remoteException.message())),
+            remoteException == null ? null : new RemoteException(remoteException));
         this.reason = Reason.REMOTE_ERROR;
         this.remoteError = remoteError;
+        this.remoteException = remoteException;
     }
 
     RpcException(@NotNull RequestReplyException cause) {
@@ -66,5 +77,17 @@ public class RpcException extends RuntimeException {
     @Nullable
     public RpcMessage.Error remoteError() {
         return remoteError;
+    }
+
+    @Nullable
+    public RpcExceptionDetails remoteException() {
+        return remoteException;
+    }
+
+    private static final class RemoteException extends Exception {
+        private RemoteException(@NotNull RpcExceptionDetails details) {
+            super("Remote stack trace" + (details.truncated() ? " (truncated)" : "") + ":\n" + details.stackTrace(),
+                null, false, false);
+        }
     }
 }

@@ -22,6 +22,7 @@ import com.dbeaver.messaging.requestreply.MessageSubscription;
 import com.dbeaver.messaging.requestreply.RequestReplyException;
 import com.dbeaver.messaging.requestreply.RequestReplyMessage;
 import com.dbeaver.messaging.requestreply.RequestReplyTransport;
+import com.dbeaver.messaging.rpc.RpcExceptionDetails;
 import com.dbeaver.messaging.rpc.RpcMessage;
 import com.dbeaver.messaging.rpc.RpcTransport;
 import com.google.gson.JsonElement;
@@ -44,6 +45,10 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
     private static final String FIELD_ERROR = "error";
     private static final String FIELD_OPERATION = "operation";
     private static final String FIELD_DATA = "data";
+    private static final String FIELD_EXCEPTION = "exception";
+    private static final String FIELD_MESSAGE = "message";
+    private static final String FIELD_STACK_TRACE = "stackTrace";
+    private static final String FIELD_TRUNCATED = "truncated";
     private static final int MAX_PENDING_SENDS = 128;
     private final Semaphore sendBudget = new Semaphore(MAX_PENDING_SENDS);
     private final RequestReplyTransport<JsonObject> delegate;
@@ -146,6 +151,7 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
         envelope.addProperty(FIELD_TYPE, message.type().name());
         if (message.type() == RpcMessage.Type.ERROR) {
             envelope.addProperty(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
+            envelope.add(FIELD_EXCEPTION, message.exception() == null ? JsonNull.INSTANCE : encodeException(message.exception()));
         } else {
             if (message.type() == RpcMessage.Type.REQUEST) {
                 envelope.addProperty(FIELD_OPERATION, message.operation());
@@ -153,6 +159,16 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
             envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload().deepCopy());
         }
         return envelope;
+    }
+
+    @NotNull
+    private static JsonObject encodeException(@NotNull RpcExceptionDetails details) {
+        JsonObject exception = new JsonObject();
+        exception.addProperty(FIELD_TYPE, details.type());
+        exception.addProperty(FIELD_MESSAGE, details.message());
+        exception.addProperty(FIELD_STACK_TRACE, details.stackTrace());
+        exception.addProperty(FIELD_TRUNCATED, details.truncated());
+        return exception;
     }
 
     @Nullable
@@ -169,10 +185,12 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
             requireType(message.type(), type);
             RpcMessage<JsonElement> payload;
             if (type == RpcMessage.Type.ERROR) {
-                if (envelope.size() != 3) {
+                JsonElement exception = envelope.get(FIELD_EXCEPTION);
+                if (envelope.size() != 4 || exception == null) {
                     return null;
                 }
-                payload = RpcMessage.failure(RpcMessage.Error.valueOf(string(envelope, FIELD_ERROR)));
+                payload = RpcMessage.failure(RpcMessage.Error.valueOf(string(envelope, FIELD_ERROR)),
+                    decodeException(exception));
             } else {
                 JsonElement data = envelope.get(FIELD_DATA);
                 if (data == null || envelope.size() != (type == RpcMessage.Type.REQUEST ? 4 : 3)) {
@@ -187,6 +205,26 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    @Nullable
+    private static RpcExceptionDetails decodeException(@NotNull JsonElement value) {
+        if (value.isJsonNull()) {
+            return null;
+        }
+        if (!value.isJsonObject()) {
+            throw new IllegalArgumentException("Expected RPC exception details");
+        }
+        JsonObject exception = value.getAsJsonObject();
+        JsonElement message = exception.get(FIELD_MESSAGE);
+        JsonElement truncated = exception.get(FIELD_TRUNCATED);
+        if (exception.size() != 4 || message == null || truncated == null || !truncated.isJsonPrimitive()
+            || !truncated.getAsJsonPrimitive().isBoolean()) {
+            throw new IllegalArgumentException("Invalid RPC exception details");
+        }
+        return new RpcExceptionDetails(string(exception, FIELD_TYPE),
+            message.isJsonNull() ? null : string(exception, FIELD_MESSAGE), string(exception, FIELD_STACK_TRACE),
+            truncated.getAsBoolean());
     }
 
     private static void requireType(@NotNull RequestReplyMessage.Type outer, @NotNull RpcMessage.Type inner) {

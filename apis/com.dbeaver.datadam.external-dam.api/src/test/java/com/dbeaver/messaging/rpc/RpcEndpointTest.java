@@ -28,6 +28,7 @@ import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.time.Duration;
@@ -51,6 +52,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -277,7 +280,7 @@ public class RpcEndpointTest extends RpcTestSupport {
     }
 
     @Test
-    void reportsHandlerFailuresWithoutLeakingPrivateDetailsOrRetrying() throws Exception {
+    void reportsOriginalHandlerExceptionDetailsWithoutSerializingTheThrowableOrRetrying() throws Exception {
         var clientTransport = new MemoryTransport();
         var serverTransport = new MemoryTransport();
         var calls = new AtomicInteger();
@@ -296,9 +299,15 @@ public class RpcEndpointTest extends RpcTestSupport {
                     RpcException failure = remoteFailure(RpcMessage.Error.HANDLER_FAILED,
                         () -> client.proxy("failure", FailingService.class, new TestCodec()).fail("secret argument"));
 
-                    assertFalse(failure.toString().contains("private"));
+                    RpcExceptionDetails details = failure.remoteException();
+                    assertNotNull(details);
+                    assertEquals(cause.getClass().getName(), details.type());
+                    assertEquals(cause.getMessage(), details.message());
+                    assertTrue(details.stackTrace().contains(cause.toString()));
+                    assertFalse(details.stackTrace().contains(InvocationTargetException.class.getName()));
+                    assertNotSame(cause, failure.getCause());
                     assertFalse(failure.toString().contains("secret"));
-                    assertEquals(RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED), serverTransport.next().payload());
+                    assertEquals(RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED, details), serverTransport.next().payload());
                     assertEquals("secret argument", clientTransport.next().payload().payload());
                     assertTrue(clientTransport.sent.isEmpty());
                     assertTrue(serverTransport.sent.isEmpty());
@@ -339,10 +348,15 @@ public class RpcEndpointTest extends RpcTestSupport {
                     RpcException failure = failure(RpcException.Reason.CODEC_FAILED, () -> proxy.echo("secret argument"));
                     assertSame(cause, failure.getCause());
                     assertNull(failure.remoteError());
+                    assertNull(failure.remoteException());
                 } else {
                     RpcException failure = remoteFailure(RpcMessage.Error.CODEC_FAILED, () -> proxy.echo("secret argument"));
-                    assertFalse(failure.toString().contains("private"));
-                    assertEquals(RpcMessage.failure(RpcMessage.Error.CODEC_FAILED), serverTransport.next().payload());
+                    RpcExceptionDetails details = failure.remoteException();
+                    assertNotNull(details);
+                    assertEquals(cause.getClass().getName(), details.type());
+                    assertEquals(cause.getMessage(), details.message());
+                    assertNotSame(cause, failure.getCause());
+                    assertEquals(RpcMessage.failure(RpcMessage.Error.CODEC_FAILED, details), serverTransport.next().payload());
                 }
                 assertEquals(boundary < 2 ? 0 : 1, calls.get());
                 assertEquals(boundary == 0 ? 0 : 1, clientTransport.sent.size());

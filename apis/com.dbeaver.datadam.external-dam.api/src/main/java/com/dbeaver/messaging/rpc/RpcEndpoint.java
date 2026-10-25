@@ -237,7 +237,7 @@ public final class RpcEndpoint implements AutoCloseable {
                 throw new RpcException(RpcException.Reason.INVALID_RESPONSE);
             }
             if (response.type() == RpcMessage.Type.ERROR) {
-                throw new RpcException(Objects.requireNonNull(response.error()));
+                throw new RpcException(Objects.requireNonNull(response.error()), response.exception());
             }
             if (operation.getReturnType() == void.class) {
                 if (response.payload() != null) {
@@ -281,7 +281,7 @@ public final class RpcEndpoint implements AutoCloseable {
                 argument = registration.codec.decode(request.payload(), operation.getGenericParameterTypes()[0]);
             } catch (Exception e) {
                 restoreInterruption(e);
-                return RpcMessage.failure(RpcMessage.Error.CODEC_FAILED);
+                return RpcMessage.failure(RpcMessage.Error.CODEC_FAILED, RpcExceptionDetails.capture(e));
             }
             if (!RpcContract.accepts(operation.getParameterTypes()[0], argument)) {
                 return RpcMessage.failure(RpcMessage.Error.INVALID_REQUEST);
@@ -291,9 +291,10 @@ public final class RpcEndpoint implements AutoCloseable {
                 result = operation.invoke(registration.implementation, argument);
             } catch (InvocationTargetException e) {
                 restoreInterruption(e.getCause());
-                return RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED);
+                return RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED,
+                    RpcExceptionDetails.capture(Objects.requireNonNullElse(e.getCause(), e)));
             } catch (ReflectiveOperationException | RuntimeException e) {
-                return RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED);
+                return RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED, RpcExceptionDetails.capture(e));
             }
             if (operation.getReturnType() == void.class) {
                 return RpcMessage.response(null);
@@ -302,7 +303,7 @@ public final class RpcEndpoint implements AutoCloseable {
                 return RpcMessage.response(registration.codec.encode(result, operation.getGenericReturnType()));
             } catch (Exception e) {
                 restoreInterruption(e);
-                return RpcMessage.failure(RpcMessage.Error.CODEC_FAILED);
+                return RpcMessage.failure(RpcMessage.Error.CODEC_FAILED, RpcExceptionDetails.capture(e));
             }
         }
 

@@ -47,8 +47,9 @@ its send stage completes. Request IDs and reply endpoint IDs are independent UUI
 Unknown, late, and duplicate responses do not complete another request.
 
 `RequestReplyException.reason()` distinguishes local closure, disconnection, capacity rejection, send failure, timeout,
-and remote errors. `remoteError()` identifies `NO_HANDLER`, `OVERLOADED`, or `HANDLER_FAILED` for remote errors. Handler
-exception classes, messages, and stack traces are not sent to the peer. Local send failures retain their causes.
+and remote errors. `remoteError()` identifies `NO_HANDLER`, `OVERLOADED`, or `HANDLER_FAILED` for remote errors. Raw
+request/reply handler exception classes, messages, and stack traces are not sent to the peer; the typed RPC layer below
+adds its own diagnostic error payload. Local send failures retain their causes.
 
 Interruption propagates as `InterruptedException` and releases the pending slot. A thread already interrupted when
 calling `request` does not send. Timeout, interruption, or a send error can leave the remote outcome unknown: none
@@ -225,9 +226,26 @@ exception declaration. Its reason distinguishes timeout, interruption, disconnec
 codec failure, invalid response, and remote failure. Caller interruption restores the interrupt flag.
 
 An absent logical service returns `UNKNOWN_SERVICE`; an absent operation returns `UNKNOWN_OPERATION`. Invalid arguments,
-handler failures, and remote codec failures return fixed error codes, never exception types, messages, or stack traces.
+handler failures, and remote codec failures retain their fixed error codes. Handler and remote codec exceptions also
+carry immutable `RpcExceptionDetails`: the exception class name (`type`), nullable original `message`, formatted
+`stackTrace`, and a `truncated` flag. The receiving side formats the trace where the failure occurs, including causes,
+suppressed exceptions, and circular-reference markers. Reflection's `InvocationTargetException` is unwrapped before capture.
+
+The caller receives `RpcException` with `reason() == REMOTE_ERROR`, the existing `remoteError()` code, and optional
+`remoteException()` details. Its message includes the remote type and message. Its cause is a local diagnostic wrapper
+with the remote text and no invented local frames, so ordinary exception logging includes both the local call stack and
+the remote trace. Neither the original `Throwable` nor its object graph crosses the transport. The caller never loads or
+instantiates the named remote class. Application codecs handle neither exception details nor diagnostic text.
+
+Type names are limited to 256 UTF-16 code units, messages to 1,024, and stack traces to 8,192. Formatting stops when the
+trace budget is exhausted rather than accumulating an unlimited string first. Truncation of any field, or incomplete
+formatting, sets `truncated`; valid surrogate pairs are not split at a truncation boundary. These text bounds leave room
+for JSON escaping and the surrounding DataDam frame under its default 64 KiB message limit. Diagnostic contents are not
+redacted or replaced with a generic message. A code-only error has null `remoteException()`.
+
 Declared application exceptions are not reconstructed on the caller. A peer with no receiving endpoint can only be
-detected through transport failure or timeout. Local failures retain their causes.
+detected through transport failure or timeout; an error reply lost in transport cannot expose its remote diagnostics.
+Local failures retain their original causes.
 
 `RpcEndpoint.open(transports, options)` accepts the existing `RequestReplyOptions` for default deadlines and shared
 capacity. Without explicit options, the default timeout is 30 seconds. Each proxy can override the request timeout

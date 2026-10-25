@@ -44,11 +44,11 @@ class RpcMessageTest {
         assertSame(payload, response.payload());
         assertNull(response.operation());
         assertNull(response.error());
-        assertEquals(new RpcMessage<>(RpcMessage.Type.RESPONSE, null, null, null), RpcMessage.response(null));
+        assertEquals(new RpcMessage<>(RpcMessage.Type.RESPONSE, null, null, null, null), RpcMessage.response(null));
     }
 
     @Test
-    void failuresCarryOnlyASafeErrorCode() {
+    void failuresCanCarryACodeWithoutExceptionDetails() {
         for (RpcMessage.Error error : RpcMessage.Error.values()) {
             RpcMessage<Object> failure = RpcMessage.failure(error);
 
@@ -56,8 +56,23 @@ class RpcMessageTest {
             assertEquals(error, failure.error());
             assertNull(failure.operation());
             assertNull(failure.payload());
+            assertNull(failure.exception());
         }
         assertThrows(NullPointerException.class, () -> RpcMessage.failure(null));
+    }
+
+    @Test
+    void exceptionDetailsBelongOnlyToErrorResponsesAndNeverToApplicationPayloads() {
+        var details = new RpcExceptionDetails("test.ApplicationException", "failure", "remote stack trace", false);
+        RpcMessage<Object> failure = RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED, details);
+
+        assertSame(details, failure.exception());
+        assertNull(failure.payload());
+        assertEquals(RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED), RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED, null));
+        assertThrows(IllegalArgumentException.class,
+            () -> new RpcMessage<>(RpcMessage.Type.REQUEST, "echo(int)", 1, null, details));
+        assertThrows(IllegalArgumentException.class,
+            () -> new RpcMessage<>(RpcMessage.Type.RESPONSE, null, 1, null, details));
     }
 
     @Test
@@ -70,23 +85,23 @@ class RpcMessageTest {
             assertThrows(IllegalArgumentException.class, () -> RpcMessage.request(invalid, null));
         }
         assertThrows(IllegalArgumentException.class, () -> RpcMessage.request(null, null));
-        assertThrows(NullPointerException.class, () -> new RpcMessage<>(null, null, null, null));
+        assertThrows(NullPointerException.class, () -> new RpcMessage<>(null, null, null, null, null));
     }
 
     @Test
     void rejectsRoutingFieldsOnRepliesAndInconsistentPayloadOrErrorFields() {
         for (RpcMessage.Type type : List.of(RpcMessage.Type.RESPONSE, RpcMessage.Type.ERROR)) {
             RpcMessage.Error error = type == RpcMessage.Type.ERROR ? RpcMessage.Error.HANDLER_FAILED : null;
-            assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(type, "echo(int)", null, error));
+            assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(type, "echo(int)", null, error, null));
         }
-        assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(RpcMessage.Type.ERROR, null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> new RpcMessage<>(RpcMessage.Type.ERROR, null, null, null, null));
         for (RpcMessage.Error error : RpcMessage.Error.values()) {
             assertThrows(IllegalArgumentException.class,
-                () -> new RpcMessage<>(RpcMessage.Type.REQUEST, "echo(int)", null, error));
+                () -> new RpcMessage<>(RpcMessage.Type.REQUEST, "echo(int)", null, error, null));
             assertThrows(IllegalArgumentException.class,
-                () -> new RpcMessage<>(RpcMessage.Type.RESPONSE, null, null, error));
+                () -> new RpcMessage<>(RpcMessage.Type.RESPONSE, null, null, error, null));
             assertThrows(IllegalArgumentException.class,
-                () -> new RpcMessage<>(RpcMessage.Type.ERROR, null, "private payload", error));
+                () -> new RpcMessage<>(RpcMessage.Type.ERROR, null, "private payload", error, null));
         }
     }
 }

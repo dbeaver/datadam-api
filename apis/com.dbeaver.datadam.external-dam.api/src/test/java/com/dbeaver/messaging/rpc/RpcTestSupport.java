@@ -104,7 +104,14 @@ class RpcTestSupport {
     static RpcException remoteFailure(@NotNull RpcMessage.Error error, @NotNull Executable action) {
         RpcException failure = failure(RpcException.Reason.REMOTE_ERROR, action);
         assertEquals(error, failure.remoteError());
-        assertNull(failure.getCause());
+        if (failure.remoteException() == null) {
+            assertNull(failure.getCause());
+        } else {
+            Throwable cause = failure.getCause();
+            assertNotNull(cause);
+            assertEquals(0, cause.getStackTrace().length);
+            assertTrue(cause.getMessage().contains(failure.remoteException().stackTrace()));
+        }
         return failure;
     }
 

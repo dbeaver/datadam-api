@@ -25,7 +25,8 @@ public record RpcMessage<P>(
     @NotNull Type type,
     @Nullable String operation,
     @Nullable P payload,
-    @Nullable Error error
+    @Nullable Error error,
+    @Nullable RpcExceptionDetails exception
 ) {
     public enum Type {
         REQUEST, RESPONSE, ERROR
@@ -37,6 +38,9 @@ public record RpcMessage<P>(
 
     public RpcMessage {
         Objects.requireNonNull(type);
+        if (exception != null && type != Type.ERROR) {
+            throw new IllegalArgumentException("RPC exception details require an error response");
+        }
         if (type == Type.REQUEST) {
             if (operation == null || operation.isBlank() || operation.length() > 1024 || error != null) {
                 throw new IllegalArgumentException("Invalid RPC request");
@@ -49,16 +53,21 @@ public record RpcMessage<P>(
 
     @NotNull
     public static <P> RpcMessage<P> request(@NotNull String operation, @Nullable P payload) {
-        return new RpcMessage<>(Type.REQUEST, operation, payload, null);
+        return new RpcMessage<>(Type.REQUEST, operation, payload, null, null);
     }
 
     @NotNull
     public static <P> RpcMessage<P> response(@Nullable P payload) {
-        return new RpcMessage<>(Type.RESPONSE, null, payload, null);
+        return new RpcMessage<>(Type.RESPONSE, null, payload, null, null);
     }
 
     @NotNull
     public static <P> RpcMessage<P> failure(@NotNull Error error) {
-        return new RpcMessage<>(Type.ERROR, null, null, Objects.requireNonNull(error));
+        return failure(error, null);
+    }
+
+    @NotNull
+    public static <P> RpcMessage<P> failure(@NotNull Error error, @Nullable RpcExceptionDetails exception) {
+        return new RpcMessage<>(Type.ERROR, null, null, Objects.requireNonNull(error), exception);
     }
 }

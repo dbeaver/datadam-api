@@ -16,6 +16,7 @@
  */
 package com.dbeaver.datadam.external.api.rpc;
 
+import com.dbeaver.datadam.external.api.DDExternalDamProtocol;
 import com.dbeaver.datadam.external.api.model.DDConnectionInfo;
 import com.dbeaver.datadam.external.api.model.DDMessage;
 import com.dbeaver.datadam.external.api.requestreply.DDRequestReplyTransport;
@@ -34,6 +35,7 @@ import com.dbeaver.messaging.requestreply.RequestReplyTransport;
 import com.dbeaver.messaging.rpc.RpcCodec;
 import com.dbeaver.messaging.rpc.RpcEndpoint;
 import com.dbeaver.messaging.rpc.RpcException;
+import com.dbeaver.messaging.rpc.RpcExceptionDetails;
 import com.dbeaver.messaging.rpc.RpcMessage;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -42,17 +44,22 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSyntaxException;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -274,11 +281,17 @@ public class DDRpcTransportTest {
             Assertions.assertEquals(request.replyTo(), sent.replyTo());
             Assertions.assertEquals(RequestReplyMessage.Type.REQUEST, sent.type());
             Assertions.assertEquals("dbeaver.rpc.v2", Objects.requireNonNull(sent.payload()).get("protocol").getAsString());
+            JsonObject expectedRequest = requestEnvelope();
+            expectedRequest.addProperty("data", "argument");
+            Assertions.assertEquals(expectedRequest, sent.payload());
             Assertions.assertFalse(sent.payload().has("topic"));
             delegate.deliver(sent);
             Assertions.assertEquals(request, received.messages.getLast());
             RequestReplyMessage<RpcMessage<JsonElement>> response = request.response(RpcMessage.response(new JsonPrimitive(42)));
             adapter.send(response).toCompletableFuture().join();
+            JsonObject expectedResponse = responseEnvelope();
+            expectedResponse.addProperty("data", 42);
+            Assertions.assertEquals(expectedResponse, delegate.sent.getLast().payload());
             delegate.deliver(delegate.sent.getLast());
             Assertions.assertEquals(response, received.messages.getLast());
             for (RpcMessage.Error error : RpcMessage.Error.values()) {
@@ -291,6 +304,8 @@ public class DDRpcTransportTest {
                 Assertions.assertNull(wire.error());
                 Assertions.assertFalse(Objects.requireNonNull(wire.payload()).has("data"));
                 Assertions.assertEquals(error.name(), wire.payload().get("error").getAsString());
+                Assertions.assertEquals(JsonNull.INSTANCE, wire.payload().get("exception"));
+                Assertions.assertEquals(errorEnvelope(error), wire.payload());
                 delegate.deliver(wire);
                 Assertions.assertEquals(failure, received.messages.getLast());
             }
@@ -308,6 +323,104 @@ public class DDRpcTransportTest {
             Assertions.assertEquals(request.response(null), received.messages.getLast());
         }
         Assertions.assertTrue(delegate.closed);
+    }
+
+    @Test
+    void roundTripsStructuredDiagnosticsAndExplicitNullMessagesWithoutChangingOuterFrames() throws Exception {
+        MemoryTransport delegate = new MemoryTransport();
+        DDRpcTransport adapter = new DDRpcTransport(delegate);
+        UUID endpoint = UUID.randomUUID();
+        Received received = new Received();
+        RequestReplyMessage<RpcMessage<JsonElement>> request = request(endpoint, null);
+        List<RpcExceptionDetails> diagnostics = List.of(
+            new RpcExceptionDetails("application.Failure", "quoted \"message\"\n雪😀", "trace\r\n\t\0\\雪😀", false),
+            new RpcExceptionDetails("application.Failure", null, "", false),
+            new RpcExceptionDetails("application.Failure", "", "bounded trace", true)
+        );
+        try (var subscription = adapter.subscribe(endpoint, received)) {
+            for (RpcMessage.Error error : RpcMessage.Error.values()) {
+                for (RpcExceptionDetails details : diagnostics) {
+                    RequestReplyMessage<RpcMessage<JsonElement>> failure = request.response(RpcMessage.failure(error, details));
+                    adapter.send(failure).toCompletableFuture().join();
+                    RequestReplyMessage<JsonObject> wire = delegate.sent.getLast();
+                    Assertions.assertEquals(request.requestId(), wire.requestId());
+                    Assertions.assertEquals(request.replyTo(), wire.replyTo());
+                    Assertions.assertEquals(RequestReplyMessage.Type.RESPONSE, wire.type());
+                    Assertions.assertNull(wire.error());
+                    JsonObject envelope = Objects.requireNonNull(wire.payload());
+                    Assertions.assertEquals(Set.of("protocol", "type", "error", "exception"), envelope.keySet());
+                    JsonObject expected = errorEnvelope(error);
+                    JsonObject exception = new JsonObject();
+                    exception.addProperty("type", details.type());
+                    exception.add("message", details.message() == null ? JsonNull.INSTANCE : new JsonPrimitive(details.message()));
+                    exception.addProperty("stackTrace", details.stackTrace());
+                    exception.addProperty("truncated", details.truncated());
+                    expected.add("exception", exception);
+                    Assertions.assertEquals(expected, envelope);
+                    delegate.deliver(new RequestReplyMessage<>(wire.requestId(), wire.replyTo(), wire.type(),
+                        JsonParser.parseString(envelope.toString()).getAsJsonObject(), wire.error()));
+                    Assertions.assertEquals(failure, received.messages.getLast());
+                }
+            }
+            Assertions.assertEquals(RpcMessage.Error.values().length * diagnostics.size(), received.messages.size());
+        }
+    }
+
+    @Test
+    void maximumDiagnosticsFitTheFullFramedMessageBudgetUnderEscapingAndUnicode() throws Exception {
+        FakeChannel channel = new FakeChannel();
+        DDRpcTransport adapter = DDRpcTransport.forChannel(channel, "x".repeat(256));
+        UUID endpoint = UUID.randomUUID();
+        Received received = new Received();
+        RequestReplyMessage<RpcMessage<JsonElement>> request = request(endpoint, null);
+        try (var subscription = adapter.subscribe(endpoint, received)) {
+            for (String unit : List.of("\0", "\"\\\n\r\t\b\f\37", "\u2028x\u2029x", "雪", "😀")) {
+                RpcExceptionDetails details = new RpcExceptionDetails(
+                    unit.repeat(RpcExceptionDetails.MAX_TYPE_LENGTH / unit.length()),
+                    unit.repeat(RpcExceptionDetails.MAX_MESSAGE_LENGTH / unit.length()),
+                    unit.repeat(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH / unit.length()), true);
+                Assertions.assertEquals(256, details.type().length());
+                Assertions.assertEquals(1024, Objects.requireNonNull(details.message()).length());
+                Assertions.assertEquals(8192, details.stackTrace().length());
+                RequestReplyMessage<RpcMessage<JsonElement>> failure = request.response(
+                    RpcMessage.failure(RpcMessage.Error.UNKNOWN_OPERATION, details));
+                adapter.send(failure).toCompletableFuture().join();
+                DDMessage wire = channel.sent.getLast();
+                Assertions.assertEquals("datadam.requestreply.v1", wire.type());
+                JsonObject outer = wire.payload();
+                Assertions.assertEquals(Set.of("requestId", "replyTo", "type", "data"), outer.keySet());
+                Assertions.assertEquals(request.requestId().toString(), outer.get("requestId").getAsString());
+                Assertions.assertEquals(endpoint.toString(), outer.get("replyTo").getAsString());
+                Assertions.assertEquals("RESPONSE", outer.get("type").getAsString());
+                Assertions.assertEquals("dbeaver.rpc.v2", outer.getAsJsonObject("data").get("protocol").getAsString());
+                String encoded = DDExternalDamProtocol.encode(wire);
+                Assertions.assertTrue(encoded.getBytes(StandardCharsets.UTF_8).length <= 65_536);
+                channel.deliver(DDExternalDamProtocol.decode(encoded));
+                Assertions.assertEquals(failure, received.messages.getLast());
+            }
+            Assertions.assertEquals(5, channel.sent.size());
+            Assertions.assertEquals(5, received.messages.size());
+        }
+    }
+
+    @Test
+    void rejectsMalformedExceptionDetailsInErrorEnvelopes() throws Exception {
+        MemoryTransport delegate = new MemoryTransport();
+        DDRpcTransport adapter = new DDRpcTransport(delegate);
+        UUID endpoint = UUID.randomUUID();
+        Received received = new Received();
+        RequestReplyMessage<JsonObject> request = RequestReplyMessage.request(UUID.randomUUID(), endpoint, requestEnvelope());
+        List<JsonElement> malformed = malformedExceptions();
+        try (var subscription = adapter.subscribe(endpoint, received)) {
+            for (RpcMessage.Error error : RpcMessage.Error.values()) {
+                for (JsonElement details : malformed) {
+                    JsonObject envelope = errorEnvelope(error);
+                    envelope.add("exception", details);
+                    delegate.deliver(request.response(envelope));
+                }
+            }
+            Assertions.assertTrue(received.messages.isEmpty());
+        }
     }
 
     @Test
@@ -394,6 +507,7 @@ public class DDRpcTransportTest {
                 envelope -> envelope.addProperty("operation", "x".repeat(1025)),
                 envelope -> envelope.remove("data"),
                 envelope -> envelope.add("error", JsonNull.INSTANCE),
+                envelope -> envelope.add("exception", exceptionEnvelope()),
                 envelope -> envelope.addProperty("extra", true)
             );
             for (Consumer<JsonObject> mutation : malformed) {
@@ -425,6 +539,7 @@ public class DDRpcTransportTest {
                 envelope -> envelope.add("topic", JsonNull.INSTANCE),
                 envelope -> envelope.addProperty("operation", "apply"),
                 envelope -> envelope.add("error", JsonNull.INSTANCE),
+                envelope -> envelope.add("exception", exceptionEnvelope()),
                 envelope -> envelope.addProperty("protocol", 1),
                 envelope -> envelope.addProperty("type", true),
                 envelope -> envelope.addProperty("type", "OTHER")
@@ -437,19 +552,25 @@ public class DDRpcTransportTest {
             delegate.deliver(request.response(requestEnvelope()));
             List<Consumer<JsonObject>> malformedErrors = List.of(
                 envelope -> envelope.remove("error"),
+                envelope -> envelope.remove("exception"),
                 envelope -> envelope.addProperty("error", "OTHER"),
                 envelope -> envelope.addProperty("error", 1),
                 envelope -> envelope.addProperty("error", true),
                 envelope -> envelope.add("error", JsonNull.INSTANCE),
                 envelope -> envelope.add("error", new JsonObject()),
+                envelope -> envelope.addProperty("protocol", "dbeaver.rpc.v1"),
+                envelope -> envelope.addProperty("type", "OTHER"),
                 envelope -> envelope.add("data", JsonNull.INSTANCE),
                 envelope -> envelope.addProperty("topic", "names"),
                 envelope -> envelope.add("operation", JsonNull.INSTANCE)
             );
             for (Consumer<JsonObject> mutation : malformedErrors) {
-                JsonObject invalid = errorEnvelope(RpcMessage.Error.HANDLER_FAILED);
-                mutation.accept(invalid);
-                delegate.deliver(request.response(invalid));
+                for (JsonElement details : List.of(JsonNull.INSTANCE, exceptionEnvelope())) {
+                    JsonObject invalid = errorEnvelope(RpcMessage.Error.HANDLER_FAILED);
+                    invalid.add("exception", details);
+                    mutation.accept(invalid);
+                    delegate.deliver(request.response(invalid));
+                }
             }
             Assertions.assertTrue(received.messages.isEmpty());
             delegate.deliver(request.response(responseEnvelope()));
@@ -488,13 +609,16 @@ public class DDRpcTransportTest {
                 RpcException failure = Assertions.assertThrows(RpcException.class, () -> proxy.apply("request"));
                 Assertions.assertEquals(RpcException.Reason.REMOTE_ERROR, failure.reason());
                 Assertions.assertEquals(error, failure.remoteError());
+                Assertions.assertNull(failure.remoteException());
                 Assertions.assertNull(failure.getCause());
+                Assertions.assertEquals("Remote RPC call failed: " + error, failure.getMessage());
             }
             for (RequestReplyMessage.Error error : RequestReplyMessage.Error.values()) {
                 delegate.forward = request -> delegate.deliver(request.failure(error));
                 RpcException failure = Assertions.assertThrows(RpcException.class, () -> proxy.apply("request"));
                 Assertions.assertEquals(RpcException.Reason.REMOTE_ERROR, failure.reason());
                 Assertions.assertNull(failure.remoteError());
+                Assertions.assertNull(failure.remoteException());
                 RequestReplyException outer = Assertions.assertInstanceOf(RequestReplyException.class, failure.getCause());
                 Assertions.assertEquals(error, outer.remoteError());
             }
@@ -544,11 +668,134 @@ public class DDRpcTransportTest {
             Assertions.assertEquals(RpcMessage.failure(RpcMessage.Error.UNKNOWN_OPERATION), missingOperation);
             String operation = "apply(" + String.class.getTypeName() + ")";
             RpcMessage<JsonElement> codecFailure = caller.request(RpcMessage.request(operation, new JsonObject()));
-            Assertions.assertEquals(RpcMessage.failure(RpcMessage.Error.CODEC_FAILED), codecFailure);
+            Assertions.assertEquals(RpcMessage.Error.CODEC_FAILED, codecFailure.error());
+            RpcExceptionDetails codecDetails = Objects.requireNonNull(codecFailure.exception());
+            Assertions.assertEquals(JsonSyntaxException.class.getName(), codecDetails.type());
+            Assertions.assertNotNull(codecDetails.message());
+            Assertions.assertTrue(codecDetails.stackTrace().contains("Expected a string"));
             RpcMessage<JsonElement> handlerFailure = caller.request(RpcMessage.request(operation, new JsonPrimitive("value")));
-            Assertions.assertEquals(RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED), handlerFailure);
+            Assertions.assertEquals(RpcMessage.Error.HANDLER_FAILED, handlerFailure.error());
+            RpcExceptionDetails handlerDetails = Objects.requireNonNull(handlerFailure.exception());
+            Assertions.assertEquals(IllegalStateException.class.getName(), handlerDetails.type());
+            Assertions.assertEquals("Handler failed", handlerDetails.message());
+            Assertions.assertTrue(handlerDetails.stackTrace().contains("IllegalStateException: Handler failed"));
             Assertions.assertTrue(right.sent.stream().allMatch(message ->
                 "RESPONSE".equals(message.payload().get("type").getAsString())));
+        }
+    }
+
+    @Test
+    void proxyFailuresExposeApplicationDiagnosticsWithNestedAndSuppressedTracesAcrossReferenceFraming() {
+        FakeChannel left = new FakeChannel();
+        FakeChannel right = new FakeChannel();
+        left.forward = message -> right.deliver(DDExternalDamProtocol.decode(DDExternalDamProtocol.encode(message)));
+        right.forward = message -> left.deliver(DDExternalDamProtocol.decode(DDExternalDamProtocol.encode(message)));
+        Throwable root = new UnsupportedOperationException("root cause");
+        Throwable nested = new IllegalArgumentException("nested cause", root);
+        Throwable suppressed = new IllegalArgumentException("suppressed failure");
+        IllegalStateException application = new IllegalStateException("application \"failure\"\n雪😀", nested);
+        application.addSuppressed(suppressed);
+        for (Throwable failure : List.of(root, nested, suppressed, application)) {
+            failure.setStackTrace(new StackTraceElement[] {new StackTraceElement("Application", "execute", "Application.java", 42)});
+        }
+        StringWriter trace = new StringWriter();
+        application.printStackTrace(new PrintWriter(trace));
+        CountingCodec callerCodec = new CountingCodec();
+        CountingCodec handlerCodec = new CountingCodec();
+        AtomicInteger calls = new AtomicInteger();
+        try (var caller = RpcEndpoint.open(DDRpcTransport.forChannel(left), callerCodec, OPTIONS);
+             var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right), handlerCodec, OPTIONS);
+             var service = handler.register(TOPIC, Text.class, value -> {
+                 calls.incrementAndGet();
+                 throw application;
+             })) {
+            RpcException failure = Assertions.assertThrows(RpcException.class, () -> caller.proxy(TOPIC, Text.class).apply("request"));
+            Assertions.assertEquals(RpcException.Reason.REMOTE_ERROR, failure.reason());
+            Assertions.assertEquals(RpcMessage.Error.HANDLER_FAILED, failure.remoteError());
+            Assertions.assertEquals(new RpcExceptionDetails(application.getClass().getName(), application.getMessage(),
+                trace.toString(), false), failure.remoteException());
+            Assertions.assertTrue(failure.getMessage().contains(application.getClass().getName()));
+            Assertions.assertTrue(failure.getMessage().contains(application.getMessage()));
+            Throwable remote = Objects.requireNonNull(failure.getCause());
+            Assertions.assertEquals("Remote stack trace:\n" + trace, remote.getMessage());
+            Assertions.assertNull(remote.getCause());
+            Assertions.assertEquals(0, remote.getStackTrace().length);
+            Assertions.assertEquals(0, remote.getSuppressed().length);
+            Assertions.assertEquals(0, failure.getSuppressed().length);
+            Assertions.assertEquals(1, calls.get());
+            Assertions.assertEquals(1, callerCodec.encodes.get());
+            Assertions.assertEquals(0, callerCodec.decodes.get());
+            Assertions.assertEquals(0, handlerCodec.encodes.get());
+            Assertions.assertEquals(1, handlerCodec.decodes.get());
+            Assertions.assertEquals(1, left.sent.size());
+            Assertions.assertEquals(1, right.sent.size());
+            JsonObject request = left.sent.getFirst().payload();
+            JsonObject response = right.sent.getFirst().payload();
+            Assertions.assertEquals(request.get("requestId"), response.get("requestId"));
+            Assertions.assertEquals(request.get("replyTo"), response.get("replyTo"));
+            Assertions.assertEquals("datadam.requestreply.v1", right.sent.getFirst().type());
+            Assertions.assertEquals(Set.of("requestId", "replyTo", "type", "data"), response.keySet());
+            Assertions.assertEquals("RESPONSE", response.get("type").getAsString());
+            JsonObject rpc = response.getAsJsonObject("data");
+            Assertions.assertEquals("dbeaver.rpc.v2", rpc.get("protocol").getAsString());
+            Assertions.assertEquals("ERROR", rpc.get("type").getAsString());
+            Assertions.assertEquals("HANDLER_FAILED", rpc.get("error").getAsString());
+        }
+    }
+
+    @Test
+    void remoteArgumentAndResultCodecFailuresCarryDiagnosticsWithoutEncodingErrorsOrRetrying() {
+        for (boolean encoding : List.of(false, true)) {
+            FakeChannel left = new FakeChannel();
+            FakeChannel right = new FakeChannel();
+            left.forward = message -> right.deliver(DDExternalDamProtocol.decode(DDExternalDamProtocol.encode(message)));
+            right.forward = message -> left.deliver(DDExternalDamProtocol.decode(DDExternalDamProtocol.encode(message)));
+            CountingCodec callerCodec = new CountingCodec();
+            AtomicInteger encodes = new AtomicInteger();
+            AtomicInteger decodes = new AtomicInteger();
+            AtomicInteger calls = new AtomicInteger();
+            IllegalStateException unavailable = new IllegalStateException(encoding ? "Result encoding failed" : "Argument decoding failed");
+            RpcCodec<JsonElement> handlerCodec = new RpcCodec<>() {
+                @Override
+                @Nullable
+                public JsonElement encode(@Nullable Object value, @NotNull Type type) {
+                    encodes.incrementAndGet();
+                    throw unavailable;
+                }
+
+                @Override
+                @Nullable
+                public Object decode(@Nullable JsonElement payload, @NotNull Type type) throws Exception {
+                    decodes.incrementAndGet();
+                    if (!encoding) {
+                        throw unavailable;
+                    }
+                    return CODEC.decode(payload, type);
+                }
+            };
+            try (var caller = RpcEndpoint.open(DDRpcTransport.forChannel(left), callerCodec, OPTIONS);
+                 var handler = RpcEndpoint.open(DDRpcTransport.forChannel(right), handlerCodec, OPTIONS);
+                 var service = handler.register(TOPIC, Text.class, value -> {
+                     calls.incrementAndGet();
+                     return value;
+                 })) {
+                RpcException failure = Assertions.assertThrows(RpcException.class,
+                    () -> caller.proxy(TOPIC, Text.class).apply("request"));
+                Assertions.assertEquals(RpcException.Reason.REMOTE_ERROR, failure.reason());
+                Assertions.assertEquals(RpcMessage.Error.CODEC_FAILED, failure.remoteError());
+                RpcExceptionDetails details = Objects.requireNonNull(failure.remoteException());
+                Assertions.assertEquals(IllegalStateException.class.getName(), details.type());
+                Assertions.assertEquals(unavailable.getMessage(), details.message());
+                Assertions.assertTrue(details.stackTrace().contains("IllegalStateException: " + unavailable.getMessage()));
+                Assertions.assertTrue(Objects.requireNonNull(failure.getCause()).getMessage().contains(unavailable.getMessage()));
+                Assertions.assertEquals(encoding ? 1 : 0, calls.get());
+                Assertions.assertEquals(encoding ? 1 : 0, encodes.get());
+                Assertions.assertEquals(1, decodes.get());
+                Assertions.assertEquals(1, callerCodec.encodes.get());
+                Assertions.assertEquals(0, callerCodec.decodes.get());
+                Assertions.assertEquals(1, left.sent.size());
+                Assertions.assertEquals(1, right.sent.size());
+            }
         }
     }
 
@@ -782,6 +1029,11 @@ public class DDRpcTransportTest {
                     () -> caller.proxy(TOPIC, Text.class).apply("incompatible"));
                 Assertions.assertEquals(RpcException.Reason.REMOTE_ERROR, codecFailure.reason());
                 Assertions.assertEquals(RpcMessage.Error.CODEC_FAILED, codecFailure.remoteError());
+                RpcExceptionDetails details = Objects.requireNonNull(codecFailure.remoteException());
+                Assertions.assertEquals(ClassCastException.class.getName(), details.type());
+                Assertions.assertTrue(details.stackTrace().contains(ClassCastException.class.getName()));
+                Assertions.assertTrue(Objects.requireNonNull(codecFailure.getCause()).getMessage()
+                    .contains(ClassCastException.class.getName()));
             }
         }
     }
@@ -833,7 +1085,58 @@ public class DDRpcTransportTest {
     private static JsonObject errorEnvelope(@NotNull RpcMessage.Error error) {
         JsonObject result = JsonParser.parseString("{\"protocol\":\"dbeaver.rpc.v2\",\"type\":\"ERROR\"}").getAsJsonObject();
         result.addProperty("error", error.name());
+        result.add("exception", JsonNull.INSTANCE);
         return result;
+    }
+
+    @NotNull
+    private static JsonObject exceptionEnvelope() {
+        return JsonParser.parseString("{\"type\":\"application.Failure\",\"message\":\"failure\","
+            + "\"stackTrace\":\"trace\",\"truncated\":false}").getAsJsonObject();
+    }
+
+    @NotNull
+    private static List<JsonElement> malformedExceptions() {
+        List<JsonElement> invalid = new ArrayList<>(List.of(new JsonPrimitive("failure"),
+            new JsonPrimitive(1), new JsonPrimitive(true), new JsonArray(), new JsonObject()));
+        List<JsonElement> nonStrings = List.of(new JsonPrimitive(1), new JsonPrimitive(true), JsonNull.INSTANCE,
+            new JsonObject(), new JsonArray());
+        for (String field : List.of("type", "message", "stackTrace", "truncated")) {
+            JsonObject missing = exceptionEnvelope();
+            missing.remove(field);
+            invalid.add(missing);
+            JsonObject unknown = missing.deepCopy();
+            unknown.addProperty("extra", "unexpected");
+            invalid.add(unknown);
+            List<JsonElement> wrongTypes = field.equals("truncated")
+                ? List.of(new JsonPrimitive("true"), new JsonPrimitive(1), JsonNull.INSTANCE, new JsonObject(), new JsonArray())
+                : nonStrings;
+            for (JsonElement value : wrongTypes) {
+                if (field.equals("message") && value.isJsonNull()) {
+                    continue;
+                }
+                JsonObject wrongType = exceptionEnvelope();
+                wrongType.add(field, value);
+                invalid.add(wrongType);
+            }
+        }
+        List<Consumer<JsonObject>> malformed = List.of(
+            exception -> exception.addProperty("type", ""),
+            exception -> exception.addProperty("type", " \t\n\u2003"),
+            exception -> exception.addProperty("type", "x".repeat(RpcExceptionDetails.MAX_TYPE_LENGTH + 1)),
+            exception -> exception.addProperty("message", "x".repeat(RpcExceptionDetails.MAX_MESSAGE_LENGTH + 1)),
+            exception -> exception.addProperty("stackTrace", "x".repeat(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH + 1)),
+            exception -> exception.addProperty("type", "😀".repeat(RpcExceptionDetails.MAX_TYPE_LENGTH / 2 + 1)),
+            exception -> exception.addProperty("message", "😀".repeat(RpcExceptionDetails.MAX_MESSAGE_LENGTH / 2 + 1)),
+            exception -> exception.addProperty("stackTrace", "😀".repeat(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH / 2 + 1)),
+            exception -> exception.addProperty("extra", true)
+        );
+        for (Consumer<JsonObject> mutation : malformed) {
+            JsonObject exception = exceptionEnvelope();
+            mutation.accept(exception);
+            invalid.add(exception);
+        }
+        return invalid;
     }
 
     /** Exchanges concretely typed generic values. */
@@ -876,6 +1179,25 @@ public class DDRpcTransportTest {
         @Nullable
         public Object decode(@Nullable JsonElement payload, @NotNull Type type) {
             return gson.fromJson(payload == null ? JsonNull.INSTANCE : payload.deepCopy(), type);
+        }
+    }
+
+    private static final class CountingCodec implements RpcCodec<JsonElement> {
+        private final AtomicInteger encodes = new AtomicInteger();
+        private final AtomicInteger decodes = new AtomicInteger();
+
+        @Override
+        @Nullable
+        public JsonElement encode(@Nullable Object value, @NotNull Type type) throws Exception {
+            encodes.incrementAndGet();
+            return CODEC.encode(value, type);
+        }
+
+        @Override
+        @Nullable
+        public Object decode(@Nullable JsonElement payload, @NotNull Type type) throws Exception {
+            decodes.incrementAndGet();
+            return CODEC.decode(payload, type);
         }
     }
 

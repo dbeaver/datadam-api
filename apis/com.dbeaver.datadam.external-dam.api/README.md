@@ -185,7 +185,8 @@ The peer registers `requests.handle(payload -> process(payload))` on its own end
 one logical receiving endpoint for the selected peer; use distinct topics for independently handled services. Each
 endpoint establishes its private reply subscription before accepting calls, so replies return to the originating
 backend process. Protocol envelopes and payloads remain JSON objects. A null response represents successful completion
-without a result. Handler failures are returned as safe protocol errors, without application exception details.
+without a result. At this lower request/reply layer, handler failures are returned as protocol error codes without
+application exception details. The typed RPC layer below supplies diagnostic error responses separately.
 
 The bridge uses message type `datadam.requestreply.v1`. Its envelope contains `requestId`, `replyTo`, `type`, and either
 `data` or `error`. `replyTo` is an endpoint UUID, not a backend address. Private reply topics use
@@ -376,8 +377,11 @@ obtain the new endpoint and register the appropriate implementations again. Back
 process-local; the existing exact-owner callback routing requirement still applies.
 
 The inner JSON envelope uses `protocol: "dbeaver.rpc.v2"`, `type`, and `data`, plus `operation` for requests
-or a fixed `error` code for failures. Application `data` can be any JSON value, including null; the outer DataDam message
-remains an object and retains its existing request/reply correlation and source validation. Malformed inner envelopes
+or a fixed `error` code for failures. Error envelopes contain `exception`: either null or an object with string `type`,
+nullable string `message`, string `stackTrace`, and boolean `truncated`. The receiver formats causes and suppressed
+exceptions locally; no `Throwable` object is serialized and the application codec is not involved. Application `data`
+can be any JSON value, including null; the outer DataDam message remains an object and retains its existing
+request/reply correlation and source validation. Malformed inner envelopes
 are ignored without exposing raw contents. Transport validation and RPC validation do not replace authentication.
 
 The adapter bounds framing, snapshot copying, and outstanding sends to 128 operations without a waiting queue.
@@ -385,5 +389,8 @@ Cancellation of a returned send future does not free its slot until the underlyi
 
 Interfaces declare ordinary one-argument methods returning values or `void`; applications do not implement transport
 listeners. A `void` call waits for handler completion. Local serialization errors and transport failures become unchecked
-`RpcException`; remote handler exceptions are represented only by safe error codes. See [Messaging](MESSAGING.md)
-for supported contract shapes, ownership, concurrent codec/handler requirements, and timeout semantics.
+`RpcException`. Remote handler and codec failures preserve their codes and expose `remoteException()` with bounded
+type, message, and stack-trace text; ordinary exception logging includes the remote trace through a local diagnostic
+cause. Limits are 256 UTF-16 code units for the type, 1,024 for the message, and 8,192 for the trace, with `truncated`
+indicating incomplete diagnostics. Errors without exception details have null `remoteException()`.
+See [Messaging](MESSAGING.md) for supported contract shapes, ownership, concurrent codec/handler requirements, and timeout semantics.
