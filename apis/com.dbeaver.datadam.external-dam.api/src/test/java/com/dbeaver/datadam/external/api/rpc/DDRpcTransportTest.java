@@ -667,12 +667,14 @@ public class DDRpcTransportTest {
             RpcMessage<JsonElement> missingOperation = caller.request(RpcMessage.request("missing", null));
             Assertions.assertEquals(RpcMessage.failure(RpcMessage.Error.UNKNOWN_OPERATION), missingOperation);
             String operation = "apply(" + String.class.getTypeName() + ")";
+            final JsonSyntaxException expectedCodecFailure = Assertions.assertThrows(JsonSyntaxException.class,
+                () -> CODEC.decode(new JsonObject(), String.class));
             RpcMessage<JsonElement> codecFailure = caller.request(RpcMessage.request(operation, new JsonObject()));
             Assertions.assertEquals(RpcMessage.Error.CODEC_FAILED, codecFailure.error());
             RpcExceptionDetails codecDetails = Objects.requireNonNull(codecFailure.exception());
-            Assertions.assertEquals(JsonSyntaxException.class.getName(), codecDetails.type());
-            Assertions.assertNotNull(codecDetails.message());
-            Assertions.assertTrue(codecDetails.stackTrace().contains("Expected a string"));
+            Assertions.assertEquals(expectedCodecFailure.getClass().getName(), codecDetails.type());
+            Assertions.assertEquals(expectedCodecFailure.getMessage(), codecDetails.message());
+            Assertions.assertTrue(codecDetails.stackTrace().startsWith(expectedCodecFailure + System.lineSeparator()));
             RpcMessage<JsonElement> handlerFailure = caller.request(RpcMessage.request(operation, new JsonPrimitive("value")));
             Assertions.assertEquals(RpcMessage.Error.HANDLER_FAILED, handlerFailure.error());
             RpcExceptionDetails handlerDetails = Objects.requireNonNull(handlerFailure.exception());
