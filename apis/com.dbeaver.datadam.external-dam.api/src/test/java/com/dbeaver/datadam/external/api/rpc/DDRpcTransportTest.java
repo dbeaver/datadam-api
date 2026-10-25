@@ -349,7 +349,7 @@ public class DDRpcTransportTest {
                     Assertions.assertNull(wire.error());
                     JsonObject envelope = Objects.requireNonNull(wire.payload());
                     Assertions.assertEquals(Set.of("protocol", "type", "error", "exception"), envelope.keySet());
-                    JsonObject expected = errorEnvelope(error);
+                    final JsonObject expected = errorEnvelope(error);
                     JsonObject exception = new JsonObject();
                     exception.addProperty("type", details.type());
                     exception.add("message", details.message() == null ? JsonNull.INSTANCE : new JsonPrimitive(details.message()));

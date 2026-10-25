@@ -319,6 +319,7 @@ class DDExternalDamCallbackClientTest {
             assertTrue(headersSent.await(3, TimeUnit.SECONDS));
             if (cancelDelivery) {
                 assertTrue(delivery.cancel(true));
+                assertTrue(delivery.isCancelled());
                 assertThrows(CancellationException.class, () -> delivery.get(1, TimeUnit.SECONDS));
             } else {
                 ExecutionException completion = assertThrows(ExecutionException.class,
@@ -334,6 +335,10 @@ class DDExternalDamCallbackClientTest {
             assertTrue(probeFinished.await(5, TimeUnit.SECONDS));
             assertNotNull(bodyFailure.get());
             assertEquals(1, requestCount.get());
+            if (cancelDelivery) {
+                assertTrue(delivery.isCancelled());
+                assertThrows(CancellationException.class, () -> delivery.get(1, TimeUnit.SECONDS));
+            }
         } finally {
             resumeBody.countDown();
             delivery.cancel(true);

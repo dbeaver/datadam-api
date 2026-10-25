@@ -135,12 +135,21 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
         @NotNull CompletableFuture<T> result,
         @NotNull CompletableFuture<?> source
     ) {
+        CompletableFuture<T> completion = new CompletableFuture<>();
         result.whenComplete((value, error) -> {
-            if (result.isCancelled()) {
+            if (error == null) {
+                completion.complete(value);
+            } else {
+                completion.completeExceptionally(error);
+            }
+        });
+        completion.whenComplete((value, error) -> {
+            if (completion.isCancelled()) {
+                result.cancel(true);
                 source.cancel(true);
             }
         });
-        return result;
+        return completion;
     }
 
     @NotNull
@@ -227,6 +236,7 @@ abstract class DDExternalDamGraphQlClient extends AbstractRestClient {
 
     @FunctionalInterface
     interface ResultReader<T> {
+        @Nullable
         T read(@NotNull JsonElement result) throws DDExternalDamException;
     }
 }

@@ -17,6 +17,7 @@
 package com.dbeaver.messaging.rpc;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -113,6 +114,7 @@ class RpcExceptionDetailsTest {
     void preservesTheFailureCodeEvenIfCustomExceptionFormattingFails() {
         var failure = new IllegalStateException() {
             @Override
+            @Nullable
             public String getMessage() {
                 throw new IllegalStateException("Message unavailable");
             }
