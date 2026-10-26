@@ -17,6 +17,7 @@
 package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
+import com.dbeaver.datadam.sso.api.DDSsoScopes;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
@@ -86,20 +87,20 @@ public class DDSsoTokenVerifier {
     }
 
     @NotNull
-    public DDSsoAccessIdentity verifyAccessToken(@NotNull String encoded) throws DDSsoClientException {
+    public DDSsoAccessIdentity verifyAccessToken(@NotNull String encoded, @NotNull String expectedAudience) throws DDSsoClientException {
         try {
             JsonObject claims = verifiedClaims(encoded);
-            if (!matchesAudience(claims.get(DDSsoConstants.CLAIM_AUDIENCE), DDSsoConstants.ACCESS_AUDIENCE)
-                || !DDSsoConstants.TOKEN_USE_ACCESS.equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_TOKEN_USE)))
-                || !properties.identitySource().equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SOURCE)))
-                || !DDSsoConstants.DESKTOP_CLIENT_ID.equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_CLIENT_ID)))) {
+            if (expectedAudience.isBlank() || !matchesAudience(claims.get(DDSsoConstants.CLAIM_AUDIENCE), expectedAudience)
+                || !DDSsoConstants.TOKEN_USE_ACCESS.equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_TOKEN_USE)))) {
                 throw new IllegalArgumentException();
             }
             return new DDSsoAccessIdentity(
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SUBJECT)),
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_EMAIL)),
-                properties.identitySource(), DDSsoConstants.DESKTOP_CLIENT_ID,
-                date(claims.get(DDSsoConstants.CLAIM_AUTH_TIME)));
+                DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SOURCE)), DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_CLIENT_ID)),
+                date(claims.get(DDSsoConstants.CLAIM_AUTH_TIME)), expectedAudience,
+                DDSsoScopes.parse(DDSsoJson.text(claims.get(DDSsoConstants.PARAM_SCOPE)))
+            );
         } catch (Exception e) {
             throw new DDSsoClientException("Invalid SSO access token");
         }

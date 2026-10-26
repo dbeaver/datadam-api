@@ -23,8 +23,10 @@ public final class DDSsoConstants {
     public static final String AUTHORIZE_PATH = "/authorize";
     public static final String TOKEN_PATH = "/token";
     public static final String HANDOFF_PATH = "/handoff";
+    public static final String HANDOFF_START_PATH = "/handoff/start";
     public static final String LOGOUT_PATH = "/logout";
     public static final String JWKS_PATH = "/.well-known/jwks.json";
+    public static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
     public static final String HEALTH_PATH = "/health";
 
     public static final String PARAM_FLOW_ID = "flow_id";
@@ -32,6 +34,10 @@ public final class DDSsoConstants {
     public static final String PARAM_LOGOUT = "logout";
     public static final String PARAM_LOGOUT_CHALLENGE = "logout_challenge";
     public static final String PARAM_PROMPT = "prompt";
+    public static final String PARAM_RESOURCE = "resource";
+    public static final String PARAM_SCOPE = "scope";
+    public static final String PARAM_RESPONSE_TYPE = "response_type";
+    public static final String RESPONSE_TYPE_CODE = "code";
     public static final String PARAM_ERROR_URI = "error_uri";
     public static final String RESPONSE_EXPIRES_IN = "expires_in";
     public static final String PROMPT_LOGIN = "login";
@@ -39,10 +45,12 @@ public final class DDSsoConstants {
     public static final String ERROR_INVALID_REQUEST = "invalid_request";
     public static final String ERROR_INVALID_CLIENT = "invalid_client";
     public static final String ERROR_INVALID_GRANT = "invalid_grant";
+    public static final String ERROR_INVALID_TARGET = "invalid_target";
+    public static final String ERROR_INVALID_SCOPE = "invalid_scope";
+    public static final String ERROR_UNSUPPORTED_RESPONSE_TYPE = "unsupported_response_type";
     public static final String ERROR_INVALID_HANDOFF = "invalid_handoff";
     public static final String ERROR_INVALID_LOGOUT = "invalid_logout";
     public static final String ERROR_UNSUPPORTED_GRANT_TYPE = "unsupported_grant_type";
-    public static final String ERROR_LOGIN_REQUIRED = "login_required";
     public static final String ERROR_SERVER = "server_error";
     public static final String ERROR_TEMPORARILY_UNAVAILABLE = "temporarily_unavailable";
 
@@ -88,12 +96,20 @@ public final class DDSsoConstants {
     public static final String REFERRER_POLICY_NO_REFERRER = "no-referrer";
     public static final String DESKTOP_CLIENT_ID = "dbeaver-desktop";
     public static final String DESKTOP_CALLBACK_TEMPLATE = "http://127.0.0.1/callback";
-    public static final String ACCESS_AUDIENCE = "datadam-api";
+    /** Fixed audience for ordinary DataDam API access tokens; not a client resource setting or an endpoint URL. */
+    public static final String API_AUDIENCE = "https://datadam.cloud/api";
+    public static final String SCOPE_ACCOUNT_FULL_ACCESS = "account:full_access";
+    public static final String SCOPE_DBEAVER_STORAGE_FULL_ACCESS = "dbeaver-storage:full_access";
+    public static final String SCOPE_ADMIN_FULL_ACCESS = "admin:full_access";
+    public static final String SCOPE_MCP_CONNECT = "mcp:connect";
+    public static final String SCOPE_MCP_INVOKE = "mcp:invoke";
     public static final String TOKEN_USE_ACCESS = "access";
     public static final String CLAIM_CLIENT_ID = "client_id";
     public static final String TOKEN_TYPE_BEARER = "Bearer";
-    public static final String DESKTOP_APPROVE_PATH = "/desktop/approve";
-    public static final String DESKTOP_RESUME_PATH = "/desktop/resume";
+    public static final String LOGIN_APPROVE_PATH = "/login/approve";
+    public static final String LOGIN_RESUME_PATH = "/login/resume";
+    public static final String APPLICATION_LOGIN_START_PATH = "/sso/login/start";
+    public static final String APPLICATION_CONFIG_PATH = "/sso/config";
     public static final String ACCESS_CONTEXT_PATH = "/api/internal/access-context";
     public static final String HEADER_SERVICE_TOKEN = "X-DD-Service-Token";
 

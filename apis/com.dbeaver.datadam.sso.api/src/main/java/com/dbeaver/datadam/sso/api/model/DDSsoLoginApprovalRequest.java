@@ -18,6 +18,6 @@ package com.dbeaver.datadam.sso.api.model;
 
 import org.jkiss.code.NotNull;
 
-/** Account backend assertion for a browser-bound desktop authorization. */
-public record DDSsoDesktopApprovalRequest(@NotNull String requestId, @NotNull DDSsoIdentity identity) {
+/** Trusted login backend assertion for a browser-bound authorization request. */
+public record DDSsoLoginApprovalRequest(@NotNull String requestId, @NotNull DDSsoIdentity identity) {
 }

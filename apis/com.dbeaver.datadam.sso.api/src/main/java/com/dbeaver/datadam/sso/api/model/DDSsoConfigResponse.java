@@ -18,5 +18,5 @@ package com.dbeaver.datadam.sso.api.model;
 
 import org.jkiss.code.NotNull;
 
-public record DDSsoDesktopConfigResponse(@NotNull String issuer) {
+public record DDSsoConfigResponse(@NotNull String issuer) {
 }
