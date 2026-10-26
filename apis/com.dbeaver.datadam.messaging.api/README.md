@@ -4,7 +4,10 @@ The `com.dbeaver.datadam.messaging.api` module contains the Desktop WebSocket co
 the External DAM internal GraphQL API, and the transport-independent messaging packages.
 Neither the models nor the WebSocket protocol depend on the HTTP client, Spring, or Eclipse runtime services.
 
-Java package names remain `com.dbeaver.datadam.external.api.*` and `com.dbeaver.messaging.*`.
+The WebSocket handshake sends Desktop metadata in `DDMessagingHandshakeRequest` and returns the assigned connection ID
+in `DDMessagingHandshakeResponse`. The corresponding wire control types are `hello` and `ready`.
+
+Java package names are `com.dbeaver.datadam.messaging.api.*` and `com.dbeaver.messaging.*`.
 See [Messaging](MESSAGING.md) for the request/reply and typed RPC contracts.
 
 ## Internal GraphQL contract
@@ -55,7 +58,7 @@ input ExternalDamSubscriptionInput {
   Sending must use the account and connection ID together.
 - `externalDamConnectionAccount` resolves a unique physical connection ID to the account from its verified identity.
   It returns null for a missing or not-ready connection. The backend client reports that result as a checked
-  `DDExternalDamException`. This backend-only lookup does not authorize end-user access to that account.
+  `DDMessagingException`. This backend-only lookup does not authorize end-user access to that account.
 - Connection lists return an immutable client-side snapshot of currently ready sockets, not persisted DAM installations or history.
 - Concurrent sockets can share a Deployment ID and application run ID. Consumers must not deduplicate sockets using either ID.
 - Product and version are Desktop-supplied presentation metadata, not authenticated identity or authorization claims.
@@ -63,13 +66,13 @@ input ExternalDamSubscriptionInput {
 - A send result of `true` means the server completed its WebSocket write. It does not confirm that Desktop received or processed the event.
 - A result of `false` means that no ready connection exists for that account and connection ID. This also covers a connection belonging to another account.
 - A connection closing after lookup, queue rejection, an invalid message, or a write failure produces a GraphQL error rather than a successful send.
-- HTTP errors, GraphQL errors (including errors with partial data), and malformed responses become `DDExternalDamException`.
+- HTTP errors, GraphQL errors (including errors with partial data), and malformed responses become `DDMessagingException`.
 - The client does not retry mutations or queue messages offline. After a timeout or network failure, delivery may be unknown; callers must not blindly replay non-idempotent events.
 - Connections live in one External DAM process. Until owner-aware routing exists, calls must reach the process owning the socket; a missing result from another replica does not prove global offline status.
 
 ## Authentication and configuration
 
-`DDExternalDamClient` takes a service root URL and the External DAM service secret. It never logs in or acquires a Desktop token.
+`DDMessagingClient` takes a service root URL and the External DAM service secret. It never logs in or acquires a Desktop token.
 The URL must use HTTP or HTTPS, have no credentials, query, fragment, or non-root path, and use a valid port.
 HTTP is supported for trusted private service networks; use HTTPS across untrusted networks.
 
@@ -90,7 +93,7 @@ The secret belongs to backend runtime configuration only and must never be distr
 It is separate from the Account backchannel secret used to verify Desktop JWTs.
 
 ```java
-var client = new DDExternalDamClient(serviceUrl, serviceSecret);
+var client = new DDMessagingClient(serviceUrl, serviceSecret);
 var connections = client.getConnections(accountId);
 boolean written = client.sendMessage(accountId, connectionId, message);
 ```
@@ -117,7 +120,7 @@ Callback URLs follow the same HTTP/HTTPS root-URL validation as the broker URL, 
 32–512 printable, non-space ASCII validation as the service secret. Only trusted authenticated backends may register
 callbacks; restrict the broker's outbound network access and use HTTPS outside a trusted private network.
 
-`DDExternalDamCallbackClient` delivers messages to the receiver's authenticated
+`DDMessagingCallbackClient` delivers messages to the receiver's authenticated
 `POST /internal/external-dam/graphql` using the same External DAM service secret. Successful acknowledgement extends the
 lease. The receiver calls its listener directly on the HTTP request thread and acknowledges after it returns.
 Concurrent callbacks may invoke the same listener concurrently and have no ordering guarantee; implementations must
@@ -130,7 +133,7 @@ HTTP. Its default deadline is 30 seconds, including listener execution, and an e
 Timeout does not promise cancellation of the remote handler.
 
 Spring services use the shared `com.dbeaver.datadam.external.base` module from the DataDam server repository.
-It supplies the callback endpoint, local dispatch, `DDSubscription.close()` cancellation, and automatic renewal
+It supplies the callback endpoint, local dispatch, `DDMessagingSubscription.close()` cancellation, and automatic renewal
 during idle periods. Configure `datadam.external-dam-client.service-url`, `datadam.external-dam-client.service-secret`, and
 `datadam.external-dam-client.callback-url` on Account and Storage. Set `service-secret` to the External DAM service
 secret; the library uses it for outgoing requests, incoming callback authentication, and the registration's
@@ -147,7 +150,7 @@ the Desktop channel dispatches the message to its local topic listeners without 
 
 ## Channel state
 
-`DDMessageChannel.getStatus()` returns an immutable `DDChannelStatus`: `DISCONNECTED`, `CONNECTING`, `CONNECTED`,
+`DDMessagingChannel.getStatus()` returns an immutable `DDMessagingChannelStatus`: `DISCONNECTED`, `CONNECTING`, `CONNECTED`,
 or `CLOSED`. Only `CONNECTED` contains connection information, and `status.isReady()` checks that state.
 `observeState(observer)` delivers the current state and subsequent changes in order without a snapshot/subscription
 race. Closing the returned subscription cancels only that observer. Initial notification can run synchronously;
@@ -156,13 +159,13 @@ subsequent callbacks run on the notifying thread. Existing `addConnectionListene
 ## Request/reply
 
 The `com.dbeaver.messaging.requestreply` package supplies `MessagingRequestReplyEndpoint<P>`. It knows nothing about DataDam
-accounts, deployment IDs, GraphQL, or JSON. `DDRequestReplyTransport` adapts an existing scoped DataDam channel to
+accounts, deployment IDs, GraphQL, or JSON. `DDMessagingRequestReplyTransport` adapts an existing scoped DataDam channel to
 `MessagingRequestReplyEndpoint<JsonObject>` without changing the channel's asynchronous message API.
 
 On Desktop, or inside External DAM over an existing physical channel:
 
 ```java
-var transport = DDRequestReplyTransport.forChannel(channel, "documents");
+var transport = DDMessagingRequestReplyTransport.forChannel(channel, "documents");
 try (var requests = MessagingRequestReplyEndpoint.open(transport)) {
     var response = requests.request(payload);
 }
@@ -218,20 +221,20 @@ off a serialized receiver when they can make synchronous calls whose replies nee
 ## Typed RPC
 
 `com.dbeaver.messaging.rpc` adds typed Java proxies and registered implementations without depending on DataDam or
-WebSocket. `DDRpcTransport` adapts the existing request/reply transport to the neutral `MessagingRpcMessage<JsonElement>` envelope.
+WebSocket. `DDMessagingRpcTransport` adapts the existing request/reply transport to the neutral `MessagingRpcMessage<JsonElement>` envelope.
 It owns no execution service or application serializer; the developer selects serialization through `MessagingRpcCodec<JsonElement>`.
 
 For example, a plugin can supply its own Gson instance and adapters for its proxies and implementations:
 
 ```java
 Gson gson = new Gson();
-MessagingRpcCodec<JsonElement> codec = new DDGsonRpcCodec(gson);
+MessagingRpcCodec<JsonElement> codec = new DDMessagingGsonRpcCodec(gson);
 ```
 
 The Desktop side installs an implementation and can independently obtain proxies for backend services:
 
 ```java
-try (var rpc = MessagingRpcEndpoint.open(topic -> DDRpcTransport.forChannel(channel, topic, requestExecutor));
+try (var rpc = MessagingRpcEndpoint.open(topic -> DDMessagingRpcTransport.forChannel(channel, topic, requestExecutor));
      var registration = rpc.register("desktop.projects", DesktopProjects.class, implementation, codec)) {
     ServerDocuments documents = rpc.proxy("server.documents", ServerDocuments.class, codec);
     serveApplication(documents);
@@ -249,8 +252,8 @@ The backend selects its physical account/connection scope once and uses the same
 var scope = subscriptions.forConnection(accountId, connectionId);
 try (var rpc = MessagingRpcEndpoint.open(topic -> {
     try {
-        return new DDRpcTransport(scope.requestReply(topic));
-    } catch (DDExternalDamException e) {
+        return new DDMessagingRpcTransport(scope.requestReply(topic));
+    } catch (DDMessagingException e) {
         throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED, e);
     }
 });
@@ -267,7 +270,7 @@ on the other peer. The existing private reply topic routes each answer back to t
 The application must arrange the intended receiver's subscription before calling it; duplicate backend receivers on
 the same topic are not service discovery. Replica routing and exact callback-process ownership constraints still apply.
 
-`DDGsonRpcCodec` retains the supplied `Gson` instance, including application adapters and naming policies, and preserves
+`DDMessagingGsonRpcCodec` retains the supplied `Gson` instance, including application adapters and naming policies, and preserves
 the declared generic `Type` passed by RPC. Encoded JSON null is represented as a nullable application payload. The
 neutral messaging packages remain independent of Gson, and each proxy or registration can supply another compatible codec.
 The resulting `MessagingRpcEndpoint` is not parameterized by JSON or by any other payload representation.
@@ -294,7 +297,7 @@ The configured subscriber ID identifies the callback destination and does not se
 Repeated lookups return the same open endpoint; callers do not construct adapters or pass account/connection IDs
 to each registration or remote call.
 
-The Desktop and backend connection owners provide an uncustomized `DDGsonRpcCodec` as a default, so ordinary
+The Desktop and backend connection owners provide an uncustomized `DDMessagingGsonRpcCodec` as a default, so ordinary
 contracts can use `rpc.proxy(topic, Contract.class)` or `rpc.register(topic, Contract.class, implementation)`.
 The overloads accepting a codec override it only for that proxy or implementation registration, without modifying
 another caller's serialization or requiring a shared application codec bean.

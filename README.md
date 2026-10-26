@@ -15,8 +15,8 @@ Used by DBeaver, dbvr, CloudBeaver and by DataDam itself
 ## Messaging API
 
 [`apis/com.dbeaver.datadam.messaging.api`](apis/com.dbeaver.datadam.messaging.api/README.md) contains the External DAM
-contracts, clients and transport adapters, together with the messaging implementation. Java packages remain
-`com.dbeaver.datadam.external.api.*` and `com.dbeaver.messaging.*`; messaging is not a separate Maven or OSGi module.
+contracts, clients and transport adapters, together with the messaging implementation. Java packages are
+`com.dbeaver.datadam.messaging.api.*` and `com.dbeaver.messaging.*`; messaging is not a separate Maven or OSGi module.
 
 ## SSO API
 
