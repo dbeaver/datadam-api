@@ -10,9 +10,9 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>com.dbeaver.datadam.external-dam.api</artifactId>
+    <artifactId>com.dbeaver.datadam.messaging.api</artifactId>
     <packaging>eclipse-plugin</packaging>
-    <name>DataDam External DAM API</name>
+    <name>DataDam Messaging API</name>
 
     <dependencies>
         <dependency>

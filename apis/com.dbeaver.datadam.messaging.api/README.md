@@ -1,6 +1,6 @@
-# External DAM API
+# Messaging API
 
-The `com.dbeaver.datadam.external-dam.api` module contains the Desktop WebSocket contracts, a backend-only client for
+The `com.dbeaver.datadam.messaging.api` module contains the Desktop WebSocket contracts, a backend-only client for
 the External DAM internal GraphQL API, and the transport-independent messaging packages.
 Neither the models nor the WebSocket protocol depend on the HTTP client, Spring, or Eclipse runtime services.
 
