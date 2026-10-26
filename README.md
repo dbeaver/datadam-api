@@ -12,11 +12,11 @@ This repository contains API for global DBeaver ecosystem.
 OSGI APIs and Service for DataDam integration
 Used by DBeaver, dbvr, CloudBeaver and by DataDam itself
 
-## Messaging API
+## Remote DAM API
 
-[`apis/com.dbeaver.datadam.messaging.api`](apis/com.dbeaver.datadam.messaging.api/README.md) contains the External DAM
+[`apis/com.dbeaver.datadam.dam.remote.api`](apis/com.dbeaver.datadam.dam.remote.api/README.md) contains the Remote DAM
 contracts, clients and transport adapters, together with the messaging implementation. Java packages are
-`com.dbeaver.datadam.messaging.api.*` and `com.dbeaver.messaging.*`; messaging is not a separate Maven or OSGi module.
+`com.dbeaver.datadam.dam.remote.api.*` and `com.dbeaver.messaging.*`; messaging is not a separate Maven or OSGi module.
 
 ## SSO API
 
