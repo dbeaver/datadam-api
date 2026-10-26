@@ -277,9 +277,9 @@ The resulting `MessagingRpcEndpoint` is not parameterized by JSON or by any othe
 
 ### Ready endpoints in Account, Storage, and Desktop
 
-Account and Storage already import `DDExternalDamClientConfiguration` from `com.dbeaver.datadam.messaging.base`.
+Account and Storage already import `DDMessagingClientConfiguration` from `com.dbeaver.datadam.messaging.base`.
 That configuration supplies the callback receiver, subscriptions, and a shared
-`DDExternalDamRpc` connection owner. Inject that owner once, select a Desktop connection, and obtain its endpoint:
+`DDMessagingRpc` connection owner. Inject that owner once, select a Desktop connection, and obtain its endpoint:
 
 ```java
 var connections = rpcConnections.getConnections(accountId);
@@ -287,7 +287,7 @@ var selected = chooseConnection(connections);
 MessagingRpcEndpoint rpc = rpcConnections.forConnection(selected.connectionId());
 ```
 
-`rpcConnections` is the `DDExternalDamRpc` Spring bean. `getConnections(accountId)` returns an immutable current
+`rpcConnections` is the `DDMessagingRpc` Spring bean. `getConnections(accountId)` returns an immutable current
 snapshot without opening RPC endpoints; `chooseConnection` represents application logic or a user selection from
 those descriptions. Selection and release require only the unique physical connection ID, with no account wrapper.
 The owner resolves the account through the authenticated private relay API when opening an endpoint, so a known
@@ -309,7 +309,7 @@ the owner supplied different options.
 Desktop obtains the corresponding endpoint from its existing connection service:
 
 ```java
-var connections = DDDesktopConnectionService.getInstance();
+var connections = DDMessagingDesktopConnectionService.getInstance();
 MessagingRpcEndpoint rpc = connections.getRpc();
 ```
 
