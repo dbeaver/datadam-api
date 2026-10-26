@@ -132,7 +132,7 @@ neither side creates a delivery executor or per-subscription mailbox. `deliverAs
 HTTP. Its default deadline is 30 seconds, including listener execution, and an explicit duration remains supported.
 Timeout does not promise cancellation of the remote handler.
 
-Spring services use the shared `com.dbeaver.datadam.external.base` module from the DataDam server repository.
+Spring services use the shared `com.dbeaver.datadam.messaging.base` module from the DataDam server repository.
 It supplies the callback endpoint, local dispatch, `DDMessagingSubscription.close()` cancellation, and automatic renewal
 during idle periods. Configure `datadam.external-dam-client.service-url`, `datadam.external-dam-client.service-secret`, and
 `datadam.external-dam-client.callback-url` on Account and Storage. Set `service-secret` to the External DAM service
@@ -277,7 +277,7 @@ The resulting `MessagingRpcEndpoint` is not parameterized by JSON or by any othe
 
 ### Ready endpoints in Account, Storage, and Desktop
 
-Account and Storage already import `DDExternalDamClientConfiguration` from `com.dbeaver.datadam.external.base`.
+Account and Storage already import `DDExternalDamClientConfiguration` from `com.dbeaver.datadam.messaging.base`.
 That configuration supplies the callback receiver, subscriptions, and a shared
 `DDExternalDamRpc` connection owner. Inject that owner once, select a Desktop connection, and obtain its endpoint:
 
