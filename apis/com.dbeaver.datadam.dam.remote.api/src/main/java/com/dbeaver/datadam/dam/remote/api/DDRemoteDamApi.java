@@ -22,7 +22,7 @@ import java.net.URI;
 
 public final class DDRemoteDamApi {
     public static final String GRAPHQL_PATH = "/internal/graphql";
-    public static final String CALLBACK_GRAPHQL_PATH = "/internal/external-dam/graphql";
+    public static final String CALLBACK_GRAPHQL_PATH = "/internal/remote-dam/graphql";
     public static final String HEADER_SERVICE_TOKEN = "X-DD-Service-Token";
     public static final int MIN_SERVICE_SECRET_LENGTH = 32;
     public static final int MAX_SERVICE_SECRET_LENGTH = 512;

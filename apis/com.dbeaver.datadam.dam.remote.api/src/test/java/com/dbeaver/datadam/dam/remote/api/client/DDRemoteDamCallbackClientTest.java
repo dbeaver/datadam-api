@@ -60,7 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(10)
 class DDRemoteDamCallbackClientTest {
-    private static final String SECRET = "external-dam-callback-secret-2026-test";
+    private static final String SECRET = "remote-dam-callback-secret-2026-test";
     private static final UUID SUBSCRIPTION_ID = UUID.randomUUID();
     private static final UUID ACCOUNT_ID = UUID.randomUUID();
     private static final DDRemoteDamSessionInfo SESSION = new DDRemoteDamSessionInfo("deployment", "run", "socket");
@@ -69,7 +69,7 @@ class DDRemoteDamCallbackClientTest {
             {"nested":{"value":42},"nothing":null,"integer":9007199254740993,
              "decimal":1.2345678901234567890123456789,"text":"Привет"}
             """).getAsJsonObject());
-    private final AtomicReference<String> response = new AtomicReference<>("{\"data\":{\"deliverExternalDamMessage\":true}}");
+    private final AtomicReference<String> response = new AtomicReference<>("{\"data\":{\"deliverRemoteDamMessage\":true}}");
     private final AtomicInteger status = new AtomicInteger(200);
     private final AtomicInteger requestCount = new AtomicInteger();
     private final AtomicInteger responseDelay = new AtomicInteger();
@@ -102,16 +102,16 @@ class DDRemoteDamCallbackClientTest {
             CapturedRequest captured = request.get();
             assertEquals(synchronous, captured);
             assertEquals("POST", captured.method());
-            assertEquals("/internal/external-dam/graphql", captured.path());
+            assertEquals("/internal/remote-dam/graphql", captured.path());
             assertEquals(SECRET, captured.secret());
             assertEquals("application/json", captured.contentType());
             assertEquals("no-store", captured.cacheControl());
             JsonObject body = captured.body();
-            assertEquals("DeliverExternalDamMessage", body.get("operationName").getAsString());
+            assertEquals("DeliverRemoteDamMessage", body.get("operationName").getAsString());
             String query = body.get("query").getAsString().replaceAll("\\s+", " ");
-            assertTrue(query.contains("$session: ExternalDamSessionInfoInput!"));
-            assertTrue(query.contains("$message: ExternalDamMessageInput!"));
-            assertTrue(query.contains("deliverExternalDamMessage(subscriptionId: $subscriptionId, accountId: $accountId, "
+            assertTrue(query.contains("$session: RemoteDamSessionInfoInput!"));
+            assertTrue(query.contains("$message: RemoteDamMessageInput!"));
+            assertTrue(query.contains("deliverRemoteDamMessage(subscriptionId: $subscriptionId, accountId: $accountId, "
                 + "session: $session, message: $message)"));
             JsonObject variables = body.getAsJsonObject("variables");
             assertEquals(Set.of("subscriptionId", "accountId", "session", "message"), variables.keySet());
@@ -172,18 +172,18 @@ class DDRemoteDamCallbackClientTest {
 
     @Test
     void rejectsFalseAcknowledgementsAsProtocolFailures() {
-        response.set("{\"data\":{\"deliverExternalDamMessage\":false}}");
+        response.set("{\"data\":{\"deliverRemoteDamMessage\":false}}");
         assertFailureOnce();
         DDRemoteDamException failure = assertAsyncFailureOnce();
-        assertEquals("External DAM callback was not accepted", failure.getMessage());
+        assertEquals("Remote DAM callback was not accepted", failure.getMessage());
     }
 
     @Test
     void rejectsMalformedEnvelopesPartialErrorsAndNonBooleanResultsWithoutRetries() {
         for (String body : List.of("", "{", "null", "[]", "{}", "{\"data\":null}", "{\"data\":{}}",
-            "{\"data\":{\"deliverExternalDamMessage\":null}}", "{\"data\":{\"deliverExternalDamMessage\":\"true\"}}",
-            "{\"data\":{\"deliverExternalDamMessage\":1}}", "{\"errors\":null}", "{\"" + SECRET + "\":[",
-            "{\"data\":{\"deliverExternalDamMessage\":true},\"errors\":[{\"message\":\"" + SECRET + "\"}]}")) {
+            "{\"data\":{\"deliverRemoteDamMessage\":null}}", "{\"data\":{\"deliverRemoteDamMessage\":\"true\"}}",
+            "{\"data\":{\"deliverRemoteDamMessage\":1}}", "{\"errors\":null}", "{\"" + SECRET + "\":[",
+            "{\"data\":{\"deliverRemoteDamMessage\":true},\"errors\":[{\"message\":\"" + SECRET + "\"}]}")) {
             response.set(body);
             assertFailureOnce();
             assertAsyncFailureOnce();
@@ -196,7 +196,7 @@ class DDRemoteDamCallbackClientTest {
             status.set(code);
             assertFailureOnce();
             DDRemoteDamException failure = assertAsyncFailureOnce();
-            assertEquals("External DAM request failed: HTTP " + code, failure.getMessage());
+            assertEquals("Remote DAM request failed: HTTP " + code, failure.getMessage());
         }
     }
 
@@ -214,7 +214,7 @@ class DDRemoteDamCallbackClientTest {
 
         DDRemoteDamException failure = assertAsyncFailureOnce();
 
-        assertEquals("External DAM service request failed", failure.getMessage());
+        assertEquals("Remote DAM service request failed", failure.getMessage());
         assertInstanceOf(HttpTimeoutException.class, failure.getCause());
     }
 
@@ -291,7 +291,7 @@ class DDRemoteDamCallbackClientTest {
                 requestCount.incrementAndGet();
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, 0);
-                exchange.getResponseBody().write("{\"data\":{\"deliverExternalDamMessage\":".getBytes(StandardCharsets.UTF_8));
+                exchange.getResponseBody().write("{\"data\":{\"deliverRemoteDamMessage\":".getBytes(StandardCharsets.UTF_8));
                 exchange.getResponseBody().flush();
                 headersSent.countDown();
                 if (!resumeBody.await(5, TimeUnit.SECONDS)) {
@@ -325,7 +325,7 @@ class DDRemoteDamCallbackClientTest {
                 ExecutionException completion = assertThrows(ExecutionException.class,
                     () -> delivery.get(3, TimeUnit.SECONDS));
                 DDRemoteDamException failure = assertInstanceOf(DDRemoteDamException.class, completion.getCause());
-                assertEquals("External DAM service request failed", failure.getMessage());
+                assertEquals("Remote DAM service request failed", failure.getMessage());
                 assertInstanceOf(HttpTimeoutException.class, failure.getCause());
                 StringWriter trace = new StringWriter();
                 failure.printStackTrace(new PrintWriter(trace));

@@ -68,13 +68,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DDRemoteDamClientTest {
     private static final UUID ACCOUNT_ID = UUID.fromString("58c487c0-de34-4b45-83bb-705cb733cbcd");
     private static final UUID OTHER_ACCOUNT_ID = UUID.fromString("678d5732-708f-441e-bc59-719b92af1d64");
-    private static final String SERVICE_SECRET = "external-dam-service-secret-2026-test";
+    private static final String SERVICE_SECRET = "remote-dam-service-secret-2026-test";
     private static final String CALLBACK_URL = "https://callback.example.com";
-    private static final String CALLBACK_SECRET = "external-dam-callback-secret-2026-test";
+    private static final String CALLBACK_SECRET = "remote-dam-callback-secret-2026-test";
     private static final String UPSTREAM_MARKER = "private-upstream-response-marker";
-    private static final String SESSIONS_FIELD = "externalDamSessions";
-    private static final String SESSION_ACCOUNT_FIELD = "externalDamSessionAccount";
-    private static final String SEND_FIELD = "sendExternalDamMessage";
+    private static final String SESSIONS_FIELD = "remoteDamSessions";
+    private static final String SESSION_ACCOUNT_FIELD = "remoteDamSessionAccount";
+    private static final String SEND_FIELD = "sendRemoteDamMessage";
     private final AtomicReference<String> responseJson = new AtomicReference<>("{}");
     private final AtomicInteger responseStatus = new AtomicInteger(200);
     private final AtomicReference<String> redirect = new AtomicReference<>();
@@ -113,10 +113,10 @@ class DDRemoteDamClientTest {
 
             JsonObject body = posted();
             assertEquals(Set.of("operationName", "query", "variables"), body.keySet());
-            assertEquals("ExternalDamSessions", body.get("operationName").getAsString());
+            assertEquals("RemoteDamSessions", body.get("operationName").getAsString());
             String query = body.get("query").getAsString().replaceAll("\\s+", " ");
-            assertTrue(query.contains("query ExternalDamSessions($accountId: ID!)"));
-            assertTrue(query.contains("externalDamSessions(accountId: $accountId)"));
+            assertTrue(query.contains("query RemoteDamSessions($accountId: ID!)"));
+            assertTrue(query.contains("remoteDamSessions(accountId: $accountId)"));
             for (String field : List.of("appDeploymentId", "appInstanceId", "damSessionId", "product", "version")) {
                 assertTrue(query.contains(field), field);
             }
@@ -137,26 +137,26 @@ class DDRemoteDamClientTest {
 
         assertEquals(List.of(new DDRemoteDamSession("DI_remoteDam", "run-1", "session-1", "DBeaver", "26.2.4")), result);
         assertThrows(UnsupportedOperationException.class, () -> result.add(result.get(0)));
-        assertEquals("ExternalDamSessions", posted().get("operationName").getAsString());
+        assertEquals("RemoteDamSessions", posted().get("operationName").getAsString());
         assertEquals(ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
 
         respond(SESSION_ACCOUNT_FIELD, JsonParser.parseString("\"" + ACCOUNT_ID + "\""));
         assertEquals(ACCOUNT_ID, awaitDelayedResponse(() -> client.getSessionAccountAsync("session-1")));
-        assertEquals("ExternalDamSessionAccount", posted().get("operationName").getAsString());
+        assertEquals("RemoteDamSessionAccount", posted().get("operationName").getAsString());
         assertEquals("session-1", posted().getAsJsonObject("variables").get("damSessionId").getAsString());
 
         respond(SEND_FIELD, JsonParser.parseString("false"));
         assertFalse(awaitDelayedResponse(() -> client.sendMessageAsync(ACCOUNT_ID, "session-1", message())));
-        assertEquals("SendExternalDamMessage", posted().get("operationName").getAsString());
+        assertEquals("SendRemoteDamMessage", posted().get("operationName").getAsString());
         assertEquals(ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
         assertEquals("session-1", posted().getAsJsonObject("variables").get("damSessionId").getAsString());
 
         UUID subscriptionId = UUID.randomUUID();
-        respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+        respond("registerRemoteDamSubscription", JsonParser.parseString("60"));
         assertEquals(60, awaitDelayedResponse(() -> client.registerSubscriptionAsync("service account", subscriptionId,
             ACCOUNT_ID, null, "projects", CALLBACK_URL, CALLBACK_SECRET)).intValue());
         JsonObject input = posted().getAsJsonObject("variables").getAsJsonObject("input");
-        assertEquals("RegisterExternalDamSubscription", posted().get("operationName").getAsString());
+        assertEquals("RegisterRemoteDamSubscription", posted().get("operationName").getAsString());
         assertEquals("service account", input.get("subscriberId").getAsString());
         assertEquals(subscriptionId.toString(), input.get("subscriptionId").getAsString());
         assertEquals(ACCOUNT_ID.toString(), input.get("accountId").getAsString());
@@ -165,9 +165,9 @@ class DDRemoteDamClientTest {
         assertEquals(CALLBACK_SECRET, input.get("callbackSecret").getAsString());
         assertTrue(!input.has("damSessionId") || input.get("damSessionId").isJsonNull());
 
-        respond("unregisterExternalDamSubscription", JsonParser.parseString("false"));
+        respond("unregisterRemoteDamSubscription", JsonParser.parseString("false"));
         assertFalse(awaitDelayedResponse(() -> client.unregisterSubscriptionAsync("service account", subscriptionId)));
-        assertEquals("UnregisterExternalDamSubscription", posted().get("operationName").getAsString());
+        assertEquals("UnregisterRemoteDamSubscription", posted().get("operationName").getAsString());
         assertEquals(Set.of("subscriberId", "subscriptionId"), posted().getAsJsonObject("variables").keySet());
         assertEquals("service account", posted().getAsJsonObject("variables").get("subscriberId").getAsString());
         assertEquals(subscriptionId.toString(), posted().getAsJsonObject("variables").get("subscriptionId").getAsString());
@@ -205,10 +205,10 @@ class DDRemoteDamClientTest {
             assertEquals(accountId, client.getSessionAccount(damSessionId));
 
             JsonObject body = posted();
-            assertEquals("ExternalDamSessionAccount", body.get("operationName").getAsString());
+            assertEquals("RemoteDamSessionAccount", body.get("operationName").getAsString());
             String query = body.get("query").getAsString().replaceAll("\\s+", " ");
-            assertTrue(query.contains("query ExternalDamSessionAccount($damSessionId: ID!)"));
-            assertTrue(query.contains("externalDamSessionAccount(damSessionId: $damSessionId)"));
+            assertTrue(query.contains("query RemoteDamSessionAccount($damSessionId: ID!)"));
+            assertTrue(query.contains("remoteDamSessionAccount(damSessionId: $damSessionId)"));
             assertEquals(Set.of("damSessionId"), body.getAsJsonObject("variables").keySet());
             assertEquals(damSessionId, body.getAsJsonObject("variables").get("damSessionId").getAsString());
             assertFalse(query.contains("injectedSession"));
@@ -320,7 +320,7 @@ class DDRemoteDamClientTest {
 
         JsonObject body = posted();
         assertEquals(Set.of("operationName", "query", "variables"), body.keySet());
-        assertEquals("SendExternalDamMessage", body.get("operationName").getAsString());
+        assertEquals("SendRemoteDamMessage", body.get("operationName").getAsString());
         JsonObject variables = body.getAsJsonObject("variables");
         assertEquals(Set.of("accountId", "damSessionId", "message"), variables.keySet());
         assertEquals(ACCOUNT_ID.toString(), variables.get("accountId").getAsString());
@@ -332,11 +332,11 @@ class DDRemoteDamClientTest {
         assertEquals(payload, input.get("payload"));
         assertTrue(input.get("payload").isJsonObject());
         String query = body.get("query").getAsString().replaceAll("\\s+", " ");
-        assertTrue(query.contains("mutation SendExternalDamMessage("));
+        assertTrue(query.contains("mutation SendRemoteDamMessage("));
         assertTrue(query.contains("$accountId: ID!"));
         assertTrue(query.contains("$damSessionId: ID!"));
-        assertTrue(query.contains("$message: ExternalDamMessageInput!"));
-        assertTrue(query.contains("sendExternalDamMessage(accountId: $accountId, damSessionId: $damSessionId, message: $message)"));
+        assertTrue(query.contains("$message: RemoteDamMessageInput!"));
+        assertTrue(query.contains("sendRemoteDamMessage(accountId: $accountId, damSessionId: $damSessionId, message: $message)"));
         for (String value : List.of(ACCOUNT_ID.toString(), damSessionId, topic, type, "injectedSession", "injectedTopic",
             "injectedType", "Привет", "C:\\temp\\file")) {
             assertFalse(query.contains(value), value);
@@ -353,7 +353,7 @@ class DDRemoteDamClientTest {
             assertEquals(written, client.sendMessage(ACCOUNT_ID, "session-1", message()));
 
             assertEquals(before + 1, requestCount.get());
-            assertEquals("SendExternalDamMessage", posted().get("operationName").getAsString());
+            assertEquals("SendRemoteDamMessage", posted().get("operationName").getAsString());
         }
     }
 
@@ -363,17 +363,17 @@ class DDRemoteDamClientTest {
         for (String damSessionId : List.of("", "socket")) {
             String callbackUrl = damSessionId.isEmpty() ? CALLBACK_URL : "http://127.0.0.1:8080/";
             String callbackSecret = damSessionId.isEmpty() ? CALLBACK_SECRET : CALLBACK_SECRET + "\"\\";
-            respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+            respond("registerRemoteDamSubscription", JsonParser.parseString("60"));
 
             assertEquals(60, client.registerSubscription("account", subscriptionId, ACCOUNT_ID,
                 damSessionId.isEmpty() ? null : damSessionId, "projects", callbackUrl, callbackSecret));
 
             JsonObject body = posted();
             assertEquals(Set.of("operationName", "query", "variables"), body.keySet());
-            assertEquals("RegisterExternalDamSubscription", body.get("operationName").getAsString());
+            assertEquals("RegisterRemoteDamSubscription", body.get("operationName").getAsString());
             String query = body.get("query").getAsString().replaceAll("\\s+", " ");
-            assertTrue(query.contains("$input: ExternalDamSubscriptionInput!"));
-            assertTrue(query.contains("registerExternalDamSubscription(input: $input)"));
+            assertTrue(query.contains("$input: RemoteDamSubscriptionInput!"));
+            assertTrue(query.contains("registerRemoteDamSubscription(input: $input)"));
             assertEquals(Set.of("input"), body.getAsJsonObject("variables").keySet());
             JsonObject input = body.getAsJsonObject("variables").getAsJsonObject("input");
             assertEquals("account", input.get("subscriberId").getAsString());
@@ -399,7 +399,7 @@ class DDRemoteDamClientTest {
 
     @Test
     void registersTheServiceSecretAsTheCallbackSecret() throws DDRemoteDamException {
-        respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+        respond("registerRemoteDamSubscription", JsonParser.parseString("60"));
 
         assertEquals(60, client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
             "projects", CALLBACK_URL, SERVICE_SECRET));
@@ -417,7 +417,7 @@ class DDRemoteDamClientTest {
     @Test
     void acceptsCallbackRootOriginsAndPrintableSecretBoundaries() throws DDRemoteDamException {
         UUID subscriptionId = UUID.randomUUID();
-        respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+        respond("registerRemoteDamSubscription", JsonParser.parseString("60"));
         for (String callbackUrl : List.of("http://127.0.0.1:8080", "https://callback.example.com/")) {
             for (String callbackSecret : List.of("!".repeat(32), "~".repeat(512))) {
                 assertEquals(60, client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
@@ -435,13 +435,13 @@ class DDRemoteDamClientTest {
     void preservesSubscriberIdsAcrossRegistrationAndCancellation() throws DDRemoteDamException {
         for (String subscriberId : List.of("service:account", "service account", "s".repeat(129), "s".repeat(256))) {
             UUID subscriptionId = UUID.randomUUID();
-            respond("registerExternalDamSubscription", JsonParser.parseString("60"));
+            respond("registerRemoteDamSubscription", JsonParser.parseString("60"));
             assertEquals(60, client.registerSubscription(subscriberId, subscriptionId, ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
             assertEquals(subscriberId, posted().getAsJsonObject("variables").getAsJsonObject("input")
                 .get("subscriberId").getAsString());
 
-            respond("unregisterExternalDamSubscription", JsonParser.parseString("true"));
+            respond("unregisterRemoteDamSubscription", JsonParser.parseString("true"));
             assertTrue(client.unregisterSubscription(subscriberId, subscriptionId));
             assertEquals(subscriberId, posted().getAsJsonObject("variables").get("subscriberId").getAsString());
         }
@@ -482,7 +482,7 @@ class DDRemoteDamClientTest {
         for (String callbackUrl : new String[] {
             null, "", " ", "/relative", "callback.example.com", "//callback.example.com", "http://", "http:///",
             "ftp://callback.example.com", "ws://callback.example.com", "wss://callback.example.com",
-            CALLBACK_URL + "/internal/external-dam/graphql", CALLBACK_URL + "/prefix/", CALLBACK_URL + "//",
+            CALLBACK_URL + "/internal/remote-dam/graphql", CALLBACK_URL + "/prefix/", CALLBACK_URL + "//",
             CALLBACK_URL + "/%2f", CALLBACK_URL + "?secret=" + CALLBACK_SECRET, CALLBACK_URL + "#fragment",
             "http://user:" + CALLBACK_SECRET + "@127.0.0.1", "http://127.0.0.1:0", "http://127.0.0.1:65536",
             "http://127.0.0.1:-1", "http://127.0.0.1:port", "http://[::1", "https://" + "a".repeat(4096)
@@ -527,12 +527,12 @@ class DDRemoteDamClientTest {
     void unregistersOnlyTheStableSubscriberAndSubscriptionId() throws DDRemoteDamException {
         UUID subscriptionId = UUID.randomUUID();
         for (boolean removed : List.of(true, false)) {
-            respond("unregisterExternalDamSubscription", JsonParser.parseString(Boolean.toString(removed)));
+            respond("unregisterRemoteDamSubscription", JsonParser.parseString(Boolean.toString(removed)));
 
             assertEquals(removed, client.unregisterSubscription("storage", subscriptionId));
 
             JsonObject body = posted();
-            assertEquals("UnregisterExternalDamSubscription", body.get("operationName").getAsString());
+            assertEquals("UnregisterRemoteDamSubscription", body.get("operationName").getAsString());
             JsonObject variables = body.getAsJsonObject("variables");
             assertEquals(Set.of("subscriberId", "subscriptionId"), variables.keySet());
             assertEquals("storage", variables.get("subscriberId").getAsString());
@@ -543,7 +543,7 @@ class DDRemoteDamClientTest {
     @Test
     void acceptsBothSubscriptionLeaseBoundaries() throws Exception {
         for (int lease : List.of(15, 300)) {
-            respond("registerExternalDamSubscription", JsonParser.parseString(Integer.toString(lease)));
+            respond("registerRemoteDamSubscription", JsonParser.parseString(Integer.toString(lease)));
             assertEquals(lease, client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
             assertEquals(lease, client.registerSubscriptionAsync("s".repeat(256), UUID.randomUUID(), ACCOUNT_ID, "socket",
@@ -558,14 +558,14 @@ class DDRemoteDamClientTest {
     void rejectsInvalidLeaseValuesAndMalformedSubscriptionEnvelopesWithoutRetrying() {
         UUID subscriptionId = UUID.randomUUID();
         for (String value : List.of("null", "true", "\"60\"", "14", "301", "60.5", "1e100", "{}", "[]")) {
-            respond("registerExternalDamSubscription", JsonParser.parseString(value));
+            respond("registerRemoteDamSubscription", JsonParser.parseString(value));
             assertRequestFails(() -> client.registerSubscription("account", subscriptionId, ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
             assertAsyncRequestFails(() -> client.registerSubscriptionAsync("account", subscriptionId, ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
         }
         for (String value : List.of("null", "\"true\"", "60", "{}", "[]")) {
-            respond("unregisterExternalDamSubscription", JsonParser.parseString(value));
+            respond("unregisterRemoteDamSubscription", JsonParser.parseString(value));
             assertRequestFails(() -> client.unregisterSubscription("account", subscriptionId));
             assertAsyncRequestFails(() -> client.unregisterSubscriptionAsync("account", subscriptionId));
         }
@@ -612,7 +612,7 @@ class DDRemoteDamClientTest {
         for (String body : List.of(
             "", "{", "not-json", "null", "[]", "true", "42", "\"root\"", "{}",
             "{\"data\":null}", "{\"data\":[]}", "{\"data\":true}", "{\"data\":{}}",
-            "{\"data\":{\"externalDamSessions\":null,\"sendExternalDamMessage\":null}}",
+            "{\"data\":{\"remoteDamSessions\":null,\"sendRemoteDamMessage\":null}}",
             "{\"" + UPSTREAM_MARKER + SERVICE_SECRET + "\":["
         )) {
             responseJson.set(body);
@@ -642,7 +642,7 @@ class DDRemoteDamClientTest {
             assertRequestFails(() -> client.sendMessage(ACCOUNT_ID, "session-1", message()));
             assertAsyncRequestFails(() -> client.getSessionsAsync(ACCOUNT_ID));
             DDRemoteDamException failure = assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "session-1", message()));
-            assertEquals("External DAM GraphQL request failed", failure.getMessage());
+            assertEquals("Remote DAM GraphQL request failed", failure.getMessage());
         }
     }
 
@@ -693,7 +693,7 @@ class DDRemoteDamClientTest {
             assertRequestFails(() -> client.registerSubscription("account", UUID.randomUUID(), ACCOUNT_ID, null,
                 "projects", CALLBACK_URL, CALLBACK_SECRET));
             DDRemoteDamException failure = assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "session-1", message()));
-            assertEquals(status == 204 ? "Invalid External DAM response" : "External DAM request failed: HTTP " + status,
+            assertEquals(status == 204 ? "Invalid Remote DAM response" : "Remote DAM request failed: HTTP " + status,
                 failure.getMessage());
         }
     }
@@ -762,7 +762,7 @@ class DDRemoteDamClientTest {
 
         DDRemoteDamException failure = assertAsyncRequestFails(() -> client.sendMessageAsync(ACCOUNT_ID, "session-1", message()));
 
-        assertEquals("External DAM service request failed", failure.getMessage());
+        assertEquals("Remote DAM service request failed", failure.getMessage());
         assertInstanceOf(IOException.class, failure.getCause());
         truncateResponse.set(false);
         assertTrue(client.sendMessageAsync(ACCOUNT_ID, "session-1", message()).toCompletableFuture().get(5, TimeUnit.SECONDS));
@@ -778,7 +778,7 @@ class DDRemoteDamClientTest {
             () -> client.getSessionsAsync(ACCOUNT_ID).toCompletableFuture().get(5, TimeUnit.SECONDS));
 
         DDRemoteDamException failure = assertInstanceOf(DDRemoteDamException.class, completion.getCause());
-        assertEquals("External DAM service request failed", failure.getMessage());
+        assertEquals("Remote DAM service request failed", failure.getMessage());
         assertInstanceOf(IOException.class, failure.getCause());
         assertSafeFailure(failure);
         assertEquals(0, requestCount.get());

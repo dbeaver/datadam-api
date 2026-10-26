@@ -28,17 +28,17 @@ The service implementation must expose this contract; adding a client alone does
 scalar JSON
 
 type Query {
-    externalDamSessions(accountId: ID!): [ExternalDamSession!]!
-    externalDamSessionAccount(damSessionId: ID!): ID
+    remoteDamSessions(accountId: ID!): [RemoteDamSession!]!
+    remoteDamSessionAccount(damSessionId: ID!): ID
 }
 
 type Mutation {
-    sendExternalDamMessage(accountId: ID!, damSessionId: ID!, message: ExternalDamMessageInput!): Boolean!
-    registerExternalDamSubscription(input: ExternalDamSubscriptionInput!): Int!
-    unregisterExternalDamSubscription(subscriberId: String!, subscriptionId: ID!): Boolean!
+    sendRemoteDamMessage(accountId: ID!, damSessionId: ID!, message: RemoteDamMessageInput!): Boolean!
+    registerRemoteDamSubscription(input: RemoteDamSubscriptionInput!): Int!
+    unregisterRemoteDamSubscription(subscriberId: String!, subscriptionId: ID!): Boolean!
 }
 
-type ExternalDamSession {
+type RemoteDamSession {
     appDeploymentId: String!
     appInstanceId: String!
     damSessionId: ID!
@@ -46,13 +46,13 @@ type ExternalDamSession {
     version: String!
 }
 
-input ExternalDamMessageInput {
+input RemoteDamMessageInput {
     topic: String!
     type: String!
     payload: JSON!
 }
 
-input ExternalDamSubscriptionInput {
+input RemoteDamSubscriptionInput {
     subscriberId: String!
     subscriptionId: ID!
     accountId: ID!
@@ -65,7 +65,7 @@ input ExternalDamSubscriptionInput {
 
 - `accountId` is a UUID, mandatory for account-wide session lists, sends, and subscription registration. Sends use the
   account and DAM session ID together.
-- `externalDamSessionAccount` resolves a unique session ID to the account from its verified identity. It returns null
+- `remoteDamSessionAccount` resolves a unique session ID to the account from its verified identity. It returns null
   for a missing or not-ready session; the client reports this as checked `DDRemoteDamException`. This backend-only lookup
   does not authorize end-user access to that account.
 - Session lists are immutable client-side snapshots of currently ready transport scopes, not persisted installations
@@ -83,7 +83,7 @@ input ExternalDamSubscriptionInput {
 
 ## Authentication and configuration
 
-`DDRemoteDamClient` takes a service root URL and the External DAM service secret. It never logs in or acquires a peer token.
+`DDRemoteDamClient` takes a service root URL and the Remote DAM service secret. It never logs in or acquires a peer token.
 The URL must use HTTP or HTTPS, have no credentials, query, fragment, or non-root path, and use a valid port.
 HTTP is supported for trusted private service networks; use HTTPS across untrusted networks.
 
@@ -124,9 +124,9 @@ trusted backends may register callbacks. Restrict outbound relay network access 
 The relay keeps registrations in memory, with no configured subscriber list or separate service-registration step.
 The subscriber ID identifies the receiver and does not determine business topics.
 
-`DDRemoteDamCallbackClient` posts to `/internal/external-dam/graphql`. Callback variables are `subscriptionId`, `accountId`,
-`session`, and `message`. The session input is `ExternalDamSessionInfoInput` with `appDeploymentId`, `appInstanceId`, and
-`damSessionId`. The mutation remains `deliverExternalDamMessage(subscriptionId: ..., accountId: ..., session: ..., message: ...)`.
+`DDRemoteDamCallbackClient` posts to `/internal/remote-dam/graphql`. Callback variables are `subscriptionId`, `accountId`,
+`session`, and `message`. The session input is `RemoteDamSessionInfoInput` with `appDeploymentId`, `appInstanceId`, and
+`damSessionId`. The mutation is `deliverRemoteDamMessage(subscriptionId: ..., accountId: ..., session: ..., message: ...)`.
 
 The receiver invokes its listener on the HTTP request thread and acknowledges after it returns. Successful acknowledgement
 extends the lease. Concurrent callbacks may invoke a listener concurrently without ordering guarantees; listeners must be
@@ -136,10 +136,10 @@ finish. Failed callbacks are not replayed or retried. In-flight callbacks are bo
 or mailbox. `deliverAsync` is nonblocking, with a default 30-second deadline including listener execution; explicit
 durations are supported. Timeout does not promise remote handler cancellation.
 
-Spring services use the shared `com.dbeaver.datadam.messaging.base` server module and its
+Spring services use the shared `com.dbeaver.datadam.dam.remote.base` server module and its
 `DDRemoteDamClientConfiguration`. It supplies callback reception, local dispatch, subscription cancellation, and idle
-renewal. Existing settings are `datadam.external-dam-client.service-url`, `datadam.external-dam-client.service-secret`,
-and `datadam.external-dam-client.callback-url`. There is no separate callback-secret setting. The configured service secret
+renewal. Configure `datadam.remote-dam-client.service-url`, `datadam.remote-dam-client.service-secret`,
+and `datadam.remote-dam-client.callback-url`. There is no separate callback-secret setting. The configured service secret
 is used for requests, callback authentication, and the registration's `callbackSecret` field.
 
 Select `subscriptions.forSession(accountId, damSessionId)` or `subscriptions.forAccount(accountId)`, then subscribe by

@@ -31,12 +31,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
 public final class DDRemoteDamCallbackClient extends DDRemoteDamGraphQlClient {
-    private static final String DELIVER_FIELD = "deliverExternalDamMessage";
-    private static final String DELIVER_OPERATION = "DeliverExternalDamMessage";
+    private static final String DELIVER_FIELD = "deliverRemoteDamMessage";
+    private static final String DELIVER_OPERATION = "DeliverRemoteDamMessage";
     private static final String DELIVER_MUTATION = """
-        mutation DeliverExternalDamMessage($subscriptionId: ID!, $accountId: ID!,
-            $session: ExternalDamSessionInfoInput!, $message: ExternalDamMessageInput!) {
-            deliverExternalDamMessage(subscriptionId: $subscriptionId, accountId: $accountId, session: $session, message: $message)
+        mutation DeliverRemoteDamMessage($subscriptionId: ID!, $accountId: ID!,
+            $session: RemoteDamSessionInfoInput!, $message: RemoteDamMessageInput!) {
+            deliverRemoteDamMessage(subscriptionId: $subscriptionId, accountId: $accountId, session: $session, message: $message)
         }
         """;
 
@@ -87,7 +87,7 @@ public final class DDRemoteDamCallbackClient extends DDRemoteDamGraphQlClient {
     @Nullable
     private static Void readDeliveryResult(@NotNull JsonElement result) throws DDRemoteDamException {
         if (!readBoolean(result)) {
-            throw new DDRemoteDamException("External DAM callback was not accepted");
+            throw new DDRemoteDamException("Remote DAM callback was not accepted");
         }
         return null;
     }

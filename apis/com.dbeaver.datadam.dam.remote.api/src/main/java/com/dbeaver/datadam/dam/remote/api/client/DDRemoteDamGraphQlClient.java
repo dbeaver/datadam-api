@@ -55,7 +55,7 @@ abstract class DDRemoteDamGraphQlClient extends AbstractRestClient {
         super(validateServiceUrl(serviceUrl), Math.min(DEFAULT_CONNECT_TIMEOUT, timeoutMillis), timeoutMillis,
             List.of(), HttpClient.Redirect.NEVER);
         if (!DDRemoteDamApi.isValidServiceSecret(serviceSecret)) {
-            throw new IllegalArgumentException("A valid External DAM service secret is required");
+            throw new IllegalArgumentException("A valid Remote DAM service secret is required");
         }
         this.serviceSecret = serviceSecret;
         this.endpoint = endpoint;
@@ -178,7 +178,7 @@ abstract class DDRemoteDamGraphQlClient extends AbstractRestClient {
         }
         JsonElement errors = envelope.get("errors");
         if (errors != null && (!errors.isJsonArray() || !errors.getAsJsonArray().isEmpty())) {
-            throw new DDRemoteDamException("External DAM GraphQL request failed");
+            throw new DDRemoteDamException("Remote DAM GraphQL request failed");
         }
         JsonElement result = readObject(envelope.get("data")).get(field);
         if (result == null || result.isJsonNull()) {
@@ -190,7 +190,7 @@ abstract class DDRemoteDamGraphQlClient extends AbstractRestClient {
     @Override
     @NotNull
     protected DDRemoteDamException mapErrorResponse(int code, @NotNull String message, @NotNull URI uri) {
-        return new DDRemoteDamException("External DAM request failed: HTTP " + code);
+        return new DDRemoteDamException("Remote DAM request failed: HTTP " + code);
     }
 
     static boolean readBoolean(@NotNull JsonElement value) throws DDRemoteDamException {
@@ -210,7 +210,7 @@ abstract class DDRemoteDamGraphQlClient extends AbstractRestClient {
 
     @NotNull
     static DDRemoteDamException invalidResponse() {
-        return new DDRemoteDamException("Invalid External DAM response");
+        return new DDRemoteDamException("Invalid Remote DAM response");
     }
 
     @NotNull
@@ -219,18 +219,18 @@ abstract class DDRemoteDamGraphQlClient extends AbstractRestClient {
             error = error.getCause();
         }
         if (error instanceof TimeoutException) {
-            HttpTimeoutException timeout = new HttpTimeoutException("External DAM service request timed out");
+            HttpTimeoutException timeout = new HttpTimeoutException("Remote DAM service request timed out");
             timeout.initCause(error);
             error = timeout;
         }
         return error instanceof DDRemoteDamException failure
-            ? failure : new DDRemoteDamException("External DAM service request failed", error);
+            ? failure : new DDRemoteDamException("Remote DAM service request failed", error);
     }
 
     @NotNull
     private static String validateServiceUrl(@NotNull String serviceUrl) {
         if (!DDRemoteDamApi.isValidServiceUrl(serviceUrl)) {
-            throw new IllegalArgumentException("Invalid External DAM service URL");
+            throw new IllegalArgumentException("Invalid Remote DAM service URL");
         }
         return serviceUrl;
     }

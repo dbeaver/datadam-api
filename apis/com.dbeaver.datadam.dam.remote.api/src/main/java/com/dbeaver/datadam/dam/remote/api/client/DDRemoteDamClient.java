@@ -35,37 +35,37 @@ import java.util.concurrent.CompletionStage;
 
 public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
-    private static final String SESSIONS_FIELD = "externalDamSessions";
-    private static final String SESSION_ACCOUNT_FIELD = "externalDamSessionAccount";
-    private static final String SEND_FIELD = "sendExternalDamMessage";
-    private static final String SESSIONS_OPERATION = "ExternalDamSessions";
-    private static final String SESSION_ACCOUNT_OPERATION = "ExternalDamSessionAccount";
-    private static final String SEND_OPERATION = "SendExternalDamMessage";
+    private static final String SESSIONS_FIELD = "remoteDamSessions";
+    private static final String SESSION_ACCOUNT_FIELD = "remoteDamSessionAccount";
+    private static final String SEND_FIELD = "sendRemoteDamMessage";
+    private static final String SESSIONS_OPERATION = "RemoteDamSessions";
+    private static final String SESSION_ACCOUNT_OPERATION = "RemoteDamSessionAccount";
+    private static final String SEND_OPERATION = "SendRemoteDamMessage";
     private static final String SESSIONS_QUERY = """
-        query ExternalDamSessions($accountId: ID!) {
-            externalDamSessions(accountId: $accountId) {
+        query RemoteDamSessions($accountId: ID!) {
+            remoteDamSessions(accountId: $accountId) {
                 appDeploymentId appInstanceId damSessionId product version
             }
         }
         """;
     private static final String SESSION_ACCOUNT_QUERY = """
-        query ExternalDamSessionAccount($damSessionId: ID!) {
-            externalDamSessionAccount(damSessionId: $damSessionId)
+        query RemoteDamSessionAccount($damSessionId: ID!) {
+            remoteDamSessionAccount(damSessionId: $damSessionId)
         }
         """;
     private static final String SEND_MUTATION = """
-        mutation SendExternalDamMessage($accountId: ID!, $damSessionId: ID!, $message: ExternalDamMessageInput!) {
-            sendExternalDamMessage(accountId: $accountId, damSessionId: $damSessionId, message: $message)
+        mutation SendRemoteDamMessage($accountId: ID!, $damSessionId: ID!, $message: RemoteDamMessageInput!) {
+            sendRemoteDamMessage(accountId: $accountId, damSessionId: $damSessionId, message: $message)
         }
         """;
     private static final String REGISTER_MUTATION = """
-        mutation RegisterExternalDamSubscription($input: ExternalDamSubscriptionInput!) {
-            registerExternalDamSubscription(input: $input)
+        mutation RegisterRemoteDamSubscription($input: RemoteDamSubscriptionInput!) {
+            registerRemoteDamSubscription(input: $input)
         }
         """;
     private static final String UNREGISTER_MUTATION = """
-        mutation UnregisterExternalDamSubscription($subscriberId: String!, $subscriptionId: ID!) {
-            unregisterExternalDamSubscription(subscriberId: $subscriberId, subscriptionId: $subscriptionId)
+        mutation UnregisterRemoteDamSubscription($subscriberId: String!, $subscriptionId: ID!) {
+            unregisterRemoteDamSubscription(subscriberId: $subscriberId, subscriptionId: $subscriptionId)
         }
         """;
 
@@ -121,9 +121,9 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
         @NotNull String callbackUrl,
         @NotNull String callbackSecret
     ) throws DDRemoteDamException {
-        return readLease(request("RegisterExternalDamSubscription", REGISTER_MUTATION,
+        return readLease(request("RegisterRemoteDamSubscription", REGISTER_MUTATION,
             subscriptionVariables(subscriberId, subscriptionId, accountId, damSessionId, topic, callbackUrl, callbackSecret),
-            "registerExternalDamSubscription"));
+            "registerRemoteDamSubscription"));
     }
 
     @NotNull
@@ -136,20 +136,20 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
         @NotNull String callbackUrl,
         @NotNull String callbackSecret
     ) {
-        return requestAsync("RegisterExternalDamSubscription", REGISTER_MUTATION,
+        return requestAsync("RegisterRemoteDamSubscription", REGISTER_MUTATION,
             subscriptionVariables(subscriberId, subscriptionId, accountId, damSessionId, topic, callbackUrl, callbackSecret),
-            "registerExternalDamSubscription", DDRemoteDamClient::readLease);
+            "registerRemoteDamSubscription", DDRemoteDamClient::readLease);
     }
 
     public boolean unregisterSubscription(@NotNull String subscriberId, @NotNull UUID subscriptionId) throws DDRemoteDamException {
-        return readBoolean(request("UnregisterExternalDamSubscription", UNREGISTER_MUTATION,
-            unsubscriptionVariables(subscriberId, subscriptionId), "unregisterExternalDamSubscription"));
+        return readBoolean(request("UnregisterRemoteDamSubscription", UNREGISTER_MUTATION,
+            unsubscriptionVariables(subscriberId, subscriptionId), "unregisterRemoteDamSubscription"));
     }
 
     @NotNull
     public CompletionStage<Boolean> unregisterSubscriptionAsync(@NotNull String subscriberId, @NotNull UUID subscriptionId) {
-        return requestAsync("UnregisterExternalDamSubscription", UNREGISTER_MUTATION,
-            unsubscriptionVariables(subscriberId, subscriptionId), "unregisterExternalDamSubscription",
+        return requestAsync("UnregisterRemoteDamSubscription", UNREGISTER_MUTATION,
+            unsubscriptionVariables(subscriberId, subscriptionId), "unregisterRemoteDamSubscription",
             DDRemoteDamGraphQlClient::readBoolean);
     }
 
@@ -241,10 +241,10 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
             requireText(damSessionId);
         }
         if (!DDRemoteDamApi.isValidServiceUrl(callbackUrl)) {
-            throw new IllegalArgumentException("Invalid External DAM callback URL");
+            throw new IllegalArgumentException("Invalid Remote DAM callback URL");
         }
         if (!DDRemoteDamApi.isValidServiceSecret(callbackSecret)) {
-            throw new IllegalArgumentException("Invalid External DAM callback secret");
+            throw new IllegalArgumentException("Invalid Remote DAM callback secret");
         }
         Map<String, Object> input = new HashMap<>();
         input.put("subscriberId", subscriberId);
