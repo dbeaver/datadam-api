@@ -21,10 +21,10 @@ import org.jkiss.code.NotNull;
 import java.time.Duration;
 import java.util.Objects;
 
-public record RequestReplyOptions(@NotNull Duration timeout, int maxPendingRequests, int maxConcurrentHandlers) {
-    public static final RequestReplyOptions DEFAULT = new RequestReplyOptions(Duration.ofSeconds(30), 256, 64);
+public record MessagingRequestReplyOptions(@NotNull Duration timeout, int maxPendingRequests, int maxConcurrentHandlers) {
+    public static final MessagingRequestReplyOptions DEFAULT = new MessagingRequestReplyOptions(Duration.ofSeconds(30), 256, 64);
 
-    public RequestReplyOptions {
+    public MessagingRequestReplyOptions {
         requireTimeout(timeout);
         if (maxPendingRequests < 1 || maxConcurrentHandlers < 1) {
             throw new IllegalArgumentException("Request/reply limits must be positive");

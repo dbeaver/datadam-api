@@ -27,21 +27,21 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(10)
-class RequestReplyOptionsTest {
+class MessagingRequestReplyOptionsTest {
     @Test
     void acceptsPositiveLimitsAndRepresentableTimeoutBoundaries() {
         for (Duration timeout : List.of(Duration.ofNanos(1), Duration.ofNanos(Long.MAX_VALUE))) {
             for (int limit : List.of(1, Integer.MAX_VALUE)) {
-                var options = new RequestReplyOptions(timeout, limit, limit);
+                var options = new MessagingRequestReplyOptions(timeout, limit, limit);
 
                 assertEquals(timeout, options.timeout());
                 assertEquals(limit, options.maxPendingRequests());
                 assertEquals(limit, options.maxConcurrentHandlers());
             }
         }
-        assertTrue(RequestReplyOptions.DEFAULT.timeout().isPositive());
-        assertTrue(RequestReplyOptions.DEFAULT.maxPendingRequests() > 0);
-        assertTrue(RequestReplyOptions.DEFAULT.maxConcurrentHandlers() > 0);
+        assertTrue(MessagingRequestReplyOptions.DEFAULT.timeout().isPositive());
+        assertTrue(MessagingRequestReplyOptions.DEFAULT.maxPendingRequests() > 0);
+        assertTrue(MessagingRequestReplyOptions.DEFAULT.maxConcurrentHandlers() > 0);
     }
 
     @Test
@@ -50,16 +50,16 @@ class RequestReplyOptionsTest {
             Duration.ZERO, Duration.ofNanos(-1), Duration.ofSeconds(-1),
             Duration.ofSeconds(Long.MAX_VALUE), Duration.ofSeconds(Long.MIN_VALUE)
         )) {
-            assertThrows(IllegalArgumentException.class, () -> new RequestReplyOptions(timeout, 1, 1));
+            assertThrows(IllegalArgumentException.class, () -> new MessagingRequestReplyOptions(timeout, 1, 1));
         }
-        assertThrows(NullPointerException.class, () -> new RequestReplyOptions(null, 1, 1));
+        assertThrows(NullPointerException.class, () -> new MessagingRequestReplyOptions(null, 1, 1));
     }
 
     @Test
     void rejectsNonPositivePendingAndHandlerLimitsIndependently() {
         for (int limit : List.of(0, -1, Integer.MIN_VALUE)) {
-            assertThrows(IllegalArgumentException.class, () -> new RequestReplyOptions(Duration.ofSeconds(1), limit, 1));
-            assertThrows(IllegalArgumentException.class, () -> new RequestReplyOptions(Duration.ofSeconds(1), 1, limit));
+            assertThrows(IllegalArgumentException.class, () -> new MessagingRequestReplyOptions(Duration.ofSeconds(1), limit, 1));
+            assertThrows(IllegalArgumentException.class, () -> new MessagingRequestReplyOptions(Duration.ofSeconds(1), 1, limit));
         }
     }
 }

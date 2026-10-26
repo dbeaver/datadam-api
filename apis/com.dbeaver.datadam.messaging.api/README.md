@@ -155,15 +155,15 @@ subsequent callbacks run on the notifying thread. Existing `addConnectionListene
 
 ## Request/reply
 
-The `com.dbeaver.messaging.requestreply` package supplies `RequestReplyEndpoint<P>`. It knows nothing about DataDam
+The `com.dbeaver.messaging.requestreply` package supplies `MessagingRequestReplyEndpoint<P>`. It knows nothing about DataDam
 accounts, deployment IDs, GraphQL, or JSON. `DDRequestReplyTransport` adapts an existing scoped DataDam channel to
-`RequestReplyEndpoint<JsonObject>` without changing the channel's asynchronous message API.
+`MessagingRequestReplyEndpoint<JsonObject>` without changing the channel's asynchronous message API.
 
 On Desktop, or inside External DAM over an existing physical channel:
 
 ```java
 var transport = DDRequestReplyTransport.forChannel(channel, "documents");
-try (var requests = RequestReplyEndpoint.open(transport)) {
+try (var requests = MessagingRequestReplyEndpoint.open(transport)) {
     var response = requests.request(payload);
 }
 ```
@@ -176,7 +176,7 @@ An Account, Storage, or other backend selects a physical connection once:
 
 ```java
 var transport = subscriptions.forConnection(accountId, connectionId).requestReply("documents");
-try (var requests = RequestReplyEndpoint.open(transport)) {
+try (var requests = MessagingRequestReplyEndpoint.open(transport)) {
     var response = requests.request(payload);
 }
 ```
@@ -218,20 +218,20 @@ off a serialized receiver when they can make synchronous calls whose replies nee
 ## Typed RPC
 
 `com.dbeaver.messaging.rpc` adds typed Java proxies and registered implementations without depending on DataDam or
-WebSocket. `DDRpcTransport` adapts the existing request/reply transport to the neutral `RpcMessage<JsonElement>` envelope.
-It owns no execution service or application serializer; the developer selects serialization through `RpcCodec<JsonElement>`.
+WebSocket. `DDRpcTransport` adapts the existing request/reply transport to the neutral `MessagingRpcMessage<JsonElement>` envelope.
+It owns no execution service or application serializer; the developer selects serialization through `MessagingRpcCodec<JsonElement>`.
 
 For example, a plugin can supply its own Gson instance and adapters for its proxies and implementations:
 
 ```java
 Gson gson = new Gson();
-RpcCodec<JsonElement> codec = new DDGsonRpcCodec(gson);
+MessagingRpcCodec<JsonElement> codec = new DDGsonRpcCodec(gson);
 ```
 
 The Desktop side installs an implementation and can independently obtain proxies for backend services:
 
 ```java
-try (var rpc = RpcEndpoint.open(topic -> DDRpcTransport.forChannel(channel, topic, requestExecutor));
+try (var rpc = MessagingRpcEndpoint.open(topic -> DDRpcTransport.forChannel(channel, topic, requestExecutor));
      var registration = rpc.register("desktop.projects", DesktopProjects.class, implementation, codec)) {
     ServerDocuments documents = rpc.proxy("server.documents", ServerDocuments.class, codec);
     serveApplication(documents);
@@ -247,11 +247,11 @@ The backend selects its physical account/connection scope once and uses the same
 
 ```java
 var scope = subscriptions.forConnection(accountId, connectionId);
-try (var rpc = RpcEndpoint.open(topic -> {
+try (var rpc = MessagingRpcEndpoint.open(topic -> {
     try {
         return new DDRpcTransport(scope.requestReply(topic));
     } catch (DDExternalDamException e) {
-        throw new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, e);
+        throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED, e);
     }
 });
      var registration = rpc.register("server.documents", ServerDocuments.class, implementation, codec)) {
@@ -270,7 +270,7 @@ the same topic are not service discovery. Replica routing and exact callback-pro
 `DDGsonRpcCodec` retains the supplied `Gson` instance, including application adapters and naming policies, and preserves
 the declared generic `Type` passed by RPC. Encoded JSON null is represented as a nullable application payload. The
 neutral messaging packages remain independent of Gson, and each proxy or registration can supply another compatible codec.
-The resulting `RpcEndpoint` is not parameterized by JSON or by any other payload representation.
+The resulting `MessagingRpcEndpoint` is not parameterized by JSON or by any other payload representation.
 
 ### Ready endpoints in Account, Storage, and Desktop
 
@@ -281,7 +281,7 @@ That configuration supplies the callback receiver, subscriptions, and a shared
 ```java
 var connections = rpcConnections.getConnections(accountId);
 var selected = chooseConnection(connections);
-RpcEndpoint rpc = rpcConnections.forConnection(selected.connectionId());
+MessagingRpcEndpoint rpc = rpcConnections.forConnection(selected.connectionId());
 ```
 
 `rpcConnections` is the `DDExternalDamRpc` Spring bean. `getConnections(accountId)` returns an immutable current
@@ -307,7 +307,7 @@ Desktop obtains the corresponding endpoint from its existing connection service:
 
 ```java
 var connections = DDDesktopConnectionService.getInstance();
-RpcEndpoint rpc = connections.getRpc();
+MessagingRpcEndpoint rpc = connections.getRpc();
 ```
 
 The Desktop connection must first become ready. Endpoint access never starts login or waits for a new connection.
@@ -317,15 +317,15 @@ Pass the obtained endpoint to ordinary Java objects. The receiving object regist
 
 ```java
 public final class GreetingReceiver {
-    private final RpcEndpoint rpc;
-    private final RpcCodec<JsonElement> codec;
+    private final MessagingRpcEndpoint rpc;
+    private final MessagingRpcCodec<JsonElement> codec;
 
-    public GreetingReceiver(RpcEndpoint rpc, RpcCodec<JsonElement> codec) {
+    public GreetingReceiver(MessagingRpcEndpoint rpc, MessagingRpcCodec<JsonElement> codec) {
         this.rpc = rpc;
         this.codec = codec;
     }
 
-    public MessageSubscription enable(Greeting implementation) {
+    public MessagingSubscription enable(Greeting implementation) {
         return rpc.register("greeting", Greeting.class, implementation, codec);
     }
 }
@@ -335,10 +335,10 @@ The other peer keeps its calling code separate:
 
 ```java
 public final class GreetingCaller {
-    private final RpcEndpoint rpc;
-    private final RpcCodec<JsonElement> codec;
+    private final MessagingRpcEndpoint rpc;
+    private final MessagingRpcCodec<JsonElement> codec;
 
-    public GreetingCaller(RpcEndpoint rpc, RpcCodec<JsonElement> codec) {
+    public GreetingCaller(MessagingRpcEndpoint rpc, MessagingRpcCodec<JsonElement> codec) {
         this.rpc = rpc;
         this.codec = codec;
     }
@@ -389,7 +389,7 @@ Cancellation of a returned send future does not free its slot until the underlyi
 
 Interfaces declare ordinary one-argument methods returning values or `void`; applications do not implement transport
 listeners. A `void` call waits for handler completion. Local serialization errors and transport failures become unchecked
-`RpcException`. Remote handler and codec failures preserve their codes and expose `remoteException()` with bounded
+`MessagingRpcException`. Remote handler and codec failures preserve their codes and expose `remoteException()` with bounded
 type, message, and stack-trace text; ordinary exception logging includes the remote trace through a local diagnostic
 cause. Limits are 256 UTF-16 code units for the type, 1,024 for the message, and 8,192 for the trace, with `truncated`
 indicating incomplete diagnostics. Errors without exception details have null `remoteException()`.

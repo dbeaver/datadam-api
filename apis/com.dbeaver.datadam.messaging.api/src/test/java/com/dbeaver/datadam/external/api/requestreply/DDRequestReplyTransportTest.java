@@ -25,11 +25,11 @@ import com.dbeaver.datadam.external.api.transport.DDConnectionListener;
 import com.dbeaver.datadam.external.api.transport.DDMessageChannel;
 import com.dbeaver.datadam.external.api.transport.DDMessageListener;
 import com.dbeaver.datadam.external.api.transport.DDSubscription;
-import com.dbeaver.messaging.requestreply.MessageSubscription;
-import com.dbeaver.messaging.requestreply.RequestReplyEndpoint;
-import com.dbeaver.messaging.requestreply.RequestReplyException;
-import com.dbeaver.messaging.requestreply.RequestReplyMessage;
-import com.dbeaver.messaging.requestreply.RequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyEndpoint;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyMessage;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingSubscription;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
@@ -66,12 +66,12 @@ class DDRequestReplyTransportTest {
         handlerChannel.forward = message -> callerChannel.deliver(CONNECTION, message);
         JsonObject payload = new JsonObject();
         payload.addProperty("value", "request");
-        try (var handler = RequestReplyEndpoint.open(DDRequestReplyTransport.forChannel(handlerChannel, TOPIC));
+        try (var handler = MessagingRequestReplyEndpoint.open(DDRequestReplyTransport.forChannel(handlerChannel, TOPIC));
              var handlerRegistration = handler.handle(request -> {
                  request.addProperty("handled", true);
                  return request;
              });
-             var caller = RequestReplyEndpoint.open(DDRequestReplyTransport.forChannel(callerChannel, TOPIC));
+             var caller = MessagingRequestReplyEndpoint.open(DDRequestReplyTransport.forChannel(callerChannel, TOPIC));
              var callerRegistration = caller.handle(request -> null)) {
             JsonObject response = caller.request(payload, Duration.ofSeconds(2));
 
@@ -108,7 +108,7 @@ class DDRequestReplyTransportTest {
             Assertions.assertTrue(secondReplyTopic.endsWith(secondId.toString()));
             Assertions.assertEquals(TOPIC, channel.subscriptions.get(1).topic);
             Assertions.assertEquals(TOPIC, channel.subscriptions.get(3).topic);
-            RequestReplyMessage<JsonObject> request = request(firstId);
+            MessagingRequestReplyMessage<JsonObject> request = request(firstId);
             first.send(request).toCompletableFuture().join();
             DDMessage sent = channel.sent.getLast();
             Assertions.assertEquals(TOPIC, sent.topic());
@@ -120,11 +120,11 @@ class DDRequestReplyTransportTest {
             channel.deliver(CONNECTION, channel.sent.getLast());
             Assertions.assertEquals(List.of(request, request.response(null)), firstReceived.messages);
             Assertions.assertEquals(List.of(request), secondReceived.messages);
-            RequestReplyMessage<JsonObject> otherRequest = request(secondId);
-            first.send(otherRequest.failure(RequestReplyMessage.Error.NO_HANDLER)).toCompletableFuture().join();
+            MessagingRequestReplyMessage<JsonObject> otherRequest = request(secondId);
+            first.send(otherRequest.failure(MessagingRequestReplyMessage.Error.NO_HANDLER)).toCompletableFuture().join();
             Assertions.assertEquals(secondReplyTopic, channel.sent.getLast().topic());
             channel.deliver(CONNECTION, channel.sent.getLast());
-            Assertions.assertEquals(otherRequest.failure(RequestReplyMessage.Error.NO_HANDLER), secondReceived.messages.getLast());
+            Assertions.assertEquals(otherRequest.failure(MessagingRequestReplyMessage.Error.NO_HANDLER), secondReceived.messages.getLast());
         }
         Assertions.assertTrue(channel.subscriptions.stream().noneMatch(subscription -> subscription.active));
         Assertions.assertTrue(channel.observers.isEmpty());
@@ -149,14 +149,14 @@ class DDRequestReplyTransportTest {
         FakeChannel channel = new FakeChannel();
         channel.failTopic = TOPIC;
         DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
-        RequestReplyException failure = Assertions.assertThrows(RequestReplyException.class,
+        MessagingRequestReplyException failure = Assertions.assertThrows(MessagingRequestReplyException.class,
             () -> adapter.subscribe(UUID.randomUUID(), new Received()));
         Assertions.assertSame(channel.subscriptionFailure, failure.getCause());
         Assertions.assertFalse(channel.subscriptions.getFirst().active);
         Assertions.assertTrue(channel.observers.isEmpty());
         Assertions.assertFalse(channel.closed);
         Assertions.assertThrows(IllegalStateException.class, () -> adapter.subscribe(UUID.randomUUID(), new Received()));
-        assertFailure(RequestReplyException.Reason.CLOSED, adapter.send(request(UUID.randomUUID())));
+        assertFailure(MessagingRequestReplyException.Reason.CLOSED, adapter.send(request(UUID.randomUUID())));
     }
 
     @Test
@@ -170,7 +170,7 @@ class DDRequestReplyTransportTest {
                 }
                 return closed::incrementAndGet;
             });
-        RequestReplyException failure = Assertions.assertThrows(RequestReplyException.class,
+        MessagingRequestReplyException failure = Assertions.assertThrows(MessagingRequestReplyException.class,
             () -> adapter.subscribe(UUID.randomUUID(), new Received()));
         Assertions.assertSame(unavailable, failure.getCause());
         Assertions.assertEquals(1, closed.get());
@@ -182,9 +182,9 @@ class DDRequestReplyTransportTest {
             FakeChannel channel = new FakeChannel();
             channel.setStatus(new DDChannelStatus(state, null));
             DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
-            RequestReplyException failure = Assertions.assertThrows(RequestReplyException.class,
+            MessagingRequestReplyException failure = Assertions.assertThrows(MessagingRequestReplyException.class,
                 () -> adapter.subscribe(UUID.randomUUID(), new Received()));
-            Assertions.assertEquals(RequestReplyException.Reason.DISCONNECTED, failure.reason());
+            Assertions.assertEquals(MessagingRequestReplyException.Reason.DISCONNECTED, failure.reason());
             Assertions.assertTrue(channel.subscriptions.isEmpty());
             Assertions.assertTrue(channel.observers.isEmpty());
         }
@@ -200,9 +200,9 @@ class DDRequestReplyTransportTest {
             }
         };
         DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
-        RequestReplyException failure = Assertions.assertThrows(RequestReplyException.class,
+        MessagingRequestReplyException failure = Assertions.assertThrows(MessagingRequestReplyException.class,
             () -> adapter.subscribe(UUID.randomUUID(), new Received()));
-        Assertions.assertEquals(RequestReplyException.Reason.DISCONNECTED, failure.reason());
+        Assertions.assertEquals(MessagingRequestReplyException.Reason.DISCONNECTED, failure.reason());
         Assertions.assertEquals(2, channel.subscriptions.size());
         Assertions.assertTrue(channel.subscriptions.stream().noneMatch(subscription -> subscription.active));
         Assertions.assertTrue(channel.observers.isEmpty());
@@ -223,7 +223,7 @@ class DDRequestReplyTransportTest {
             Assertions.assertTrue(received.messages.isEmpty());
             channel.setStatus(new DDChannelStatus(DDChannelState.DISCONNECTED, null));
             Assertions.assertEquals(1, received.disconnects);
-            assertFailure(RequestReplyException.Reason.DISCONNECTED, adapter.send(request(endpoint)));
+            assertFailure(MessagingRequestReplyException.Reason.DISCONNECTED, adapter.send(request(endpoint)));
             channel.deliver(CONNECTION, wire);
             Assertions.assertTrue(received.messages.isEmpty());
             DDConnectionInfo replacement = new DDConnectionInfo("desktop", "new-run", "new-socket");
@@ -246,9 +246,9 @@ class DDRequestReplyTransportTest {
         CountDownLatch messageEntered = new CountDownLatch(1);
         CountDownLatch releaseMessage = new CountDownLatch(1);
         List<String> delivered = new CopyOnWriteArrayList<>();
-        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+        try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
                 messageEntered.countDown();
                 await(releaseMessage);
                 delivered.add("message");
@@ -298,9 +298,9 @@ class DDRequestReplyTransportTest {
         CountDownLatch disconnectEntered = new CountDownLatch(1);
         CountDownLatch releaseDisconnect = new CountDownLatch(1);
         List<String> delivered = new CopyOnWriteArrayList<>();
-        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+        try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
                 delivered.add("message");
             }
 
@@ -345,9 +345,9 @@ class DDRequestReplyTransportTest {
         DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
         UUID endpoint = UUID.randomUUID();
         List<String> delivered = new ArrayList<>();
-        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+        try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
                 channel.setStatus(new DDChannelStatus(DDChannelState.DISCONNECTED, null));
                 delivered.add("message");
             }
@@ -371,9 +371,9 @@ class DDRequestReplyTransportTest {
         DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
         UUID endpoint = UUID.randomUUID();
         List<String> delivered = new ArrayList<>();
-        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+        try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
                 delivered.add("message");
             }
 
@@ -441,9 +441,9 @@ class DDRequestReplyTransportTest {
             CountDownLatch release = new CountDownLatch(1);
             AtomicInteger messages = new AtomicInteger();
             AtomicInteger disconnects = new AtomicInteger();
-            try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+            try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
                 @Override
-                public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+                public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
                     entered.countDown();
                     await(release);
                     messages.incrementAndGet();
@@ -481,9 +481,9 @@ class DDRequestReplyTransportTest {
         DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
         UUID endpoint = UUID.randomUUID();
         IllegalStateException failure = new IllegalStateException("Listener failed");
-        try (var subscription = adapter.subscribe(endpoint, new RequestReplyTransport.Listener<>() {
+        try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
                 throw failure;
             }
 
@@ -496,7 +496,7 @@ class DDRequestReplyTransportTest {
             Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
                 () -> channel.deliver(CONNECTION, channel.sent.getLast())));
 
-            assertFailure(RequestReplyException.Reason.CLOSED, adapter.send(request(endpoint)));
+            assertFailure(MessagingRequestReplyException.Reason.CLOSED, adapter.send(request(endpoint)));
             Assertions.assertTrue(channel.subscriptions.stream().noneMatch(value -> value.active));
             Assertions.assertTrue(channel.observers.isEmpty());
             Assertions.assertFalse(channel.closed);
@@ -510,7 +510,7 @@ class DDRequestReplyTransportTest {
         UUID endpoint = UUID.randomUUID();
         Received received = new Received();
         try (var subscription = adapter.subscribe(endpoint, received)) {
-            RequestReplyMessage<JsonObject> request = request(endpoint);
+            MessagingRequestReplyMessage<JsonObject> request = request(endpoint);
             adapter.send(request).toCompletableFuture().join();
             DDMessage requestWire = channel.sent.getLast();
             adapter.send(request.response(new JsonObject())).toCompletableFuture().join();
@@ -555,7 +555,7 @@ class DDRequestReplyTransportTest {
             JsonObject wrongOrigin = responseWire.payload();
             wrongOrigin.addProperty("replyTo", UUID.randomUUID().toString());
             channel.deliver(CONNECTION, new DDMessage(responseWire.topic(), responseWire.type(), wrongOrigin));
-            adapter.send(request.failure(RequestReplyMessage.Error.HANDLER_FAILED)).toCompletableFuture().join();
+            adapter.send(request.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED)).toCompletableFuture().join();
             DDMessage errorWire = channel.sent.getLast();
             JsonObject errorData = errorWire.payload();
             errorData.add("data", new JsonObject());
@@ -576,7 +576,7 @@ class DDRequestReplyTransportTest {
             channel.deliver(CONNECTION, responseWire);
             channel.deliver(CONNECTION, errorWire);
             Assertions.assertEquals(List.of(request, request.response(new JsonObject()),
-                request.failure(RequestReplyMessage.Error.HANDLER_FAILED)), received.messages);
+                request.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED)), received.messages);
         }
     }
 
@@ -586,13 +586,13 @@ class DDRequestReplyTransportTest {
         final DDSubscription borrowed = channel.subscribe("other", (connection, message) -> { });
         DDRequestReplyTransport adapter = DDRequestReplyTransport.forChannel(channel, TOPIC);
         UUID endpoint = UUID.randomUUID();
-        final MessageSubscription subscription = adapter.subscribe(endpoint, new Received());
+        final MessagingSubscription subscription = adapter.subscribe(endpoint, new Received());
         Assertions.assertThrows(IllegalStateException.class, () -> adapter.subscribe(UUID.randomUUID(), new Received()));
         Assertions.assertThrows(CompletionException.class,
             () -> adapter.send(request(UUID.randomUUID())).toCompletableFuture().join());
         adapter.close();
         subscription.close();
-        assertFailure(RequestReplyException.Reason.CLOSED, adapter.send(request(endpoint)));
+        assertFailure(MessagingRequestReplyException.Reason.CLOSED, adapter.send(request(endpoint)));
         Assertions.assertTrue(channel.subscriptions.getFirst().active);
         Assertions.assertFalse(channel.closed);
         borrowed.close();
@@ -612,13 +612,13 @@ class DDRequestReplyTransportTest {
             for (int i = 0; i < 128; i++) {
                 sends.add(adapter.send(request(endpoint)));
             }
-            assertFailure(RequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
+            assertFailure(MessagingRequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
             Assertions.assertEquals(128, pending.size());
             pending.getFirst().complete(null);
             sends.getFirst().toCompletableFuture().get(2, TimeUnit.SECONDS);
             adapter.send(request(endpoint));
             Assertions.assertEquals(129, pending.size());
-            assertFailure(RequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
+            assertFailure(MessagingRequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
             IllegalStateException unavailable = new IllegalStateException("Unavailable");
             pending.get(1).completeExceptionally(unavailable);
             ExecutionException failure = Assertions.assertThrows(ExecutionException.class,
@@ -626,13 +626,13 @@ class DDRequestReplyTransportTest {
             Assertions.assertSame(unavailable, failure.getCause());
             adapter.send(request(endpoint));
             Assertions.assertEquals(130, pending.size());
-            assertFailure(RequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
+            assertFailure(MessagingRequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
             Assertions.assertTrue(sends.get(2).toCompletableFuture().cancel(false));
-            assertFailure(RequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
+            assertFailure(MessagingRequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
             pending.get(2).complete(null);
             adapter.send(request(endpoint));
             Assertions.assertEquals(131, pending.size());
-            assertFailure(RequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
+            assertFailure(MessagingRequestReplyException.Reason.OVERLOADED, adapter.send(request(endpoint)));
         } finally {
             pending.forEach(result -> result.complete(null));
         }
@@ -661,14 +661,14 @@ class DDRequestReplyTransportTest {
     }
 
     @NotNull
-    private static RequestReplyMessage<JsonObject> request(@NotNull UUID endpoint) {
-        return RequestReplyMessage.request(UUID.randomUUID(), endpoint, new JsonObject());
+    private static MessagingRequestReplyMessage<JsonObject> request(@NotNull UUID endpoint) {
+        return MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, new JsonObject());
     }
 
-    private static void assertFailure(@NotNull RequestReplyException.Reason reason, @NotNull CompletionStage<Void> result) {
+    private static void assertFailure(@NotNull MessagingRequestReplyException.Reason reason, @NotNull CompletionStage<Void> result) {
         ExecutionException failure = Assertions.assertThrows(ExecutionException.class,
             () -> result.toCompletableFuture().get(2, TimeUnit.SECONDS));
-        Assertions.assertEquals(reason, Assertions.assertInstanceOf(RequestReplyException.class, failure.getCause()).reason());
+        Assertions.assertEquals(reason, Assertions.assertInstanceOf(MessagingRequestReplyException.class, failure.getCause()).reason());
     }
 
     @NotNull
@@ -679,15 +679,15 @@ class DDRequestReplyTransportTest {
     }
 
     @NotNull
-    private static RequestReplyTransport.Listener<JsonObject> inlineReplies(
+    private static MessagingRequestReplyTransport.Listener<JsonObject> inlineReplies(
         @NotNull DDRequestReplyTransport adapter,
         @NotNull CountDownLatch requests,
         @NotNull AtomicInteger replies
     ) {
-        return new RequestReplyTransport.Listener<>() {
+        return new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
-                if (message.type() == RequestReplyMessage.Type.REQUEST) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+                if (message.type() == MessagingRequestReplyMessage.Type.REQUEST) {
                     requests.countDown();
                     await(requests);
                     adapter.send(message.response(null)).toCompletableFuture().join();
@@ -711,12 +711,12 @@ class DDRequestReplyTransportTest {
         }
     }
 
-    private static final class Received implements RequestReplyTransport.Listener<JsonObject> {
-        private final List<RequestReplyMessage<JsonObject>> messages = new ArrayList<>();
+    private static final class Received implements MessagingRequestReplyTransport.Listener<JsonObject> {
+        private final List<MessagingRequestReplyMessage<JsonObject>> messages = new ArrayList<>();
         private int disconnects;
 
         @Override
-        public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
+        public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
             messages.add(message);
         }
 

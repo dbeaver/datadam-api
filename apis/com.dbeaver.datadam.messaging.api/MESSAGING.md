@@ -10,7 +10,7 @@ production dependency supplies nullability annotations. DataDam adapters and cod
 Create an endpoint over a transport already scoped to the intended peer and logical request topic:
 
 ```java
-try (var requests = RequestReplyEndpoint.open(transport)) {
+try (var requests = MessagingRequestReplyEndpoint.open(transport)) {
     var response = requests.request(payload);
 }
 ```
@@ -18,7 +18,7 @@ try (var requests = RequestReplyEndpoint.open(transport)) {
 The receiving peer installs one handler on its own endpoint:
 
 ```java
-try (var requests = RequestReplyEndpoint.open(transport);
+try (var requests = MessagingRequestReplyEndpoint.open(transport);
      var registration = requests.handle(request -> process(request))) {
     serveApplication();
 }
@@ -29,11 +29,11 @@ payload, or null for successful completion without a value. Use a worker or virt
 on the receiving thread by default. The endpoint owns no executor; the transport adapter chooses an execution
 boundary when its receiving loop must remain nonblocking. Future objects are internal.
 
-`RequestReplyEndpoint<P>` leaves the payload representation to the application and transport adapter. For example,
+`MessagingRequestReplyEndpoint<P>` leaves the payload representation to the application and transport adapter. For example,
 `P` can be a string, an immutable application value, or an encoded JSON object. The core does not copy arbitrary `P`
 values: payloads must remain immutable while a request is in use, or the adapter must take defensive snapshots.
 
-The default `RequestReplyOptions` use a 30-second deadline, at most 256 outgoing requests, and 64 concurrent incoming
+The default `MessagingRequestReplyOptions` use a 30-second deadline, at most 256 outgoing requests, and 64 concurrent incoming
 handlers. Supply options to `open`, or a deadline to an individual `request(payload, timeout)` call. Deadlines are
 measured with monotonic time and include local sending. The handler limit has no waiting queue: saturation replies
 with `OVERLOADED`. Outgoing saturation fails locally without sending.
@@ -46,7 +46,7 @@ Pending correlation is installed before sending, including when the adapter deli
 its send stage completes. Request IDs and reply endpoint IDs are independent UUIDs. A response must match both.
 Unknown, late, and duplicate responses do not complete another request.
 
-`RequestReplyException.reason()` distinguishes local closure, disconnection, capacity rejection, send failure, timeout,
+`MessagingRequestReplyException.reason()` distinguishes local closure, disconnection, capacity rejection, send failure, timeout,
 and remote errors. `remoteError()` identifies `NO_HANDLER`, `OVERLOADED`, or `HANDLER_FAILED` for remote errors. Raw
 request/reply handler exception classes, messages, and stack traces are not sent to the peer; the typed RPC layer below
 adds its own diagnostic error payload. Local send failures retain their causes.
@@ -69,7 +69,7 @@ adapter cannot observe peer disconnection, outstanding calls expire through thei
 
 ## Transport adapter contract
 
-Implement `RequestReplyTransport<P>` to integrate a message transport:
+Implement `MessagingRequestReplyTransport<P>` to integrate a message transport:
 
 - `subscribe(endpointId, listener)` establishes receiving routes before returning. Requests go to one designated
   handler endpoint; responses go to the original request's `replyTo` endpoint. A transport may limit an adapter
@@ -86,7 +86,7 @@ Implement `RequestReplyTransport<P>` to integrate a message transport:
   `RejectedExecutionException`; the core maps rejection to `OVERLOADED`. The core never closes that execution service.
   Responses and disconnects do not use this dispatch hook. A serialized receiver must dispatch requests elsewhere
   if handlers can wait synchronously for replies arriving through that same receiver.
-- Closing the returned `MessageSubscription` removes receiving routes and releases adapter-owned resources. It must
+- Closing the returned `MessagingSubscription` removes receiving routes and releases adapter-owned resources. It must
   leave a caller-owned physical connection available to other consumers.
 - The adapter owns wire validation, payload snapshots, message size limits, and bounded transport send work. It must
   not introduce automatic retries or an offline business-message queue.
@@ -113,7 +113,7 @@ The connection owner creates one reusable endpoint over a topic-scoped transport
 its own codec when registering an implementation:
 
 ```java
-try (var rpc = RpcEndpoint.open(transports);
+try (var rpc = MessagingRpcEndpoint.open(transports);
      var registration = rpc.register("documents", Documents.class, implementation, codec)) {
     serveApplication();
 }
@@ -122,14 +122,14 @@ try (var rpc = RpcEndpoint.open(transports);
 The caller creates its own endpoint over the corresponding transport and obtains a proxy:
 
 ```java
-try (var rpc = RpcEndpoint.open(transports)) {
+try (var rpc = MessagingRpcEndpoint.open(transports)) {
     Documents documents = rpc.proxy("documents", Documents.class, codec);
     Document document = documents.load(request);
     documents.save(saveRequest);
 }
 ```
 
-An owner can provide a default codec with `RpcEndpoint.open(transports, defaultCodec)`. Its consumers can then use
+An owner can provide a default codec with `MessagingRpcEndpoint.open(transports, defaultCodec)`. Its consumers can then use
 `rpc.proxy("documents", Documents.class)` and `rpc.register("documents", Documents.class, implementation)`.
 The overloads with an explicit codec override that fallback only for the new proxy or registration. The core does
 not construct a serialization framework. Without a configured default, no-codec overloads fail before opening routes.
@@ -145,9 +145,9 @@ Opening a topic can establish subscriptions synchronously; use a worker thread w
 Proxy methods block the calling thread. They may run in concurrent HTTP request handlers or worker/virtual threads,
 but not on an event loop or serialized receiver needed to deliver their replies.
 
-`RpcEndpoint` has no payload type parameter. Its transport factory supplies topic-scoped
-`RequestReplyTransport<RpcMessage<P>>` adapters. Each proxy and registration supplies a codec compatible with that
-payload representation. Business code receives an ordinary `RpcEndpoint` and uses typed interfaces. The transport
+`MessagingRpcEndpoint` has no payload type parameter. Its transport factory supplies topic-scoped
+`MessagingRequestReplyTransport<MessagingRpcMessage<P>>` adapters. Each proxy and registration supplies a codec compatible with that
+payload representation. Business code receives an ordinary `MessagingRpcEndpoint` and uses typed interfaces. The transport
 adapter encodes the neutral protocol envelope; the local codec encodes application arguments and results. A TCP, WebSocket,
 long-polling, or in-memory transport can implement this interface without changing RPC code. No WebSocket types or
 JSON library are used here.
@@ -159,15 +159,15 @@ and proxy creation are runtime operations and do not require Spring or a separat
 
 ```java
 public final class DocumentReceiver {
-    private final RpcEndpoint rpc;
-    private final RpcCodec<?> documentCodec;
+    private final MessagingRpcEndpoint rpc;
+    private final MessagingRpcCodec<?> documentCodec;
 
-    public DocumentReceiver(RpcEndpoint rpc, RpcCodec<?> documentCodec) {
+    public DocumentReceiver(MessagingRpcEndpoint rpc, MessagingRpcCodec<?> documentCodec) {
         this.rpc = rpc;
         this.documentCodec = documentCodec;
     }
 
-    public MessageSubscription enable(Documents implementation) {
+    public MessagingSubscription enable(Documents implementation) {
         return rpc.register("documents", Documents.class, implementation, documentCodec);
     }
 }
@@ -177,10 +177,10 @@ The opposite peer uses its own endpoint in a separate caller:
 
 ```java
 public final class DocumentCaller {
-    private final RpcEndpoint rpc;
-    private final RpcCodec<?> documentCodec;
+    private final MessagingRpcEndpoint rpc;
+    private final MessagingRpcCodec<?> documentCodec;
 
-    public DocumentCaller(RpcEndpoint rpc, RpcCodec<?> documentCodec) {
+    public DocumentCaller(MessagingRpcEndpoint rpc, MessagingRpcCodec<?> documentCodec) {
         this.rpc = rpc;
         this.documentCodec = documentCodec;
     }
@@ -192,7 +192,7 @@ public final class DocumentCaller {
 }
 ```
 
-Keep the receiving `MessageSubscription` while the implementation is available, then close it to unregister. A proxy
+Keep the receiving `MessagingSubscription` while the implementation is available, then close it to unregister. A proxy
 is an ordinary business interface, not a registration handle, and requires no separate close. Application code sharing
 an endpoint closes its own registrations; the connection owner closes the endpoint when its scope ends. Owners can
 use `isClosed()` to reject new use once closure starts, and `isCloseComplete()` before releasing a cached endpoint's
@@ -210,7 +210,7 @@ cleanup throws. A repeated `close()` does not wait for another thread's ongoing 
   type variables, generic methods, default methods, varargs, and `Future`/`CompletionStage` returns are rejected during
   proxy construction or registration. Generic-parent substitutions are not inferred. Inherited operations with
   ambiguous generic argument or result types must be explicitly redeclared in the public contract.
-- `RpcCodec.encode(value, type)` and `decode(payload, type)` are selected per proxy or implementation registration. Implementations must handle
+- `MessagingRpcCodec.encode(value, type)` and `decode(payload, type)` are selected per proxy or implementation registration. Implementations must handle
   nulls and concurrent calls. Serialization remains application-owned; the RPC core does not construct application
   types or select a serialization framework. Payload immutability and snapshot requirements are the same as request/reply.
   Peers must use compatible contracts and codecs; no automatic contract negotiation or class transfer is performed.
@@ -221,17 +221,17 @@ cleanup throws. A repeated `close()` does not wait for another thread's ongoing 
 ### Failure and ownership
 
 `void` still waits for remote handler completion and a successful reply. It is not fire-and-forget, and its response
-does not invoke the application codec. `RpcException` is unchecked, so a business interface does not need a library
+does not invoke the application codec. `MessagingRpcException` is unchecked, so a business interface does not need a library
 exception declaration. Its reason distinguishes timeout, interruption, disconnection, overload, closure, send failure,
 codec failure, invalid response, and remote failure. Caller interruption restores the interrupt flag.
 
 An absent logical service returns `UNKNOWN_SERVICE`; an absent operation returns `UNKNOWN_OPERATION`. Invalid arguments,
 handler failures, and remote codec failures retain their fixed error codes. Handler and remote codec exceptions also
-carry immutable `RpcExceptionDetails`: the exception class name (`type`), nullable original `message`, formatted
+carry immutable `MessagingRpcExceptionDetails`: the exception class name (`type`), nullable original `message`, formatted
 `stackTrace`, and a `truncated` flag. The receiving side formats the trace where the failure occurs, including causes,
 suppressed exceptions, and circular-reference markers. Reflection's `InvocationTargetException` is unwrapped before capture.
 
-The caller receives `RpcException` with `reason() == REMOTE_ERROR`, the existing `remoteError()` code, and optional
+The caller receives `MessagingRpcException` with `reason() == REMOTE_ERROR`, the existing `remoteError()` code, and optional
 `remoteException()` details. Its message includes the remote type and message. Its cause is a local diagnostic wrapper
 with the remote text and no invented local frames, so ordinary exception logging includes both the local call stack and
 the remote trace. Neither the original `Throwable` nor its object graph crosses the transport. The caller never loads or
@@ -247,7 +247,7 @@ Declared application exceptions are not reconstructed on the caller. A peer with
 detected through transport failure or timeout; an error reply lost in transport cannot expose its remote diagnostics.
 Local failures retain their original causes.
 
-`RpcEndpoint.open(transports, options)` accepts the existing `RequestReplyOptions` for default deadlines and shared
+`MessagingRpcEndpoint.open(transports, options)` accepts the existing `MessagingRequestReplyOptions` for default deadlines and shared
 capacity. Without explicit options, the default timeout is 30 seconds. Each proxy can override the request timeout
 with a positive `Duration` representable in nanoseconds:
 

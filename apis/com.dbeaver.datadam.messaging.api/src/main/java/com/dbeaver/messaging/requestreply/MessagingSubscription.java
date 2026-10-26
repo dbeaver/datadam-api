@@ -18,7 +18,7 @@ package com.dbeaver.messaging.requestreply;
 
 /** Controls the lifetime of a listener or handler registration. */
 @FunctionalInterface
-public interface MessageSubscription extends AutoCloseable {
+public interface MessagingSubscription extends AutoCloseable {
     @Override
     void close();
 }

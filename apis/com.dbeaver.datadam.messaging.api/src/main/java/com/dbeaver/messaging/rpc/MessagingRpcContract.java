@@ -34,7 +34,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Future;
 
-final class RpcContract<T> {
+final class MessagingRpcContract<T> {
     private static final Map<Class<?>, Class<?>> BOXED = Map.of(
         boolean.class, Boolean.class, byte.class, Byte.class, short.class, Short.class, char.class, Character.class,
         int.class, Integer.class, long.class, Long.class, float.class, Float.class, double.class, Double.class
@@ -42,12 +42,12 @@ final class RpcContract<T> {
 
     private final Map<String, Method> operations;
 
-    private RpcContract(@NotNull Map<String, Method> operations) {
+    private MessagingRpcContract(@NotNull Map<String, Method> operations) {
         this.operations = Map.copyOf(operations);
     }
 
     @NotNull
-    static <T> RpcContract<T> create(@NotNull Class<T> type) {
+    static <T> MessagingRpcContract<T> create(@NotNull Class<T> type) {
         Objects.requireNonNull(type);
         if (!type.isInterface() || !Modifier.isPublic(type.getModifiers()) || type.isSealed() || type.getTypeParameters().length != 0) {
             throw new IllegalArgumentException("RPC contract must be a public, nonsealed interface with concrete types");
@@ -70,7 +70,7 @@ final class RpcContract<T> {
                 throw new IllegalArgumentException("RPC contract has an unresolved generic bridge operation");
             }
         }
-        return new RpcContract<>(operations);
+        return new MessagingRpcContract<>(operations);
     }
 
     void requireAccessible(@NotNull Object implementation) {
@@ -142,14 +142,14 @@ final class RpcContract<T> {
         }
         if (type instanceof ParameterizedType parameterized) {
             return (parameterized.getOwnerType() == null || isConcrete(parameterized.getOwnerType()))
-                && Arrays.stream(parameterized.getActualTypeArguments()).allMatch(RpcContract::isConcrete);
+                && Arrays.stream(parameterized.getActualTypeArguments()).allMatch(MessagingRpcContract::isConcrete);
         }
         if (type instanceof GenericArrayType array) {
             return isConcrete(array.getGenericComponentType());
         }
         if (type instanceof WildcardType wildcard) {
-            return Arrays.stream(wildcard.getUpperBounds()).allMatch(RpcContract::isConcrete)
-                && Arrays.stream(wildcard.getLowerBounds()).allMatch(RpcContract::isConcrete);
+            return Arrays.stream(wildcard.getUpperBounds()).allMatch(MessagingRpcContract::isConcrete)
+                && Arrays.stream(wildcard.getLowerBounds()).allMatch(MessagingRpcContract::isConcrete);
         }
         return false;
     }

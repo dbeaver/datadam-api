@@ -22,12 +22,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
 /** Provides asynchronous request/reply message transport for a selected peer. */
-public interface RequestReplyTransport<P> {
+public interface MessagingRequestReplyTransport<P> {
     @NotNull
-    MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<P> listener) throws RequestReplyException;
+    MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<P> listener) throws MessagingRequestReplyException;
 
     @NotNull
-    CompletionStage<Void> send(@NotNull RequestReplyMessage<P> message);
+    CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<P> message);
 
     default void executeRequest(@NotNull Runnable request) {
         request.run();
@@ -35,7 +35,7 @@ public interface RequestReplyTransport<P> {
 
     /** Receives endpoint messages and disconnection notifications. */
     interface Listener<P> {
-        void onMessage(@NotNull RequestReplyMessage<P> message);
+        void onMessage(@NotNull MessagingRequestReplyMessage<P> message);
 
         void onDisconnect();
     }

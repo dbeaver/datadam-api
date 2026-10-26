@@ -16,10 +16,10 @@
  */
 package com.dbeaver.messaging.rpc;
 
-import com.dbeaver.messaging.requestreply.MessageSubscription;
-import com.dbeaver.messaging.requestreply.RequestReplyEndpoint;
-import com.dbeaver.messaging.requestreply.RequestReplyException;
-import com.dbeaver.messaging.requestreply.RequestReplyOptions;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyEndpoint;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyOptions;
+import com.dbeaver.messaging.requestreply.MessagingSubscription;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
@@ -36,51 +36,51 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public final class RpcEndpoint implements AutoCloseable {
+public final class MessagingRpcEndpoint implements AutoCloseable {
     private final State<?> state;
 
-    private RpcEndpoint(@NotNull State<?> state) {
+    private MessagingRpcEndpoint(@NotNull State<?> state) {
         this.state = state;
     }
 
     @NotNull
-    public static <P> RpcEndpoint open(@NotNull RpcTransport<P> transport) {
-        return open(transport, RequestReplyOptions.DEFAULT);
+    public static <P> MessagingRpcEndpoint open(@NotNull MessagingRpcTransport<P> transport) {
+        return open(transport, MessagingRequestReplyOptions.DEFAULT);
     }
 
     @NotNull
-    public static <P> RpcEndpoint open(@NotNull RpcTransport<P> transport, @NotNull RpcCodec<P> defaultCodec) {
-        return open(transport, defaultCodec, RequestReplyOptions.DEFAULT);
+    public static <P> MessagingRpcEndpoint open(@NotNull MessagingRpcTransport<P> transport, @NotNull MessagingRpcCodec<P> defaultCodec) {
+        return open(transport, defaultCodec, MessagingRequestReplyOptions.DEFAULT);
     }
 
     @NotNull
-    public static <P> RpcEndpoint open(
-        @NotNull RpcTransport<P> transport,
-        @NotNull RequestReplyOptions options
+    public static <P> MessagingRpcEndpoint open(
+        @NotNull MessagingRpcTransport<P> transport,
+        @NotNull MessagingRequestReplyOptions options
     ) {
-        return new RpcEndpoint(new State<>(transport, null, options));
+        return new MessagingRpcEndpoint(new State<>(transport, null, options));
     }
 
     @NotNull
-    public static <P> RpcEndpoint open(
-        @NotNull RpcTransport<P> transport,
-        @NotNull RpcCodec<P> defaultCodec,
-        @NotNull RequestReplyOptions options
+    public static <P> MessagingRpcEndpoint open(
+        @NotNull MessagingRpcTransport<P> transport,
+        @NotNull MessagingRpcCodec<P> defaultCodec,
+        @NotNull MessagingRequestReplyOptions options
     ) {
-        return new RpcEndpoint(new State<>(transport, Objects.requireNonNull(defaultCodec), options));
+        return new MessagingRpcEndpoint(new State<>(transport, Objects.requireNonNull(defaultCodec), options));
     }
 
     @NotNull
-    public <T> MessageSubscription register(@NotNull String topic, @NotNull Class<T> type, @NotNull T implementation) {
+    public <T> MessagingSubscription register(@NotNull String topic, @NotNull Class<T> type, @NotNull T implementation) {
         return register(topic, type, implementation, state.defaultCodec());
     }
 
     @NotNull
-    public <T> MessageSubscription register(
+    public <T> MessagingSubscription register(
         @NotNull String topic,
         @NotNull Class<T> type,
         @NotNull T implementation,
-        @NotNull RpcCodec<?> codec
+        @NotNull MessagingRpcCodec<?> codec
     ) {
         return state.register(topic, type, implementation, codec);
     }
@@ -96,7 +96,7 @@ public final class RpcEndpoint implements AutoCloseable {
     }
 
     @NotNull
-    public <T> T proxy(@NotNull String topic, @NotNull Class<T> type, @NotNull RpcCodec<?> codec) {
+    public <T> T proxy(@NotNull String topic, @NotNull Class<T> type, @NotNull MessagingRpcCodec<?> codec) {
         return proxy(topic, type, codec, state.options.timeout());
     }
 
@@ -104,7 +104,7 @@ public final class RpcEndpoint implements AutoCloseable {
     public <T> T proxy(
         @NotNull String topic,
         @NotNull Class<T> type,
-        @NotNull RpcCodec<?> codec,
+        @NotNull MessagingRpcCodec<?> codec,
         @NotNull Duration timeout
     ) {
         return state.proxy(topic, type, codec, timeout);
@@ -125,22 +125,26 @@ public final class RpcEndpoint implements AutoCloseable {
 
     private static final class State<P> {
         private final Object lock = new Object();
-        private final RpcTransport<P> transport;
+        private final MessagingRpcTransport<P> transport;
         @Nullable
-        private final RpcCodec<P> defaultCodec;
-        private final RequestReplyOptions options;
+        private final MessagingRpcCodec<P> defaultCodec;
+        private final MessagingRequestReplyOptions options;
         private final Map<String, Topic> topics = new HashMap<>();
         private boolean closed;
         private boolean closeComplete;
 
-        private State(@NotNull RpcTransport<P> transport, @Nullable RpcCodec<P> defaultCodec, @NotNull RequestReplyOptions options) {
+        private State(
+            @NotNull MessagingRpcTransport<P> transport,
+            @Nullable MessagingRpcCodec<P> defaultCodec,
+            @NotNull MessagingRequestReplyOptions options
+        ) {
             this.transport = Objects.requireNonNull(transport);
             this.defaultCodec = defaultCodec;
             this.options = Objects.requireNonNull(options);
         }
 
         @NotNull
-        private RpcCodec<P> defaultCodec() {
+        private MessagingRpcCodec<P> defaultCodec() {
             if (defaultCodec == null) {
                 throw new IllegalStateException("RPC endpoint has no default codec");
             }
@@ -148,15 +152,15 @@ public final class RpcEndpoint implements AutoCloseable {
         }
 
         @NotNull
-        private <T> MessageSubscription register(
+        private <T> MessagingSubscription register(
             @NotNull String topic,
             @NotNull Class<T> type,
             @NotNull T implementation,
-            @NotNull RpcCodec<?> codec
+            @NotNull MessagingRpcCodec<?> codec
         ) {
             requireTopic(topic);
-            RpcCodec<P> bindingCodec = bindingCodec(codec);
-            RpcContract<T> contract = RpcContract.create(type);
+            MessagingRpcCodec<P> bindingCodec = bindingCodec(codec);
+            MessagingRpcContract<T> contract = MessagingRpcContract.create(type);
             if (!type.isInstance(Objects.requireNonNull(implementation))) {
                 throw new IllegalArgumentException("RPC implementation does not implement its contract");
             }
@@ -177,19 +181,19 @@ public final class RpcEndpoint implements AutoCloseable {
         private <T> T proxy(
             @NotNull String topic,
             @NotNull Class<T> type,
-            @NotNull RpcCodec<?> codec,
+            @NotNull MessagingRpcCodec<?> codec,
             @NotNull Duration timeout
         ) {
             requireTopic(topic);
             requireTimeout(timeout);
-            RpcCodec<P> bindingCodec = bindingCodec(codec);
-            RpcContract<T> contract = RpcContract.create(type);
+            MessagingRpcCodec<P> bindingCodec = bindingCodec(codec);
+            MessagingRpcContract<T> contract = MessagingRpcContract.create(type);
             Topic selected = topic(topic);
             synchronized (lock) {
                 requireOpen();
             }
             Object proxy = Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, (instance, method, arguments) -> {
-                if (RpcContract.isObjectMethod(method)) {
+                if (MessagingRpcContract.isObjectMethod(method)) {
                     return switch (method.getName()) {
                         case "equals" -> instance == Objects.requireNonNull(arguments)[0];
                         case "hashCode" -> System.identityHashCode(instance);
@@ -197,7 +201,7 @@ public final class RpcEndpoint implements AutoCloseable {
                         default -> throw new IllegalStateException("Unsupported proxy object method");
                     };
                 }
-                Method operation = Objects.requireNonNull(contract.operation(RpcContract.operationId(method)));
+                Method operation = Objects.requireNonNull(contract.operation(MessagingRpcContract.operationId(method)));
                 return invoke(selected, operation, Objects.requireNonNull(arguments)[0], bindingCodec, timeout);
             });
             return type.cast(proxy);
@@ -208,40 +212,40 @@ public final class RpcEndpoint implements AutoCloseable {
             @NotNull Topic topic,
             @NotNull Method operation,
             @Nullable Object argument,
-            @NotNull RpcCodec<P> codec,
+            @NotNull MessagingRpcCodec<P> codec,
             @NotNull Duration timeout
         ) {
             synchronized (lock) {
                 requireOpen();
             }
             if (Thread.currentThread().isInterrupted()) {
-                throw new RpcException(RpcException.Reason.INTERRUPTED);
+                throw new MessagingRpcException(MessagingRpcException.Reason.INTERRUPTED);
             }
-            RpcMessage<P> request;
+            MessagingRpcMessage<P> request;
             try {
                 P payload = codec.encode(argument, operation.getGenericParameterTypes()[0]);
-                request = RpcMessage.request(RpcContract.operationId(operation), payload);
+                request = MessagingRpcMessage.request(MessagingRpcContract.operationId(operation), payload);
             } catch (Exception e) {
                 throw codecFailure(e);
             }
-            RpcMessage<P> response;
+            MessagingRpcMessage<P> response;
             try {
                 response = Objects.requireNonNull(topic.requests).request(request, timeout);
-            } catch (RequestReplyException e) {
-                throw new RpcException(e);
+            } catch (MessagingRequestReplyException e) {
+                throw new MessagingRpcException(e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new RpcException(RpcException.Reason.INTERRUPTED, e);
+                throw new MessagingRpcException(MessagingRpcException.Reason.INTERRUPTED, e);
             }
-            if (response == null || response.type() == RpcMessage.Type.REQUEST) {
-                throw new RpcException(RpcException.Reason.INVALID_RESPONSE);
+            if (response == null || response.type() == MessagingRpcMessage.Type.REQUEST) {
+                throw new MessagingRpcException(MessagingRpcException.Reason.INVALID_RESPONSE);
             }
-            if (response.type() == RpcMessage.Type.ERROR) {
-                throw new RpcException(Objects.requireNonNull(response.error()), response.exception());
+            if (response.type() == MessagingRpcMessage.Type.ERROR) {
+                throw new MessagingRpcException(Objects.requireNonNull(response.error()), response.exception());
             }
             if (operation.getReturnType() == void.class) {
                 if (response.payload() != null) {
-                    throw new RpcException(RpcException.Reason.INVALID_RESPONSE);
+                    throw new MessagingRpcException(MessagingRpcException.Reason.INVALID_RESPONSE);
                 }
                 return null;
             }
@@ -251,66 +255,66 @@ public final class RpcEndpoint implements AutoCloseable {
             } catch (Exception e) {
                 throw codecFailure(e);
             }
-            if (!RpcContract.accepts(operation.getReturnType(), result)) {
-                throw new RpcException(RpcException.Reason.INVALID_RESPONSE);
+            if (!MessagingRpcContract.accepts(operation.getReturnType(), result)) {
+                throw new MessagingRpcException(MessagingRpcException.Reason.INVALID_RESPONSE);
             }
             return result;
         }
 
         @NotNull
-        private RpcMessage<P> dispatch(@NotNull Topic topic, @NotNull RpcMessage<P> request) {
-            if (request.type() != RpcMessage.Type.REQUEST) {
-                return RpcMessage.failure(RpcMessage.Error.INVALID_REQUEST);
+        private MessagingRpcMessage<P> dispatch(@NotNull Topic topic, @NotNull MessagingRpcMessage<P> request) {
+            if (request.type() != MessagingRpcMessage.Type.REQUEST) {
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST);
             }
             ServiceRegistration registration;
             synchronized (lock) {
                 if (closed) {
-                    return RpcMessage.failure(RpcMessage.Error.UNKNOWN_SERVICE);
+                    return MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_SERVICE);
                 }
                 registration = topic.registration;
             }
             if (registration == null) {
-                return RpcMessage.failure(RpcMessage.Error.UNKNOWN_SERVICE);
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_SERVICE);
             }
             Method operation = registration.contract.operation(Objects.requireNonNull(request.operation()));
             if (operation == null) {
-                return RpcMessage.failure(RpcMessage.Error.UNKNOWN_OPERATION);
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_OPERATION);
             }
             Object argument;
             try {
                 argument = registration.codec.decode(request.payload(), operation.getGenericParameterTypes()[0]);
             } catch (Exception e) {
                 restoreInterruption(e);
-                return RpcMessage.failure(RpcMessage.Error.CODEC_FAILED, RpcExceptionDetails.capture(e));
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.CODEC_FAILED, MessagingRpcExceptionDetails.capture(e));
             }
-            if (!RpcContract.accepts(operation.getParameterTypes()[0], argument)) {
-                return RpcMessage.failure(RpcMessage.Error.INVALID_REQUEST);
+            if (!MessagingRpcContract.accepts(operation.getParameterTypes()[0], argument)) {
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST);
             }
             Object result;
             try {
                 result = operation.invoke(registration.implementation, argument);
             } catch (InvocationTargetException e) {
                 restoreInterruption(e.getCause());
-                return RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED,
-                    RpcExceptionDetails.capture(Objects.requireNonNullElse(e.getCause(), e)));
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.HANDLER_FAILED,
+                    MessagingRpcExceptionDetails.capture(Objects.requireNonNullElse(e.getCause(), e)));
             } catch (ReflectiveOperationException | RuntimeException e) {
-                return RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED, RpcExceptionDetails.capture(e));
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.HANDLER_FAILED, MessagingRpcExceptionDetails.capture(e));
             }
             if (operation.getReturnType() == void.class) {
-                return RpcMessage.response(null);
+                return MessagingRpcMessage.response(null);
             }
             try {
-                return RpcMessage.response(registration.codec.encode(result, operation.getGenericReturnType()));
+                return MessagingRpcMessage.response(registration.codec.encode(result, operation.getGenericReturnType()));
             } catch (Exception e) {
                 restoreInterruption(e);
-                return RpcMessage.failure(RpcMessage.Error.CODEC_FAILED, RpcExceptionDetails.capture(e));
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.CODEC_FAILED, MessagingRpcExceptionDetails.capture(e));
             }
         }
 
         @NotNull
         @SuppressWarnings("unchecked")
-        private RpcCodec<P> bindingCodec(@NotNull RpcCodec<?> codec) {
-            return (RpcCodec<P>) Objects.requireNonNull(codec);
+        private MessagingRpcCodec<P> bindingCodec(@NotNull MessagingRpcCodec<?> codec) {
+            return (MessagingRpcCodec<P>) Objects.requireNonNull(codec);
         }
 
         private static void requireTopic(@NotNull String topic) {
@@ -356,17 +360,17 @@ public final class RpcEndpoint implements AutoCloseable {
                 return ready;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new RpcException(RpcException.Reason.INTERRUPTED, e);
+                throw new MessagingRpcException(MessagingRpcException.Reason.INTERRUPTED, e);
             } catch (TimeoutException e) {
-                throw new RpcException(RpcException.Reason.TIMEOUT, e);
+                throw new MessagingRpcException(MessagingRpcException.Reason.TIMEOUT, e);
             } catch (ExecutionException e) {
-                if (e.getCause() instanceof RpcException failure) {
+                if (e.getCause() instanceof MessagingRpcException failure) {
                     throw failure;
                 }
                 if (e.getCause() instanceof Error failure) {
                     throw failure;
                 }
-                throw new RpcException(RpcException.Reason.SEND_FAILED, e.getCause());
+                throw new MessagingRpcException(MessagingRpcException.Reason.SEND_FAILED, e.getCause());
             }
         }
 
@@ -377,9 +381,9 @@ public final class RpcEndpoint implements AutoCloseable {
                     return;
                 }
             }
-            RequestReplyEndpoint<RpcMessage<P>> requests = null;
+            MessagingRequestReplyEndpoint<MessagingRpcMessage<P>> requests = null;
             try {
-                requests = RequestReplyEndpoint.open(Objects.requireNonNull(transport.forTopic(topic.name)), options);
+                requests = MessagingRequestReplyEndpoint.open(Objects.requireNonNull(transport.forTopic(topic.name)), options);
                 requests.handle(request -> dispatch(topic, request));
                 synchronized (lock) {
                     topic.requests = requests;
@@ -401,14 +405,15 @@ public final class RpcEndpoint implements AutoCloseable {
                 }
                 synchronized (lock) {
                     finish(topic);
-                    topic.result.completeExceptionally(e instanceof RequestReplyException failure ? new RpcException(failure) : e);
+                    topic.result.completeExceptionally(
+                        e instanceof MessagingRequestReplyException failure ? new MessagingRpcException(failure) : e);
                 }
                 return;
             }
             try {
                 close(topic);
             } catch (RuntimeException e) {
-                throw new RpcException(RpcException.Reason.CLOSED, e);
+                throw new MessagingRpcException(MessagingRpcException.Reason.CLOSED, e);
             }
         }
 
@@ -418,11 +423,11 @@ public final class RpcEndpoint implements AutoCloseable {
         }
 
         @NotNull
-        private static RpcException codecFailure(@NotNull Exception cause) {
+        private static MessagingRpcException codecFailure(@NotNull Exception cause) {
             restoreInterruption(cause);
-            RpcException.Reason reason = cause instanceof InterruptedException
-                ? RpcException.Reason.INTERRUPTED : RpcException.Reason.CODEC_FAILED;
-            return new RpcException(reason, cause);
+            MessagingRpcException.Reason reason = cause instanceof InterruptedException
+                ? MessagingRpcException.Reason.INTERRUPTED : MessagingRpcException.Reason.CODEC_FAILED;
+            return new MessagingRpcException(reason, cause);
         }
 
         private static void restoreInterruption(@Nullable Throwable failure) {
@@ -433,7 +438,7 @@ public final class RpcEndpoint implements AutoCloseable {
 
         private void requireOpen() {
             if (closed) {
-                throw new RpcException(RpcException.Reason.CLOSED);
+                throw new MessagingRpcException(MessagingRpcException.Reason.CLOSED);
             }
         }
 
@@ -459,7 +464,7 @@ public final class RpcEndpoint implements AutoCloseable {
                 stopped = topics.values().stream().filter(topic -> !topic.opening).toList();
                 topics.values().forEach(topic -> {
                     topic.registration = null;
-                    topic.result.completeExceptionally(new RpcException(RpcException.Reason.CLOSED));
+                    topic.result.completeExceptionally(new MessagingRpcException(MessagingRpcException.Reason.CLOSED));
                 });
                 closeComplete = topics.isEmpty();
             }
@@ -503,7 +508,7 @@ public final class RpcEndpoint implements AutoCloseable {
             private final String name;
             private final CompletableFuture<Topic> result = new CompletableFuture<>();
             @Nullable
-            private RequestReplyEndpoint<RpcMessage<P>> requests;
+            private MessagingRequestReplyEndpoint<MessagingRpcMessage<P>> requests;
             @Nullable
             private ServiceRegistration registration;
             private boolean opening = true;
@@ -514,17 +519,17 @@ public final class RpcEndpoint implements AutoCloseable {
             }
         }
 
-        private final class ServiceRegistration implements MessageSubscription {
+        private final class ServiceRegistration implements MessagingSubscription {
             private final Topic topic;
-            private final RpcContract<?> contract;
+            private final MessagingRpcContract<?> contract;
             private final Object implementation;
-            private final RpcCodec<P> codec;
+            private final MessagingRpcCodec<P> codec;
 
             private ServiceRegistration(
                 @NotNull Topic topic,
-                @NotNull RpcContract<?> contract,
+                @NotNull MessagingRpcContract<?> contract,
                 @NotNull Object implementation,
-                @NotNull RpcCodec<P> codec
+                @NotNull MessagingRpcCodec<P> codec
             ) {
                 this.topic = topic;
                 this.contract = contract;

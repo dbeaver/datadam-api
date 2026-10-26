@@ -18,13 +18,13 @@ package com.dbeaver.datadam.external.api.rpc;
 
 import com.dbeaver.datadam.external.api.requestreply.DDRequestReplyTransport;
 import com.dbeaver.datadam.external.api.transport.DDMessageChannel;
-import com.dbeaver.messaging.requestreply.MessageSubscription;
-import com.dbeaver.messaging.requestreply.RequestReplyException;
-import com.dbeaver.messaging.requestreply.RequestReplyMessage;
-import com.dbeaver.messaging.requestreply.RequestReplyTransport;
-import com.dbeaver.messaging.rpc.RpcExceptionDetails;
-import com.dbeaver.messaging.rpc.RpcMessage;
-import com.dbeaver.messaging.rpc.RpcTransport;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyMessage;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingSubscription;
+import com.dbeaver.messaging.rpc.MessagingRpcExceptionDetails;
+import com.dbeaver.messaging.rpc.MessagingRpcMessage;
+import com.dbeaver.messaging.rpc.MessagingRpcTransport;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -38,7 +38,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
 
-public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<JsonElement>> {
+public final class DDRpcTransport implements MessagingRequestReplyTransport<MessagingRpcMessage<JsonElement>> {
     private static final String PROTOCOL = "dbeaver.rpc.v2";
     private static final String FIELD_PROTOCOL = "protocol";
     private static final String FIELD_TYPE = "type";
@@ -51,21 +51,21 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
     private static final String FIELD_TRUNCATED = "truncated";
     private static final int MAX_PENDING_SENDS = 128;
     private final Semaphore sendBudget = new Semaphore(MAX_PENDING_SENDS);
-    private final RequestReplyTransport<JsonObject> delegate;
+    private final MessagingRequestReplyTransport<JsonObject> delegate;
     @Nullable
     private final Executor requestExecutor;
 
-    public DDRpcTransport(@NotNull RequestReplyTransport<JsonObject> delegate) {
+    public DDRpcTransport(@NotNull MessagingRequestReplyTransport<JsonObject> delegate) {
         this(delegate, null);
     }
 
-    public DDRpcTransport(@NotNull RequestReplyTransport<JsonObject> delegate, @Nullable Executor requestExecutor) {
+    public DDRpcTransport(@NotNull MessagingRequestReplyTransport<JsonObject> delegate, @Nullable Executor requestExecutor) {
         this.delegate = Objects.requireNonNull(delegate);
         this.requestExecutor = requestExecutor;
     }
 
     @NotNull
-    public static RpcTransport<JsonElement> forChannel(@NotNull DDMessageChannel channel) {
+    public static MessagingRpcTransport<JsonElement> forChannel(@NotNull DDMessageChannel channel) {
         Objects.requireNonNull(channel);
         return topic -> forChannel(channel, topic);
     }
@@ -95,14 +95,14 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
 
     @Override
     @NotNull
-    public MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<RpcMessage<JsonElement>> listener)
-            throws RequestReplyException {
+    public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<MessagingRpcMessage<JsonElement>> listener)
+            throws MessagingRequestReplyException {
         Objects.requireNonNull(endpointId);
         Objects.requireNonNull(listener);
         return delegate.subscribe(endpointId, new Listener<>() {
             @Override
-            public void onMessage(@NotNull RequestReplyMessage<JsonObject> message) {
-                RequestReplyMessage<RpcMessage<JsonElement>> decoded = decode(message);
+            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> decoded = decode(message);
                 if (decoded != null) {
                     listener.onMessage(decoded);
                 }
@@ -117,16 +117,17 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
 
     @Override
     @NotNull
-    public CompletionStage<Void> send(@NotNull RequestReplyMessage<RpcMessage<JsonElement>> message) {
+    public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> message) {
         if (!sendBudget.tryAcquire()) {
-            return CompletableFuture.failedFuture(new RequestReplyException(RequestReplyException.Reason.OVERLOADED));
+            return CompletableFuture.failedFuture(new MessagingRequestReplyException(MessagingRequestReplyException.Reason.OVERLOADED));
         }
         try {
-            RpcMessage<JsonElement> payload = message.payload();
+            MessagingRpcMessage<JsonElement> payload = message.payload();
             if (payload != null) {
                 requireType(message.type(), payload.type());
             }
-            RequestReplyMessage<JsonObject> frame = new RequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(),
+            MessagingRequestReplyMessage<JsonObject> frame = new MessagingRequestReplyMessage<>(
+                message.requestId(), message.replyTo(), message.type(),
                 payload == null ? null : encode(payload), message.error());
             CompletableFuture<Void> result = new CompletableFuture<>();
             Objects.requireNonNull(delegate.send(frame)).whenComplete((ignored, error) -> {
@@ -145,15 +146,15 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
     }
 
     @NotNull
-    private static JsonObject encode(@NotNull RpcMessage<JsonElement> message) {
+    private static JsonObject encode(@NotNull MessagingRpcMessage<JsonElement> message) {
         JsonObject envelope = new JsonObject();
         envelope.addProperty(FIELD_PROTOCOL, PROTOCOL);
         envelope.addProperty(FIELD_TYPE, message.type().name());
-        if (message.type() == RpcMessage.Type.ERROR) {
+        if (message.type() == MessagingRpcMessage.Type.ERROR) {
             envelope.addProperty(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
             envelope.add(FIELD_EXCEPTION, message.exception() == null ? JsonNull.INSTANCE : encodeException(message.exception()));
         } else {
-            if (message.type() == RpcMessage.Type.REQUEST) {
+            if (message.type() == MessagingRpcMessage.Type.REQUEST) {
                 envelope.addProperty(FIELD_OPERATION, message.operation());
             }
             envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload().deepCopy());
@@ -162,7 +163,7 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
     }
 
     @NotNull
-    private static JsonObject encodeException(@NotNull RpcExceptionDetails details) {
+    private static JsonObject encodeException(@NotNull MessagingRpcExceptionDetails details) {
         JsonObject exception = new JsonObject();
         exception.addProperty(FIELD_TYPE, details.type());
         exception.addProperty(FIELD_MESSAGE, details.message());
@@ -172,43 +173,45 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
     }
 
     @Nullable
-    private static RequestReplyMessage<RpcMessage<JsonElement>> decode(@NotNull RequestReplyMessage<JsonObject> message) {
-        if (message.type() == RequestReplyMessage.Type.ERROR || message.payload() == null) {
-            return new RequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), null, message.error());
+    private static MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> decode(
+        @NotNull MessagingRequestReplyMessage<JsonObject> message
+    ) {
+        if (message.type() == MessagingRequestReplyMessage.Type.ERROR || message.payload() == null) {
+            return new MessagingRequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), null, message.error());
         }
         try {
             JsonObject envelope = message.payload();
             if (!PROTOCOL.equals(string(envelope, FIELD_PROTOCOL))) {
                 return null;
             }
-            RpcMessage.Type type = RpcMessage.Type.valueOf(string(envelope, FIELD_TYPE));
+            MessagingRpcMessage.Type type = MessagingRpcMessage.Type.valueOf(string(envelope, FIELD_TYPE));
             requireType(message.type(), type);
-            RpcMessage<JsonElement> payload;
-            if (type == RpcMessage.Type.ERROR) {
+            MessagingRpcMessage<JsonElement> payload;
+            if (type == MessagingRpcMessage.Type.ERROR) {
                 JsonElement exception = envelope.get(FIELD_EXCEPTION);
                 if (envelope.size() != 4 || exception == null) {
                     return null;
                 }
-                payload = RpcMessage.failure(RpcMessage.Error.valueOf(string(envelope, FIELD_ERROR)),
+                payload = MessagingRpcMessage.failure(MessagingRpcMessage.Error.valueOf(string(envelope, FIELD_ERROR)),
                     decodeException(exception));
             } else {
                 JsonElement data = envelope.get(FIELD_DATA);
-                if (data == null || envelope.size() != (type == RpcMessage.Type.REQUEST ? 4 : 3)) {
+                if (data == null || envelope.size() != (type == MessagingRpcMessage.Type.REQUEST ? 4 : 3)) {
                     return null;
                 }
                 JsonElement snapshot = data.isJsonNull() ? null : data.deepCopy();
-                payload = type == RpcMessage.Type.REQUEST
-                    ? RpcMessage.request(string(envelope, FIELD_OPERATION), snapshot)
-                    : RpcMessage.response(snapshot);
+                payload = type == MessagingRpcMessage.Type.REQUEST
+                    ? MessagingRpcMessage.request(string(envelope, FIELD_OPERATION), snapshot)
+                    : MessagingRpcMessage.response(snapshot);
             }
-            return new RequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), payload, message.error());
+            return new MessagingRequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), payload, message.error());
         } catch (IllegalArgumentException e) {
             return null;
         }
     }
 
     @Nullable
-    private static RpcExceptionDetails decodeException(@NotNull JsonElement value) {
+    private static MessagingRpcExceptionDetails decodeException(@NotNull JsonElement value) {
         if (value.isJsonNull()) {
             return null;
         }
@@ -222,14 +225,14 @@ public final class DDRpcTransport implements RequestReplyTransport<RpcMessage<Js
             || !truncated.getAsJsonPrimitive().isBoolean()) {
             throw new IllegalArgumentException("Invalid RPC exception details");
         }
-        return new RpcExceptionDetails(string(exception, FIELD_TYPE),
+        return new MessagingRpcExceptionDetails(string(exception, FIELD_TYPE),
             message.isJsonNull() ? null : string(exception, FIELD_MESSAGE), string(exception, FIELD_STACK_TRACE),
             truncated.getAsBoolean());
     }
 
-    private static void requireType(@NotNull RequestReplyMessage.Type outer, @NotNull RpcMessage.Type inner) {
-        if (outer == RequestReplyMessage.Type.REQUEST ? inner != RpcMessage.Type.REQUEST
-            : outer != RequestReplyMessage.Type.RESPONSE || inner == RpcMessage.Type.REQUEST) {
+    private static void requireType(@NotNull MessagingRequestReplyMessage.Type outer, @NotNull MessagingRpcMessage.Type inner) {
+        if (outer == MessagingRequestReplyMessage.Type.REQUEST ? inner != MessagingRpcMessage.Type.REQUEST
+            : outer != MessagingRequestReplyMessage.Type.RESPONSE || inner == MessagingRpcMessage.Type.REQUEST) {
             throw new IllegalArgumentException("RPC message type does not match its request/reply frame");
         }
     }

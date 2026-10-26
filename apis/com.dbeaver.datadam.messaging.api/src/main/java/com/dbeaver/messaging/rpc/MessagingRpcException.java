@@ -16,39 +16,39 @@
  */
 package com.dbeaver.messaging.rpc;
 
-import com.dbeaver.messaging.requestreply.RequestReplyException;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
 import java.util.Objects;
 
-public class RpcException extends RuntimeException {
+public class MessagingRpcException extends RuntimeException {
     public enum Reason {
         CLOSED, DISCONNECTED, OVERLOADED, SEND_FAILED, TIMEOUT, INTERRUPTED, CODEC_FAILED, INVALID_RESPONSE, REMOTE_ERROR
     }
 
     private final Reason reason;
     @Nullable
-    private final RpcMessage.Error remoteError;
+    private final MessagingRpcMessage.Error remoteError;
     @Nullable
-    private final RpcExceptionDetails remoteException;
+    private final MessagingRpcExceptionDetails remoteException;
 
-    public RpcException(@NotNull Reason reason) {
+    public MessagingRpcException(@NotNull Reason reason) {
         this(reason, null);
     }
 
-    public RpcException(@NotNull Reason reason, @Nullable Throwable cause) {
+    public MessagingRpcException(@NotNull Reason reason, @Nullable Throwable cause) {
         super("RPC call failed: " + Objects.requireNonNull(reason), cause);
         this.reason = reason;
         this.remoteError = null;
         this.remoteException = null;
     }
 
-    public RpcException(@NotNull RpcMessage.Error remoteError) {
+    public MessagingRpcException(@NotNull MessagingRpcMessage.Error remoteError) {
         this(remoteError, null);
     }
 
-    public RpcException(@NotNull RpcMessage.Error remoteError, @Nullable RpcExceptionDetails remoteException) {
+    public MessagingRpcException(@NotNull MessagingRpcMessage.Error remoteError, @Nullable MessagingRpcExceptionDetails remoteException) {
         super("Remote RPC call failed: " + Objects.requireNonNull(remoteError)
             + (remoteException == null ? "" : ": " + remoteException.type()
                 + (remoteException.message() == null ? "" : ": " + remoteException.message())),
@@ -58,7 +58,7 @@ public class RpcException extends RuntimeException {
         this.remoteException = remoteException;
     }
 
-    RpcException(@NotNull RequestReplyException cause) {
+    MessagingRpcException(@NotNull MessagingRequestReplyException cause) {
         this(switch (cause.reason()) {
             case CLOSED -> Reason.CLOSED;
             case DISCONNECTED -> Reason.DISCONNECTED;
@@ -75,17 +75,17 @@ public class RpcException extends RuntimeException {
     }
 
     @Nullable
-    public RpcMessage.Error remoteError() {
+    public MessagingRpcMessage.Error remoteError() {
         return remoteError;
     }
 
     @Nullable
-    public RpcExceptionDetails remoteException() {
+    public MessagingRpcExceptionDetails remoteException() {
         return remoteException;
     }
 
     private static final class RemoteException extends Exception {
-        private RemoteException(@NotNull RpcExceptionDetails details) {
+        private RemoteException(@NotNull MessagingRpcExceptionDetails details) {
             super("Remote stack trace" + (details.truncated() ? " (truncated)" : "") + ":\n" + details.stackTrace(),
                 null, false, false);
         }

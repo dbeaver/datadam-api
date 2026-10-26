@@ -28,27 +28,27 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Timeout(10)
-class RequestReplyMessageTest {
+class MessagingRequestReplyMessageTest {
     private static final UUID REQUEST_ID = UUID.randomUUID();
     private static final UUID ENDPOINT_ID = UUID.randomUUID();
 
     @Test
     void preservesTheOpaquePayloadAndCorrelationWhenCreatingReplies() {
         Object payload = new Object();
-        RequestReplyMessage<Object> request = RequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, payload);
+        MessagingRequestReplyMessage<Object> request = MessagingRequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, payload);
 
         assertEquals(REQUEST_ID, request.requestId());
         assertEquals(ENDPOINT_ID, request.replyTo());
-        assertEquals(RequestReplyMessage.Type.REQUEST, request.type());
+        assertEquals(MessagingRequestReplyMessage.Type.REQUEST, request.type());
         assertSame(payload, request.payload());
         assertNull(request.error());
 
         Object result = new Object();
-        RequestReplyMessage<Object> response = request.response(result);
+        MessagingRequestReplyMessage<Object> response = request.response(result);
 
         assertEquals(REQUEST_ID, response.requestId());
         assertEquals(ENDPOINT_ID, response.replyTo());
-        assertEquals(RequestReplyMessage.Type.RESPONSE, response.type());
+        assertEquals(MessagingRequestReplyMessage.Type.RESPONSE, response.type());
         assertSame(result, response.payload());
         assertNull(response.error());
         assertSame(payload, request.payload());
@@ -56,24 +56,25 @@ class RequestReplyMessageTest {
 
     @Test
     void permitsANullResponseWithoutTurningItIntoAnError() {
-        RequestReplyMessage<String> response = RequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, "request").response(null);
+        MessagingRequestReplyMessage<String> response =
+            MessagingRequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, "request").response(null);
 
         assertEquals(REQUEST_ID, response.requestId());
         assertEquals(ENDPOINT_ID, response.replyTo());
-        assertEquals(RequestReplyMessage.Type.RESPONSE, response.type());
+        assertEquals(MessagingRequestReplyMessage.Type.RESPONSE, response.type());
         assertNull(response.payload());
         assertNull(response.error());
     }
 
     @Test
     void exposesOnlyTheErrorCodeAndOriginalCorrelationInFailures() {
-        var request = RequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, "private request");
-        for (RequestReplyMessage.Error error : RequestReplyMessage.Error.values()) {
-            RequestReplyMessage<String> failure = request.failure(error);
+        var request = MessagingRequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, "private request");
+        for (MessagingRequestReplyMessage.Error error : MessagingRequestReplyMessage.Error.values()) {
+            MessagingRequestReplyMessage<String> failure = request.failure(error);
 
             assertEquals(REQUEST_ID, failure.requestId());
             assertEquals(ENDPOINT_ID, failure.replyTo());
-            assertEquals(RequestReplyMessage.Type.ERROR, failure.type());
+            assertEquals(MessagingRequestReplyMessage.Type.ERROR, failure.type());
             assertEquals(error, failure.error());
             assertNull(failure.payload());
         }
@@ -82,43 +83,46 @@ class RequestReplyMessageTest {
     @Test
     void rejectsMissingCorrelationAndType() {
         assertThrows(NullPointerException.class,
-            () -> new RequestReplyMessage<>(null, ENDPOINT_ID, RequestReplyMessage.Type.RESPONSE, null, null));
+            () -> new MessagingRequestReplyMessage<>(null, ENDPOINT_ID, MessagingRequestReplyMessage.Type.RESPONSE, null, null));
         assertThrows(NullPointerException.class,
-            () -> new RequestReplyMessage<>(REQUEST_ID, null, RequestReplyMessage.Type.RESPONSE, null, null));
+            () -> new MessagingRequestReplyMessage<>(REQUEST_ID, null, MessagingRequestReplyMessage.Type.RESPONSE, null, null));
         assertThrows(NullPointerException.class,
-            () -> new RequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, null, null, null));
-        assertThrows(NullPointerException.class, () -> RequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, null));
+            () -> new MessagingRequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, null, null, null));
+        assertThrows(NullPointerException.class, () -> MessagingRequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, null));
     }
 
     @Test
     void rejectsMalformedPayloadAndErrorCombinations() {
         assertThrows(IllegalArgumentException.class,
-            () -> new RequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, RequestReplyMessage.Type.REQUEST, null, null));
+            () -> new MessagingRequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, MessagingRequestReplyMessage.Type.REQUEST, null, null));
         assertThrows(IllegalArgumentException.class,
-            () -> new RequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, RequestReplyMessage.Type.ERROR, null, null));
-        for (RequestReplyMessage.Error error : RequestReplyMessage.Error.values()) {
+            () -> new MessagingRequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, MessagingRequestReplyMessage.Type.ERROR, null, null));
+        for (MessagingRequestReplyMessage.Error error : MessagingRequestReplyMessage.Error.values()) {
             assertThrows(IllegalArgumentException.class,
-                () -> new RequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, RequestReplyMessage.Type.REQUEST, "request", error));
+                () -> new MessagingRequestReplyMessage<>(
+                    REQUEST_ID, ENDPOINT_ID, MessagingRequestReplyMessage.Type.REQUEST, "request", error));
             assertThrows(IllegalArgumentException.class,
-                () -> new RequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, RequestReplyMessage.Type.REQUEST, null, error));
+                () -> new MessagingRequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, MessagingRequestReplyMessage.Type.REQUEST, null, error));
             assertThrows(IllegalArgumentException.class,
-                () -> new RequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, RequestReplyMessage.Type.RESPONSE, "response", error));
+                () -> new MessagingRequestReplyMessage<>(
+                    REQUEST_ID, ENDPOINT_ID, MessagingRequestReplyMessage.Type.RESPONSE, "response", error));
             assertThrows(IllegalArgumentException.class,
-                () -> new RequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, RequestReplyMessage.Type.RESPONSE, null, error));
+                () -> new MessagingRequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, MessagingRequestReplyMessage.Type.RESPONSE, null, error));
             assertThrows(IllegalArgumentException.class,
-                () -> new RequestReplyMessage<>(REQUEST_ID, ENDPOINT_ID, RequestReplyMessage.Type.ERROR, "private payload", error));
+                () -> new MessagingRequestReplyMessage<>(
+                    REQUEST_ID, ENDPOINT_ID, MessagingRequestReplyMessage.Type.ERROR, "private payload", error));
         }
     }
 
     @Test
     void onlyAllowsRequestsToProduceReplies() {
-        var request = RequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, "request");
+        var request = MessagingRequestReplyMessage.request(REQUEST_ID, ENDPOINT_ID, "request");
         assertThrows(NullPointerException.class, () -> request.failure(null));
-        for (RequestReplyMessage<String> reply : List.of(
-            request.response("response"), request.response(null), request.failure(RequestReplyMessage.Error.NO_HANDLER)
+        for (MessagingRequestReplyMessage<String> reply : List.of(
+            request.response("response"), request.response(null), request.failure(MessagingRequestReplyMessage.Error.NO_HANDLER)
         )) {
             assertThrows(IllegalStateException.class, () -> reply.response("another response"));
-            assertThrows(IllegalStateException.class, () -> reply.failure(RequestReplyMessage.Error.HANDLER_FAILED));
+            assertThrows(IllegalStateException.class, () -> reply.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED));
         }
     }
 }

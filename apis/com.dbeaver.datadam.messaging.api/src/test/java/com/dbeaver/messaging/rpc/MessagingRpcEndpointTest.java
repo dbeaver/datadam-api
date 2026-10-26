@@ -16,12 +16,12 @@
  */
 package com.dbeaver.messaging.rpc;
 
-import com.dbeaver.messaging.requestreply.MessageSubscription;
-import com.dbeaver.messaging.requestreply.RequestReplyEndpoint;
-import com.dbeaver.messaging.requestreply.RequestReplyException;
-import com.dbeaver.messaging.requestreply.RequestReplyMessage;
-import com.dbeaver.messaging.requestreply.RequestReplyOptions;
-import com.dbeaver.messaging.requestreply.RequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyEndpoint;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyMessage;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyOptions;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingSubscription;
 import com.dbeaver.messaging.rpc.fixtures.PublicInheritedService;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
@@ -60,7 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(30)
-public class RpcEndpointTest extends RpcTestSupport {
+public class MessagingRpcEndpointTest extends MessagingRpcTestSupport {
     @Test
     void supportsSynchronousReentrantCallbacksOnIndependentReceivingThreads() throws Exception {
         var leftTransport = new MemoryTransport();
@@ -68,8 +68,8 @@ public class RpcEndpointTest extends RpcTestSupport {
         var serviceThread = new AtomicReference<Thread>();
         var callbackThread = new AtomicReference<Thread>();
         connect(leftTransport, rightTransport);
-        try (var left = RpcEndpoint.open(leftTransport, OPTIONS);
-             var right = RpcEndpoint.open(rightTransport, OPTIONS);
+        try (var left = MessagingRpcEndpoint.open(leftTransport, OPTIONS);
+             var right = MessagingRpcEndpoint.open(rightTransport, OPTIONS);
              var callback = left.register("echo", EchoService.class, value -> {
                  callbackThread.set(Thread.currentThread());
                  return "callback:" + value;
@@ -90,8 +90,8 @@ public class RpcEndpointTest extends RpcTestSupport {
         var leftTransport = new MemoryTransport();
         var rightTransport = new MemoryTransport();
         connect(leftTransport, rightTransport);
-        try (var left = RpcEndpoint.open(leftTransport);
-             var right = RpcEndpoint.open(rightTransport, OPTIONS);
+        try (var left = MessagingRpcEndpoint.open(leftTransport);
+             var right = MessagingRpcEndpoint.open(rightTransport, OPTIONS);
              var leftService = left.register("echo", EchoService.class, value -> "left:" + value, new TestCodec());
              var rightService = right.register("echo", EchoService.class, value -> "right:" + value, new TestCodec());
              var otherService = right.register("other", EchoService.class, value -> "other:" + value, new TestCodec())) {
@@ -115,8 +115,8 @@ public class RpcEndpointTest extends RpcTestSupport {
         var clientCodec = new TestCodec();
         var serverCodec = new TestCodec();
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var registration = server.register("collection", CollectionService.class,
                  values -> values == null ? null : Map.of("size", values.size()), serverCodec)) {
             CollectionService proxy = client.proxy("collection", CollectionService.class, clientCodec);
@@ -135,8 +135,8 @@ public class RpcEndpointTest extends RpcTestSupport {
             assertEquals(serverCodec.encoded, clientCodec.decoded);
             assertEquals("count(java.util.List)", clientTransport.next().payload().operation());
             assertNull(clientTransport.next().payload().payload());
-            assertEquals(RpcMessage.Type.RESPONSE, serverTransport.next().payload().type());
-            assertEquals(RpcMessage.response(null), serverTransport.next().payload());
+            assertEquals(MessagingRpcMessage.Type.RESPONSE, serverTransport.next().payload().type());
+            assertEquals(MessagingRpcMessage.response(null), serverTransport.next().payload());
         }
     }
 
@@ -147,8 +147,8 @@ public class RpcEndpointTest extends RpcTestSupport {
         var clientCodec = new TestCodec();
         var serverCodec = new TestCodec();
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var registration = server.register("primitive", PrimitiveService.class, new PrimitiveEcho(), serverCodec)) {
             PrimitiveService proxy = client.proxy("primitive", PrimitiveService.class, clientCodec);
 
@@ -198,8 +198,8 @@ public class RpcEndpointTest extends RpcTestSupport {
                 return "inherited:" + value;
             }
         };
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var registration = server.register("overload", OverloadedService.class, implementation, serverCodec)) {
             OverloadedService proxy = client.proxy("overload", OverloadedService.class, clientCodec);
             BaseService base = proxy;
@@ -224,19 +224,19 @@ public class RpcEndpointTest extends RpcTestSupport {
         PublicInheritedService implementation = value -> "inherited:" + value;
         var operation = PublicInheritedService.class.getMethod("inherited", String.class);
         assertFalse(Modifier.isPublic(operation.getDeclaringClass().getModifiers()));
-        assertNotEquals(RpcEndpoint.class.getPackageName(), operation.getDeclaringClass().getPackageName());
+        assertNotEquals(MessagingRpcEndpoint.class.getPackageName(), operation.getDeclaringClass().getPackageName());
         assertFalse(operation.canAccess(implementation));
         var clientTransport = new MemoryTransport();
         var serverTransport = new MemoryTransport();
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var registration = server.register("inherited", PublicInheritedService.class, implementation, new TestCodec())) {
             PublicInheritedService proxy = client.proxy("inherited", PublicInheritedService.class, new TestCodec());
 
             assertEquals("inherited:value", proxy.inherited("value"));
             assertEquals("inherited(java.lang.String)", clientTransport.next().payload().operation());
-            assertEquals(RpcMessage.response("inherited:value"), serverTransport.next().payload());
+            assertEquals(MessagingRpcMessage.response("inherited:value"), serverTransport.next().payload());
         }
     }
 
@@ -249,8 +249,8 @@ public class RpcEndpointTest extends RpcTestSupport {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var registration = server.register("void", VoidService.class, value -> {
                  assertEquals("work", value);
                  entered.countDown();
@@ -268,7 +268,7 @@ public class RpcEndpointTest extends RpcTestSupport {
                 release.countDown();
 
                 assertNull(result(pending));
-                assertEquals(RpcMessage.response(null), serverTransport.next().payload());
+                assertEquals(MessagingRpcMessage.response(null), serverTransport.next().payload());
                 assertEquals(List.of(new CodecCall("work", String.class)), clientCodec.encoded);
                 assertEquals(clientCodec.encoded, serverCodec.decoded);
                 assertTrue(serverCodec.encoded.isEmpty());
@@ -285,8 +285,8 @@ public class RpcEndpointTest extends RpcTestSupport {
         var serverTransport = new MemoryTransport();
         var calls = new AtomicInteger();
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS)) {
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS)) {
             for (Throwable cause : List.of(new Exception("private checked detail"),
                 new IllegalStateException("private runtime detail"), new AssertionError("private error detail"))) {
                 try (var registration = server.register("failure", FailingService.class, value -> {
@@ -296,10 +296,10 @@ public class RpcEndpointTest extends RpcTestSupport {
                     }
                     throw (Error) cause;
                 }, new TestCodec())) {
-                    RpcException failure = remoteFailure(RpcMessage.Error.HANDLER_FAILED,
+                    MessagingRpcException failure = remoteFailure(MessagingRpcMessage.Error.HANDLER_FAILED,
                         () -> client.proxy("failure", FailingService.class, new TestCodec()).fail("secret argument"));
 
-                    RpcExceptionDetails details = failure.remoteException();
+                    MessagingRpcExceptionDetails details = failure.remoteException();
                     assertNotNull(details);
                     assertEquals(cause.getClass().getName(), details.type());
                     assertEquals(cause.getMessage(), details.message());
@@ -307,7 +307,8 @@ public class RpcEndpointTest extends RpcTestSupport {
                     assertFalse(details.stackTrace().contains(InvocationTargetException.class.getName()));
                     assertNotSame(cause, failure.getCause());
                     assertFalse(failure.toString().contains("secret"));
-                    assertEquals(RpcMessage.failure(RpcMessage.Error.HANDLER_FAILED, details), serverTransport.next().payload());
+                    assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.HANDLER_FAILED, details),
+                        serverTransport.next().payload());
                     assertEquals("secret argument", clientTransport.next().payload().payload());
                     assertTrue(clientTransport.sent.isEmpty());
                     assertTrue(serverTransport.sent.isEmpty());
@@ -337,26 +338,28 @@ public class RpcEndpointTest extends RpcTestSupport {
                 default -> throw new AssertionError("Unexpected codec boundary");
             }
             connect(clientTransport, serverTransport);
-            try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-                 var server = RpcEndpoint.open(serverTransport, OPTIONS);
+            try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+                 var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
                  var registration = server.register("echo", EchoService.class, value -> {
                      calls.incrementAndGet();
                      return value;
                  }, serverCodec)) {
                 EchoService proxy = client.proxy("echo", EchoService.class, clientCodec);
                 if (boundary == 0 || boundary == 3) {
-                    RpcException failure = failure(RpcException.Reason.CODEC_FAILED, () -> proxy.echo("secret argument"));
+                    MessagingRpcException failure = failure(MessagingRpcException.Reason.CODEC_FAILED, () -> proxy.echo("secret argument"));
                     assertSame(cause, failure.getCause());
                     assertNull(failure.remoteError());
                     assertNull(failure.remoteException());
                 } else {
-                    RpcException failure = remoteFailure(RpcMessage.Error.CODEC_FAILED, () -> proxy.echo("secret argument"));
-                    RpcExceptionDetails details = failure.remoteException();
+                    MessagingRpcException failure = remoteFailure(MessagingRpcMessage.Error.CODEC_FAILED,
+                        () -> proxy.echo("secret argument"));
+                    MessagingRpcExceptionDetails details = failure.remoteException();
                     assertNotNull(details);
                     assertEquals(cause.getClass().getName(), details.type());
                     assertEquals(cause.getMessage(), details.message());
                     assertNotSame(cause, failure.getCause());
-                    assertEquals(RpcMessage.failure(RpcMessage.Error.CODEC_FAILED, details), serverTransport.next().payload());
+                    assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.CODEC_FAILED, details),
+                        serverTransport.next().payload());
                 }
                 assertEquals(boundary < 2 ? 0 : 1, calls.get());
                 assertEquals(boundary == 0 ? 0 : 1, clientTransport.sent.size());
@@ -378,8 +381,8 @@ public class RpcEndpointTest extends RpcTestSupport {
         var codec = new TestCodec();
         var calls = new AtomicInteger();
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var references = server.register("reference", EchoService.class, value -> {
                  calls.incrementAndGet();
                  return value;
@@ -390,10 +393,11 @@ public class RpcEndpointTest extends RpcTestSupport {
              }, codec)) {
             for (Object invalid : Arrays.asList(null, "wrong primitive", 1L)) {
                 codec.decoder = (value, type) -> invalid;
-                remoteFailure(RpcMessage.Error.INVALID_REQUEST, () -> client.proxy("primitive", IntService.class, new TestCodec()).echo(1));
+                remoteFailure(MessagingRpcMessage.Error.INVALID_REQUEST,
+                    () -> client.proxy("primitive", IntService.class, new TestCodec()).echo(1));
             }
             codec.decoder = (value, type) -> 42;
-            remoteFailure(RpcMessage.Error.INVALID_REQUEST,
+            remoteFailure(MessagingRpcMessage.Error.INVALID_REQUEST,
                 () -> client.proxy("reference", EchoService.class, new TestCodec()).echo("value"));
 
             assertEquals(0, calls.get());
@@ -407,18 +411,19 @@ public class RpcEndpointTest extends RpcTestSupport {
         var serverTransport = new MemoryTransport();
         var codec = new TestCodec();
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var references = server.register("reference", EchoService.class, value -> value, new TestCodec());
              var primitives = server.register("primitive", IntService.class, value -> value, new TestCodec())) {
             for (Object invalid : Arrays.asList(null, "wrong primitive", 1L)) {
                 codec.decoder = (value, type) -> invalid;
-                RpcException failure = failure(RpcException.Reason.INVALID_RESPONSE,
+                MessagingRpcException failure = failure(MessagingRpcException.Reason.INVALID_RESPONSE,
                     () -> client.proxy("primitive", IntService.class, codec).echo(1));
                 assertNull(failure.remoteError());
             }
             codec.decoder = (value, type) -> 42;
-            failure(RpcException.Reason.INVALID_RESPONSE, () -> client.proxy("reference", EchoService.class, codec).echo("value"));
+            failure(MessagingRpcException.Reason.INVALID_RESPONSE,
+                () -> client.proxy("reference", EchoService.class, codec).echo("value"));
         }
     }
 
@@ -429,19 +434,19 @@ public class RpcEndpointTest extends RpcTestSupport {
         var codec = new TestCodec();
         var calls = new AtomicInteger();
         connect(clientTransport, serverTransport);
-        try (var client = RequestReplyEndpoint.open(clientTransport.forTopic("echo"), OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRequestReplyEndpoint.open(clientTransport.forTopic("echo"), OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var registration = server.register("echo", EchoService.class, value -> {
                  calls.incrementAndGet();
                  return value;
              }, codec)) {
             for (String operation : List.of("missing(java.lang.String)", "echo(int)")) {
-                assertEquals(RpcMessage.failure(RpcMessage.Error.UNKNOWN_OPERATION),
-                    client.request(RpcMessage.request(operation, "value")));
+                assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_OPERATION),
+                    client.request(MessagingRpcMessage.request(operation, "value")));
             }
-            for (RpcMessage<Object> invalid : List.of(RpcMessage.<Object>response("not a request"),
-                RpcMessage.<Object>failure(RpcMessage.Error.HANDLER_FAILED))) {
-                assertEquals(RpcMessage.failure(RpcMessage.Error.INVALID_REQUEST), client.request(invalid));
+            for (MessagingRpcMessage<Object> invalid : List.of(MessagingRpcMessage.<Object>response("not a request"),
+                MessagingRpcMessage.<Object>failure(MessagingRpcMessage.Error.HANDLER_FAILED))) {
+                assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST), client.request(invalid));
             }
             assertEquals(0, calls.get());
             assertTrue(codec.encoded.isEmpty());
@@ -453,21 +458,22 @@ public class RpcEndpointTest extends RpcTestSupport {
     void rejectsMissingResponseEnvelopesRequestsUsedAsRepliesAndNonemptyVoidReplies() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             EchoService proxy = endpoint.proxy("echo", EchoService.class, codec);
-            List<RpcMessage<Object>> invalid = Arrays.asList(null, RpcMessage.request("echo(java.lang.String)", "value"));
-            for (RpcMessage<Object> reply : invalid) {
+            List<MessagingRpcMessage<Object>> invalid = Arrays.asList(null, MessagingRpcMessage.request("echo(java.lang.String)", "value"));
+            for (MessagingRpcMessage<Object> reply : invalid) {
                 transport.sender = request -> {
                     transport.deliver(request.response(reply));
                     return CompletableFuture.completedFuture(null);
                 };
-                failure(RpcException.Reason.INVALID_RESPONSE, () -> proxy.echo("value"));
+                failure(MessagingRpcException.Reason.INVALID_RESPONSE, () -> proxy.echo("value"));
             }
             transport.sender = request -> {
-                transport.deliver(request.response(RpcMessage.response("unexpected void payload")));
+                transport.deliver(request.response(MessagingRpcMessage.response("unexpected void payload")));
                 return CompletableFuture.completedFuture(null);
             };
-            failure(RpcException.Reason.INVALID_RESPONSE, () -> endpoint.proxy("void", VoidService.class, codec).accept("value"));
+            failure(MessagingRpcException.Reason.INVALID_RESPONSE,
+                () -> endpoint.proxy("void", VoidService.class, codec).accept("value"));
             assertTrue(codec.decoded.isEmpty());
             assertEquals(3, transport.sent.size());
         }
@@ -484,8 +490,8 @@ public class RpcEndpointTest extends RpcTestSupport {
         originalCodec.encoder = (value, type) -> "old-codec:" + value;
         replacementCodec.encoder = (value, type) -> "new-codec:" + value;
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var other = server.register("other", EchoService.class, value -> "other:" + value, new TestCodec());
              var original = server.register("echo", EchoService.class, value -> {
                  entered.countDown();
@@ -500,7 +506,7 @@ public class RpcEndpointTest extends RpcTestSupport {
                 await(entered);
 
                 original.close();
-                remoteFailure(RpcMessage.Error.UNKNOWN_SERVICE, () -> proxy.echo("unregistered"));
+                remoteFailure(MessagingRpcMessage.Error.UNKNOWN_SERVICE, () -> proxy.echo("unregistered"));
                 try (var replacement = server.register("echo", EchoService.class, value -> "replacement:" + value, replacementCodec)) {
                     original.close();
                     assertEquals("new-codec:replacement:next", proxy.echo("next"));
@@ -508,7 +514,7 @@ public class RpcEndpointTest extends RpcTestSupport {
                     release.countDown();
                     assertEquals("old-codec:original:accepted", result(accepted));
                 }
-                remoteFailure(RpcMessage.Error.UNKNOWN_SERVICE, () -> proxy.echo("removed replacement"));
+                remoteFailure(MessagingRpcMessage.Error.UNKNOWN_SERVICE, () -> proxy.echo("removed replacement"));
                 assertEquals("other:surviving", client.proxy("other", EchoService.class, new TestCodec()).echo("surviving"));
                 assertEquals(2, serverTransport.listeners.size());
                 assertEquals(0, serverTransport.subscriptionCloses.get());
@@ -522,18 +528,18 @@ public class RpcEndpointTest extends RpcTestSupport {
     void closingAnEndpointFailsPendingCallsAndClosesItsTopicSubscriptions() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             EchoService proxy = endpoint.proxy("echo", EchoService.class, codec);
             Future<String> pending = async(() -> proxy.echo("pending"));
             transport.next();
 
             endpoint.close();
 
-            RpcException failure = failure(RpcException.Reason.CLOSED, pending);
+            MessagingRpcException failure = failure(MessagingRpcException.Reason.CLOSED, pending);
             assertNull(failure.remoteError());
-            failure(RpcException.Reason.CLOSED, () -> proxy.echo("closed"));
-            failure(RpcException.Reason.CLOSED, () -> endpoint.proxy("echo", EchoService.class, codec));
-            failure(RpcException.Reason.CLOSED, () -> endpoint.register("echo", EchoService.class, value -> value, codec));
+            failure(MessagingRpcException.Reason.CLOSED, () -> proxy.echo("closed"));
+            failure(MessagingRpcException.Reason.CLOSED, () -> endpoint.proxy("echo", EchoService.class, codec));
+            failure(MessagingRpcException.Reason.CLOSED, () -> endpoint.register("echo", EchoService.class, value -> value, codec));
             assertTrue(transport.listeners.isEmpty());
             assertTrue(transport.sent.isEmpty());
             assertEquals(1, transport.subscriptionCloses.get());
@@ -547,15 +553,16 @@ public class RpcEndpointTest extends RpcTestSupport {
     void failedTopicOpeningReleasesItsReservationAndAllowsRetry() throws Exception {
         var transport = new MemoryTransport();
         var attempts = new AtomicInteger();
-        var expected = new RequestReplyException(RequestReplyException.Reason.DISCONNECTED);
-        try (var endpoint = RpcEndpoint.<Object>open(topic -> {
+        var expected = new MessagingRequestReplyException(MessagingRequestReplyException.Reason.DISCONNECTED);
+        try (var endpoint = MessagingRpcEndpoint.<Object>open(topic -> {
             if (attempts.getAndIncrement() == 0) {
                 throw expected;
             }
             return transport.forTopic(topic);
         }, OPTIONS)) {
             assertSame(expected,
-                failure(RpcException.Reason.DISCONNECTED, () -> endpoint.proxy("echo", EchoService.class, new TestCodec())).getCause());
+                failure(MessagingRpcException.Reason.DISCONNECTED,
+                    () -> endpoint.proxy("echo", EchoService.class, new TestCodec())).getCause());
             endpoint.proxy("echo", EchoService.class, new TestCodec());
             assertEquals(2, attempts.get());
             assertEquals(1, transport.listeners.size());
@@ -565,22 +572,22 @@ public class RpcEndpointTest extends RpcTestSupport {
     @Test
     void disconnectFailsPendingCallsAndFreshCallsDoNotReplayThem() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             EchoService proxy = endpoint.proxy("echo", EchoService.class, new TestCodec());
             Future<String> pending = async(() -> proxy.echo("old"));
             final var oldRequest = transport.next();
 
             transport.disconnect();
 
-            RpcException failure = failure(RpcException.Reason.DISCONNECTED, pending);
+            MessagingRpcException failure = failure(MessagingRpcException.Reason.DISCONNECTED, pending);
             assertNull(failure.remoteError());
             assertTrue(transport.sent.isEmpty());
             Future<String> fresh = async(() -> proxy.echo("fresh"));
             var freshRequest = transport.next();
             assertEquals("fresh", freshRequest.payload().payload());
-            transport.deliver(oldRequest.response(RpcMessage.response("late")));
+            transport.deliver(oldRequest.response(MessagingRpcMessage.response("late")));
             assertFalse(fresh.isDone());
-            transport.deliver(freshRequest.response(RpcMessage.response("fresh reply")));
+            transport.deliver(freshRequest.response(MessagingRpcMessage.response("fresh reply")));
 
             assertEquals("fresh reply", result(fresh));
             assertTrue(transport.sent.isEmpty());
@@ -592,9 +599,9 @@ public class RpcEndpointTest extends RpcTestSupport {
     void usesTheConfiguredTimeoutWithoutRetryingTheEncodedRequest() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        var options = new RequestReplyOptions(Duration.ofMillis(100), 1, 1);
-        try (var endpoint = RpcEndpoint.open(transport, options)) {
-            RpcException failure = failure(RpcException.Reason.TIMEOUT,
+        var options = new MessagingRequestReplyOptions(Duration.ofMillis(100), 1, 1);
+        try (var endpoint = MessagingRpcEndpoint.open(transport, options)) {
+            MessagingRpcException failure = failure(MessagingRpcException.Reason.TIMEOUT,
                 () -> endpoint.proxy("echo", EchoService.class, codec).echo("expire"));
 
             assertNull(failure.remoteError());
@@ -609,12 +616,12 @@ public class RpcEndpointTest extends RpcTestSupport {
     void mapsSendFailureAndPendingOverloadWithoutSendingAnExtraRequest() throws Exception {
         var transport = new MemoryTransport();
         var cause = new IllegalStateException("send failed");
-        var options = new RequestReplyOptions(WAIT, 1, 1);
+        var options = new MessagingRequestReplyOptions(WAIT, 1, 1);
         transport.sender = request -> CompletableFuture.failedFuture(cause);
-        try (var endpoint = RpcEndpoint.open(transport, options)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, options)) {
             EchoService proxy = endpoint.proxy("echo", EchoService.class, new TestCodec());
-            RpcException failed = failure(RpcException.Reason.SEND_FAILED, () -> proxy.echo("failed"));
-            assertSame(cause, assertInstanceOf(RequestReplyException.class, failed.getCause()).getCause());
+            MessagingRpcException failed = failure(MessagingRpcException.Reason.SEND_FAILED, () -> proxy.echo("failed"));
+            assertSame(cause, assertInstanceOf(MessagingRequestReplyException.class, failed.getCause()).getCause());
             assertNull(failed.remoteError());
             transport.next();
             assertTrue(transport.sent.isEmpty());
@@ -622,9 +629,9 @@ public class RpcEndpointTest extends RpcTestSupport {
             transport.sender = request -> CompletableFuture.completedFuture(null);
             final Future<String> pending = async(() -> proxy.echo("pending"));
             var request = transport.next();
-            failure(RpcException.Reason.OVERLOADED, () -> proxy.echo("excess"));
+            failure(MessagingRpcException.Reason.OVERLOADED, () -> proxy.echo("excess"));
             assertTrue(transport.sent.isEmpty());
-            transport.deliver(request.response(RpcMessage.response("completed")));
+            transport.deliver(request.response(MessagingRpcMessage.response("completed")));
             assertEquals("completed", result(pending));
         }
     }
@@ -632,12 +639,12 @@ public class RpcEndpointTest extends RpcTestSupport {
     @Test
     void preservesTypedSendFailureReasonsAtTheProxyBoundary() throws Exception {
         for (var mapping : Map.of(
-            RequestReplyException.Reason.OVERLOADED, RpcException.Reason.OVERLOADED,
-            RequestReplyException.Reason.DISCONNECTED, RpcException.Reason.DISCONNECTED,
-            RequestReplyException.Reason.CLOSED, RpcException.Reason.CLOSED).entrySet()) {
-            var expected = new RequestReplyException(mapping.getKey());
+            MessagingRequestReplyException.Reason.OVERLOADED, MessagingRpcException.Reason.OVERLOADED,
+            MessagingRequestReplyException.Reason.DISCONNECTED, MessagingRpcException.Reason.DISCONNECTED,
+            MessagingRequestReplyException.Reason.CLOSED, MessagingRpcException.Reason.CLOSED).entrySet()) {
+            var expected = new MessagingRequestReplyException(mapping.getKey());
             var transport = new MemoryTransport();
-            try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+            try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
                 EchoService proxy = endpoint.proxy("echo", EchoService.class, new TestCodec());
                 for (Throwable error : List.of(expected, new CompletionException(new ExecutionException(expected)))) {
                     transport.sender = request -> CompletableFuture.failedFuture(error);
@@ -657,15 +664,15 @@ public class RpcEndpointTest extends RpcTestSupport {
     void mapsRequestReplyRemoteFailuresWithoutInventingAnRpcErrorCode() throws Exception {
         var transport = new MemoryTransport();
         transport.sender = request -> {
-            transport.deliver(request.failure(RequestReplyMessage.Error.OVERLOADED));
+            transport.deliver(request.failure(MessagingRequestReplyMessage.Error.OVERLOADED));
             return CompletableFuture.completedFuture(null);
         };
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
-            RpcException failure = failure(RpcException.Reason.REMOTE_ERROR,
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
+            MessagingRpcException failure = failure(MessagingRpcException.Reason.REMOTE_ERROR,
                 () -> endpoint.proxy("echo", EchoService.class, new TestCodec()).echo("value"));
             assertNull(failure.remoteError());
-            assertEquals(RequestReplyMessage.Error.OVERLOADED,
-                assertInstanceOf(RequestReplyException.class, failure.getCause()).remoteError());
+            assertEquals(MessagingRequestReplyMessage.Error.OVERLOADED,
+                assertInstanceOf(MessagingRequestReplyException.class, failure.getCause()).remoteError());
             assertEquals(1, transport.sent.size());
         }
     }
@@ -673,10 +680,10 @@ public class RpcEndpointTest extends RpcTestSupport {
     @Test
     void restoresTheCallerInterruptFlagWhenAPendingRequestIsInterrupted() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             EchoService proxy = endpoint.proxy("echo", EchoService.class, new TestCodec());
             var pending = new FutureTask<>(() -> {
-                RpcException failure = failure(RpcException.Reason.INTERRUPTED, () -> proxy.echo("interrupt"));
+                MessagingRpcException failure = failure(MessagingRpcException.Reason.INTERRUPTED, () -> proxy.echo("interrupt"));
                 assertInstanceOf(InterruptedException.class, failure.getCause());
                 assertNull(failure.remoteError());
                 return Thread.currentThread().isInterrupted();
@@ -695,12 +702,12 @@ public class RpcEndpointTest extends RpcTestSupport {
     void alreadyInterruptedCallersKeepTheirFlagWithoutInvokingTheCodecOrSending() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             EchoService proxy = endpoint.proxy("echo", EchoService.class, codec);
             Future<Boolean> flag = async(() -> {
                 Thread.currentThread().interrupt();
                 try {
-                    failure(RpcException.Reason.INTERRUPTED, () -> proxy.echo("value"));
+                    failure(MessagingRpcException.Reason.INTERRUPTED, () -> proxy.echo("value"));
                     return Thread.currentThread().isInterrupted();
                 } finally {
                     Thread.interrupted();
@@ -728,12 +735,13 @@ public class RpcEndpointTest extends RpcTestSupport {
                 codec.decoder = interrupted;
             }
             transport.sender = request -> {
-                transport.deliver(request.response(RpcMessage.response("value")));
+                transport.deliver(request.response(MessagingRpcMessage.response("value")));
                 return CompletableFuture.completedFuture(null);
             };
-            try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+            try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
                 Future<Boolean> flag = async(() -> {
-                    failure(RpcException.Reason.INTERRUPTED, () -> endpoint.proxy("echo", EchoService.class, codec).echo("value"));
+                    failure(MessagingRpcException.Reason.INTERRUPTED,
+                        () -> endpoint.proxy("echo", EchoService.class, codec).echo("value"));
                     return Thread.currentThread().isInterrupted();
                 });
 
@@ -761,8 +769,8 @@ public class RpcEndpointTest extends RpcTestSupport {
             return value;
         };
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var registration = server.register("echo", EchoService.class, value -> {
                  entered.countDown();
                  await(release.get(value));
@@ -787,7 +795,7 @@ public class RpcEndpointTest extends RpcTestSupport {
                     String value = order.get(index);
                     release.get(value).countDown();
                     assertEquals("reply:" + value, result(results.get(value)));
-                    assertEquals(RpcMessage.response("reply:" + value), serverTransport.next().payload());
+                    assertEquals(MessagingRpcMessage.response("reply:" + value), serverTransport.next().payload());
                 }
                 assertEquals(4, serverCodec.decoded.size());
                 assertEquals(4, serverCodec.encoded.size());
@@ -803,7 +811,7 @@ public class RpcEndpointTest extends RpcTestSupport {
     void objectMethodsRemainLocalAndUseProxyIdentityEvenAfterClosing() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             EchoService first = endpoint.proxy("echo", EchoService.class, codec);
             EchoService second = endpoint.proxy("echo", EchoService.class, codec);
 
@@ -830,19 +838,19 @@ public class RpcEndpointTest extends RpcTestSupport {
     void rejectsInvalidTopicsNullArgumentsAndOptionsBeforeSubscribingOrSending() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        assertThrows(NullPointerException.class, () -> RpcEndpoint.open(transport, (RequestReplyOptions) null));
-        assertThrows(NullPointerException.class, () -> RpcEndpoint.open(transport, null, OPTIONS));
-        assertThrows(NullPointerException.class, () -> RpcEndpoint.open(null, OPTIONS));
+        assertThrows(NullPointerException.class, () -> MessagingRpcEndpoint.open(transport, (MessagingRequestReplyOptions) null));
+        assertThrows(NullPointerException.class, () -> MessagingRpcEndpoint.open(transport, null, OPTIONS));
+        assertThrows(NullPointerException.class, () -> MessagingRpcEndpoint.open(null, OPTIONS));
         assertTrue(transport.listeners.isEmpty());
 
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             for (String topic : List.of("", " ", "\n", "t".repeat(257))) {
                 assertThrows(IllegalArgumentException.class, () -> endpoint.proxy(topic, EchoService.class, codec));
                 assertThrows(IllegalArgumentException.class, () -> endpoint.register(topic, EchoService.class, value -> value, codec));
             }
             assertThrows(NullPointerException.class, () -> endpoint.proxy(null, EchoService.class, codec));
             assertThrows(NullPointerException.class, () -> endpoint.proxy("echo", null, codec));
-            assertThrows(NullPointerException.class, () -> endpoint.proxy("echo", EchoService.class, (RpcCodec<?>) null));
+            assertThrows(NullPointerException.class, () -> endpoint.proxy("echo", EchoService.class, (MessagingRpcCodec<?>) null));
             assertThrows(NullPointerException.class, () -> endpoint.register(null, EchoService.class, value -> value, codec));
             assertThrows(NullPointerException.class, () -> endpoint.register("echo", EchoService.class, null, codec));
             assertThrows(NullPointerException.class, () -> endpoint.register("echo", EchoService.class, value -> value, null));
@@ -854,27 +862,28 @@ public class RpcEndpointTest extends RpcTestSupport {
 
     @Test
     void propagatesSubscriptionFailureWithoutSending() {
-        var expected = new RequestReplyException(RequestReplyException.Reason.DISCONNECTED);
-        var transport = new RequestReplyTransport<RpcMessage<Object>>() {
+        var expected = new MessagingRequestReplyException(MessagingRequestReplyException.Reason.DISCONNECTED);
+        var transport = new MessagingRequestReplyTransport<MessagingRpcMessage<Object>>() {
             @NotNull
             @Override
-            public MessageSubscription subscribe(
+            public MessagingSubscription subscribe(
                 @NotNull UUID endpointId,
-                @NotNull Listener<RpcMessage<Object>> listener
-            ) throws RequestReplyException {
+                @NotNull Listener<MessagingRpcMessage<Object>> listener
+            ) throws MessagingRequestReplyException {
                 throw expected;
             }
 
             @NotNull
             @Override
-            public CompletionStage<Void> send(@NotNull RequestReplyMessage<RpcMessage<Object>> message) {
+            public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<Object>> message) {
                 throw new AssertionError("Subscription failure must prevent sending");
             }
         };
 
-        try (var endpoint = RpcEndpoint.open(topic -> transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(topic -> transport, OPTIONS)) {
             assertSame(expected,
-                failure(RpcException.Reason.DISCONNECTED, () -> endpoint.proxy("echo", EchoService.class, new TestCodec())).getCause());
+                failure(MessagingRpcException.Reason.DISCONNECTED,
+                    () -> endpoint.proxy("echo", EchoService.class, new TestCodec())).getCause());
         }
     }
 

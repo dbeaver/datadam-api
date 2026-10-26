@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(10)
-class RpcExceptionDetailsTest {
+class MessagingRpcExceptionDetailsTest {
     @Test
     void capturesStandardTextIncludingCausesSuppressedExceptionsAndOriginalFrames() {
         var cause = new IllegalArgumentException("Invalid argument");
@@ -46,7 +46,7 @@ class RpcExceptionDetailsTest {
         StringWriter expected = new StringWriter();
         failure.printStackTrace(new PrintWriter(expected));
 
-        RpcExceptionDetails details = RpcExceptionDetails.capture(failure);
+        MessagingRpcExceptionDetails details = MessagingRpcExceptionDetails.capture(failure);
 
         assertEquals(IllegalStateException.class.getName(), details.type());
         assertEquals("Operation failed", details.message());
@@ -65,7 +65,7 @@ class RpcExceptionDetailsTest {
         failure.initCause(cause);
         failure.addSuppressed(cause);
 
-        RpcExceptionDetails details = RpcExceptionDetails.capture(failure);
+        MessagingRpcExceptionDetails details = MessagingRpcExceptionDetails.capture(failure);
 
         assertNull(details.message());
         assertTrue(details.stackTrace().contains("CIRCULAR REFERENCE"));
@@ -74,18 +74,18 @@ class RpcExceptionDetailsTest {
 
     @Test
     void boundsMessagesAndTraceTextWithoutSplittingSurrogatePairs() {
-        String message = "m".repeat(RpcExceptionDetails.MAX_MESSAGE_LENGTH - 1) + "😀tail";
+        String message = "m".repeat(MessagingRpcExceptionDetails.MAX_MESSAGE_LENGTH - 1) + "😀tail";
         var failure = new IllegalStateException(message) {
             @Override
             public void printStackTrace(@NotNull PrintWriter writer) {
-                writer.print("s".repeat(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH - 1) + "😀tail");
+                writer.print("s".repeat(MessagingRpcExceptionDetails.MAX_STACK_TRACE_LENGTH - 1) + "😀tail");
             }
         };
 
-        RpcExceptionDetails details = RpcExceptionDetails.capture(failure);
+        MessagingRpcExceptionDetails details = MessagingRpcExceptionDetails.capture(failure);
 
-        assertEquals("m".repeat(RpcExceptionDetails.MAX_MESSAGE_LENGTH - 1), details.message());
-        assertEquals("s".repeat(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH - 1), details.stackTrace());
+        assertEquals("m".repeat(MessagingRpcExceptionDetails.MAX_MESSAGE_LENGTH - 1), details.message());
+        assertEquals("s".repeat(MessagingRpcExceptionDetails.MAX_STACK_TRACE_LENGTH - 1), details.stackTrace());
         assertTrue(details.truncated());
     }
 
@@ -95,7 +95,7 @@ class RpcExceptionDetailsTest {
         var failure = new IllegalStateException("Failure") {
             @Override
             public void printStackTrace(@NotNull PrintWriter writer) {
-                writer.print("x".repeat(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH));
+                writer.print("x".repeat(MessagingRpcExceptionDetails.MAX_STACK_TRACE_LENGTH));
                 progress.incrementAndGet();
                 writer.write(new char[] {'y'}, 0, 1);
                 progress.incrementAndGet();
@@ -103,9 +103,9 @@ class RpcExceptionDetailsTest {
             }
         };
 
-        RpcExceptionDetails details = RpcExceptionDetails.capture(failure);
+        MessagingRpcExceptionDetails details = MessagingRpcExceptionDetails.capture(failure);
 
-        assertEquals(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH, details.stackTrace().length());
+        assertEquals(MessagingRpcExceptionDetails.MAX_STACK_TRACE_LENGTH, details.stackTrace().length());
         assertEquals(1, progress.get());
         assertTrue(details.truncated());
     }
@@ -120,7 +120,7 @@ class RpcExceptionDetailsTest {
             }
         };
 
-        RpcExceptionDetails details = RpcExceptionDetails.capture(failure);
+        MessagingRpcExceptionDetails details = MessagingRpcExceptionDetails.capture(failure);
 
         assertEquals(failure.getClass().getName(), details.type());
         assertNull(details.message());
@@ -130,18 +130,20 @@ class RpcExceptionDetailsTest {
 
     @Test
     void validatesAllBoundsWithoutRejectingTheirExactLimits() {
-        var details = new RpcExceptionDetails("t".repeat(RpcExceptionDetails.MAX_TYPE_LENGTH),
-            "m".repeat(RpcExceptionDetails.MAX_MESSAGE_LENGTH), "s".repeat(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH), false);
+        var details = new MessagingRpcExceptionDetails("t".repeat(MessagingRpcExceptionDetails.MAX_TYPE_LENGTH),
+            "m".repeat(MessagingRpcExceptionDetails.MAX_MESSAGE_LENGTH),
+            "s".repeat(MessagingRpcExceptionDetails.MAX_STACK_TRACE_LENGTH), false);
 
         assertFalse(details.truncated());
-        assertThrows(NullPointerException.class, () -> new RpcExceptionDetails(null, null, "", false));
-        assertThrows(NullPointerException.class, () -> new RpcExceptionDetails("type", null, null, false));
-        assertThrows(IllegalArgumentException.class, () -> new RpcExceptionDetails(" ", null, "", false));
+        assertThrows(NullPointerException.class, () -> new MessagingRpcExceptionDetails(null, null, "", false));
+        assertThrows(NullPointerException.class, () -> new MessagingRpcExceptionDetails("type", null, null, false));
+        assertThrows(IllegalArgumentException.class, () -> new MessagingRpcExceptionDetails(" ", null, "", false));
         assertThrows(IllegalArgumentException.class,
-            () -> new RpcExceptionDetails("t".repeat(RpcExceptionDetails.MAX_TYPE_LENGTH + 1), null, "", false));
+            () -> new MessagingRpcExceptionDetails("t".repeat(MessagingRpcExceptionDetails.MAX_TYPE_LENGTH + 1), null, "", false));
         assertThrows(IllegalArgumentException.class,
-            () -> new RpcExceptionDetails("type", "m".repeat(RpcExceptionDetails.MAX_MESSAGE_LENGTH + 1), "", false));
+            () -> new MessagingRpcExceptionDetails("type", "m".repeat(MessagingRpcExceptionDetails.MAX_MESSAGE_LENGTH + 1), "", false));
         assertThrows(IllegalArgumentException.class,
-            () -> new RpcExceptionDetails("type", null, "s".repeat(RpcExceptionDetails.MAX_STACK_TRACE_LENGTH + 1), false));
+            () -> new MessagingRpcExceptionDetails("type", null,
+                "s".repeat(MessagingRpcExceptionDetails.MAX_STACK_TRACE_LENGTH + 1), false));
     }
 }

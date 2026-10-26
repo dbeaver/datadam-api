@@ -16,16 +16,13 @@
  */
 package com.dbeaver.messaging.rpc;
 
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
 import org.jkiss.code.NotNull;
-import org.jkiss.code.Nullable;
 
-import java.lang.reflect.Type;
-
-/** Encodes and decodes declared RPC types using the payload representation accepted by the endpoint transport. */
-public interface RpcCodec<P> {
-    @Nullable
-    P encode(@Nullable Object value, @NotNull Type type) throws Exception;
-
-    @Nullable
-    Object decode(@Nullable P payload, @NotNull Type type) throws Exception;
+/** Opens topic-scoped RPC transports for a selected peer. */
+@FunctionalInterface
+public interface MessagingRpcTransport<P> {
+    @NotNull
+    MessagingRequestReplyTransport<MessagingRpcMessage<P>> forTopic(@NotNull String topic) throws MessagingRequestReplyException;
 }

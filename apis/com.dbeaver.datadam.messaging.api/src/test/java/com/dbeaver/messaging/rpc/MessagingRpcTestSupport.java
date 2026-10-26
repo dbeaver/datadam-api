@@ -16,10 +16,10 @@
  */
 package com.dbeaver.messaging.rpc;
 
-import com.dbeaver.messaging.requestreply.MessageSubscription;
-import com.dbeaver.messaging.requestreply.RequestReplyMessage;
-import com.dbeaver.messaging.requestreply.RequestReplyOptions;
-import com.dbeaver.messaging.requestreply.RequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyMessage;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyOptions;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingSubscription;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -53,9 +53,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class RpcTestSupport {
+class MessagingRpcTestSupport {
     static final Duration WAIT = Duration.ofSeconds(5);
-    static final RequestReplyOptions OPTIONS = new RequestReplyOptions(WAIT, 16, 16);
+    static final MessagingRequestReplyOptions OPTIONS = new MessagingRequestReplyOptions(WAIT, 16, 16);
     private final List<Thread> callers = new CopyOnWriteArrayList<>();
 
     @AfterEach
@@ -86,23 +86,23 @@ class RpcTestSupport {
     }
 
     @NotNull
-    static RpcException failure(@NotNull RpcException.Reason reason, @NotNull Executable action) {
-        RpcException failure = assertThrows(RpcException.class, action);
+    static MessagingRpcException failure(@NotNull MessagingRpcException.Reason reason, @NotNull Executable action) {
+        MessagingRpcException failure = assertThrows(MessagingRpcException.class, action);
         assertEquals(reason, failure.reason());
         return failure;
     }
 
     @NotNull
-    static RpcException failure(@NotNull RpcException.Reason reason, @NotNull Future<?> future) {
+    static MessagingRpcException failure(@NotNull MessagingRpcException.Reason reason, @NotNull Future<?> future) {
         ExecutionException wrapper = assertThrows(ExecutionException.class, () -> result(future));
-        RpcException failure = assertInstanceOf(RpcException.class, wrapper.getCause());
+        MessagingRpcException failure = assertInstanceOf(MessagingRpcException.class, wrapper.getCause());
         assertEquals(reason, failure.reason());
         return failure;
     }
 
     @NotNull
-    static RpcException remoteFailure(@NotNull RpcMessage.Error error, @NotNull Executable action) {
-        RpcException failure = failure(RpcException.Reason.REMOTE_ERROR, action);
+    static MessagingRpcException remoteFailure(@NotNull MessagingRpcMessage.Error error, @NotNull Executable action) {
+        MessagingRpcException failure = failure(MessagingRpcException.Reason.REMOTE_ERROR, action);
         assertEquals(error, failure.remoteError());
         if (failure.remoteException() == null) {
             assertNull(failure.getCause());
@@ -139,7 +139,7 @@ class RpcTestSupport {
     record CodecCall(@Nullable Object value, @NotNull Type type) {
     }
 
-    static final class TestCodec implements RpcCodec<Object> {
+    static final class TestCodec implements MessagingRpcCodec<Object> {
         final List<CodecCall> encoded = new CopyOnWriteArrayList<>();
         final List<CodecCall> decoded = new CopyOnWriteArrayList<>();
         volatile Conversion encoder = (value, type) -> value;
@@ -160,22 +160,22 @@ class RpcTestSupport {
         }
     }
 
-    static final class MemoryTransport implements RpcTransport<Object> {
-        final Map<UUID, RequestReplyTransport.Listener<RpcMessage<Object>>> listeners = new ConcurrentHashMap<>();
+    static final class MemoryTransport implements MessagingRpcTransport<Object> {
+        final Map<UUID, MessagingRequestReplyTransport.Listener<MessagingRpcMessage<Object>>> listeners = new ConcurrentHashMap<>();
         final Map<UUID, String> listenerTopics = new ConcurrentHashMap<>();
         final Map<UUID, String> routes = new ConcurrentHashMap<>();
-        final BlockingQueue<RequestReplyMessage<RpcMessage<Object>>> sent = new LinkedBlockingQueue<>();
+        final BlockingQueue<MessagingRequestReplyMessage<MessagingRpcMessage<Object>>> sent = new LinkedBlockingQueue<>();
         final AtomicInteger subscriptionCloses = new AtomicInteger();
-        volatile Function<RequestReplyMessage<RpcMessage<Object>>, CompletionStage<Void>> sender =
+        volatile Function<MessagingRequestReplyMessage<MessagingRpcMessage<Object>>, CompletionStage<Void>> sender =
             message -> CompletableFuture.completedFuture(null);
 
         @NotNull
         @Override
-        public RequestReplyTransport<RpcMessage<Object>> forTopic(@NotNull String topic) {
-            return new RequestReplyTransport<>() {
+        public MessagingRequestReplyTransport<MessagingRpcMessage<Object>> forTopic(@NotNull String topic) {
+            return new MessagingRequestReplyTransport<>() {
                 @NotNull
                 @Override
-                public MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<RpcMessage<Object>> listener) {
+                public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<MessagingRpcMessage<Object>> listener) {
                     assertNull(listeners.putIfAbsent(endpointId, listener));
                     listenerTopics.put(endpointId, topic);
                     return () -> {
@@ -188,7 +188,7 @@ class RpcTestSupport {
 
                 @NotNull
                 @Override
-                public CompletionStage<Void> send(@NotNull RequestReplyMessage<RpcMessage<Object>> message) {
+                public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<Object>> message) {
                     routes.put(message.requestId(), topic);
                     sent.add(message);
                     return sender.apply(message);
@@ -196,23 +196,23 @@ class RpcTestSupport {
             };
         }
 
-        void deliver(@NotNull RequestReplyMessage<RpcMessage<Object>> message) {
+        void deliver(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<Object>> message) {
             deliver(routes.get(message.requestId()), message);
         }
 
-        void deliver(@NotNull String topic, @NotNull RequestReplyMessage<RpcMessage<Object>> message) {
+        void deliver(@NotNull String topic, @NotNull MessagingRequestReplyMessage<MessagingRpcMessage<Object>> message) {
             routes.put(message.requestId(), topic);
             List.copyOf(listeners.entrySet()).stream().filter(entry -> topic.equals(listenerTopics.get(entry.getKey())))
                 .forEach(entry -> entry.getValue().onMessage(message));
         }
 
         void disconnect() {
-            List.copyOf(listeners.values()).forEach(RequestReplyTransport.Listener::onDisconnect);
+            List.copyOf(listeners.values()).forEach(MessagingRequestReplyTransport.Listener::onDisconnect);
         }
 
         @NotNull
-        RequestReplyMessage<RpcMessage<Object>> next() throws InterruptedException {
-            RequestReplyMessage<RpcMessage<Object>> message = sent.poll(WAIT.toMillis(), TimeUnit.MILLISECONDS);
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> next() throws InterruptedException {
+            MessagingRequestReplyMessage<MessagingRpcMessage<Object>> message = sent.poll(WAIT.toMillis(), TimeUnit.MILLISECONDS);
             assertNotNull(message, "No message was sent");
             return message;
         }

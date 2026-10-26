@@ -24,11 +24,11 @@ import com.dbeaver.datadam.external.api.transport.DDConnectionListener;
 import com.dbeaver.datadam.external.api.transport.DDMessageChannel;
 import com.dbeaver.datadam.external.api.transport.DDMessageListener;
 import com.dbeaver.datadam.external.api.transport.DDSubscription;
-import com.dbeaver.messaging.requestreply.RequestReplyOptions;
-import com.dbeaver.messaging.rpc.RpcCodec;
-import com.dbeaver.messaging.rpc.RpcEndpoint;
-import com.dbeaver.messaging.rpc.RpcException;
-import com.dbeaver.messaging.rpc.RpcMessage;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyOptions;
+import com.dbeaver.messaging.rpc.MessagingRpcCodec;
+import com.dbeaver.messaging.rpc.MessagingRpcEndpoint;
+import com.dbeaver.messaging.rpc.MessagingRpcException;
+import com.dbeaver.messaging.rpc.MessagingRpcMessage;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonPrimitive;
@@ -49,7 +49,7 @@ import java.util.function.Consumer;
 @Timeout(10)
 class DDRpcTopicsIntegrationTest {
     private static final DDConnectionInfo CONNECTION = new DDConnectionInfo("desktop", "run", "physical-connection");
-    private static final RequestReplyOptions OPTIONS = new RequestReplyOptions(Duration.ofSeconds(2), 16, 8);
+    private static final MessagingRequestReplyOptions OPTIONS = new MessagingRequestReplyOptions(Duration.ofSeconds(2), 16, 8);
 
     @Test
     void routesExactDeveloperTopicsBidirectionallyWithIndependentBindingCodecs() {
@@ -68,9 +68,9 @@ class DDRpcTopicsIntegrationTest {
         var serviceCodec = new PrefixCodec("response:", "argument:");
         var firstProxyCodec = new PrefixCodec("first:", "one:");
         var secondProxyCodec = new PrefixCodec("second:", "two:");
-        try (var desktopRpc = RpcEndpoint.open(DDRpcTransport.forChannel(desktop), codec, OPTIONS);
-             var firstRpc = RpcEndpoint.open(DDRpcTransport.forChannel(firstBackend), OPTIONS);
-             var secondRpc = RpcEndpoint.open(DDRpcTransport.forChannel(secondBackend), OPTIONS);
+        try (var desktopRpc = MessagingRpcEndpoint.open(DDRpcTransport.forChannel(desktop), codec, OPTIONS);
+             var firstRpc = MessagingRpcEndpoint.open(DDRpcTransport.forChannel(firstBackend), OPTIONS);
+             var secondRpc = MessagingRpcEndpoint.open(DDRpcTransport.forChannel(secondBackend), OPTIONS);
              var firstGreeting = firstRpc.register(firstTopic, Greeting.class, value -> value, serviceCodec);
              var secondGreeting = secondRpc.register(secondTopic, Greeting.class, value -> "other:" + value, codec);
              var reverseGreeting = desktopRpc.register(firstTopic, Greeting.class, value -> "desktop:" + value)) {
@@ -95,9 +95,9 @@ class DDRpcTopicsIntegrationTest {
                 }
             }
             firstGreeting.close();
-            RpcException missing = Assertions.assertThrows(RpcException.class,
+            MessagingRpcException missing = Assertions.assertThrows(MessagingRpcException.class,
                 () -> first.hello("closed"));
-            Assertions.assertEquals(RpcMessage.Error.UNKNOWN_SERVICE, missing.remoteError());
+            Assertions.assertEquals(MessagingRpcMessage.Error.UNKNOWN_SERVICE, missing.remoteError());
             Assertions.assertEquals("other:still", desktopRpc.proxy(secondTopic, Greeting.class).hello("still"));
         }
         for (Channel channel : List.of(desktop, firstBackend, secondBackend)) {
@@ -113,7 +113,7 @@ class DDRpcTopicsIntegrationTest {
         String hello(@NotNull String value);
     }
 
-    private record PrefixCodec(@NotNull String encodedPrefix, @NotNull String decodedPrefix) implements RpcCodec<JsonElement> {
+    private record PrefixCodec(@NotNull String encodedPrefix, @NotNull String decodedPrefix) implements MessagingRpcCodec<JsonElement> {
         @Override
         @NotNull
         public JsonElement encode(@Nullable Object value, @NotNull Type type) {

@@ -21,7 +21,7 @@ import org.jkiss.code.Nullable;
 
 /** Handles incoming requests and returns response payloads. */
 @FunctionalInterface
-public interface RequestHandler<P> {
+public interface MessagingRequestHandler<P> {
     @Nullable
     P handle(@NotNull P request) throws Exception;
 }

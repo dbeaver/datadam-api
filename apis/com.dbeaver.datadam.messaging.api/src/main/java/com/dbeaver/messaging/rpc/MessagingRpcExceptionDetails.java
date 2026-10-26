@@ -23,7 +23,7 @@ import java.io.PrintWriter;
 import java.io.Writer;
 import java.util.Objects;
 
-public record RpcExceptionDetails(
+public record MessagingRpcExceptionDetails(
     @NotNull String type,
     @Nullable String message,
     @NotNull String stackTrace,
@@ -33,7 +33,7 @@ public record RpcExceptionDetails(
     public static final int MAX_MESSAGE_LENGTH = 1024;
     public static final int MAX_STACK_TRACE_LENGTH = 8192;
 
-    public RpcExceptionDetails {
+    public MessagingRpcExceptionDetails {
         Objects.requireNonNull(type);
         Objects.requireNonNull(stackTrace);
         if (type.isBlank() || type.length() > MAX_TYPE_LENGTH || message != null && message.length() > MAX_MESSAGE_LENGTH
@@ -43,7 +43,7 @@ public record RpcExceptionDetails(
     }
 
     @NotNull
-    static RpcExceptionDetails capture(@NotNull Throwable failure) {
+    static MessagingRpcExceptionDetails capture(@NotNull Throwable failure) {
         String originalType = Objects.requireNonNull(failure).getClass().getName();
         String originalMessage;
         boolean incomplete = false;
@@ -70,7 +70,7 @@ public record RpcExceptionDetails(
         if (stackTrace.isEmpty()) {
             stackTrace = type + (message == null ? "" : ": " + message);
         }
-        return new RpcExceptionDetails(type, message, stackTrace,
+        return new MessagingRpcExceptionDetails(type, message, stackTrace,
             incomplete || !type.equals(originalType) || !Objects.equals(message, originalMessage));
     }
 

@@ -23,10 +23,10 @@ import com.dbeaver.datadam.external.api.transport.DDChannelStatus;
 import com.dbeaver.datadam.external.api.transport.DDMessageChannel;
 import com.dbeaver.datadam.external.api.transport.DDMessageListener;
 import com.dbeaver.datadam.external.api.transport.DDSubscription;
-import com.dbeaver.messaging.requestreply.MessageSubscription;
-import com.dbeaver.messaging.requestreply.RequestReplyException;
-import com.dbeaver.messaging.requestreply.RequestReplyMessage;
-import com.dbeaver.messaging.requestreply.RequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyMessage;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingSubscription;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -46,7 +46,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Semaphore;
 
-public final class DDRequestReplyTransport implements RequestReplyTransport<JsonObject>, AutoCloseable {
+public final class DDRequestReplyTransport implements MessagingRequestReplyTransport<JsonObject>, AutoCloseable {
     private static final String MESSAGE_TYPE = "datadam.requestreply.v1";
     private static final String FIELD_REQUEST_ID = "requestId";
     private static final String FIELD_REPLY_TO = "replyTo";
@@ -109,8 +109,8 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
 
     @Override
     @NotNull
-    public MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<JsonObject> listener)
-            throws RequestReplyException {
+    public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<JsonObject> listener)
+            throws MessagingRequestReplyException {
         Registration opened;
         synchronized (lock) {
             if (claimed) {
@@ -136,47 +136,48 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
                 opened.opening = false;
             }
             return opened;
-        } catch (DDExternalDamException | RequestReplyException | RuntimeException e) {
+        } catch (DDExternalDamException | MessagingRequestReplyException | RuntimeException e) {
             try {
                 opened.close();
             } catch (RuntimeException closeFailure) {
                 e.addSuppressed(closeFailure);
             }
-            if (e instanceof RequestReplyException failure) {
+            if (e instanceof MessagingRequestReplyException failure) {
                 throw failure;
             }
-            throw new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, e);
+            throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED, e);
         }
     }
 
     @Override
     @NotNull
-    public CompletionStage<Void> send(@NotNull RequestReplyMessage<JsonObject> message) {
+    public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
         synchronized (lock) {
             if (registration == null || registration.closed) {
-                return CompletableFuture.failedFuture(new RequestReplyException(RequestReplyException.Reason.CLOSED));
+                return CompletableFuture.failedFuture(new MessagingRequestReplyException(MessagingRequestReplyException.Reason.CLOSED));
             }
             if (channel != null && !channel.getStatus().isReady()) {
-                return CompletableFuture.failedFuture(new RequestReplyException(RequestReplyException.Reason.DISCONNECTED));
+                return CompletableFuture.failedFuture(
+                    new MessagingRequestReplyException(MessagingRequestReplyException.Reason.DISCONNECTED));
             }
-            if (message.type() == RequestReplyMessage.Type.REQUEST && !registration.endpointId.equals(message.replyTo())) {
+            if (message.type() == MessagingRequestReplyMessage.Type.REQUEST && !registration.endpointId.equals(message.replyTo())) {
                 return CompletableFuture.failedFuture(new IllegalArgumentException("Request origin does not match its endpoint"));
             }
         }
         if (!sendBudget.tryAcquire()) {
-            return CompletableFuture.failedFuture(new RequestReplyException(RequestReplyException.Reason.OVERLOADED));
+            return CompletableFuture.failedFuture(new MessagingRequestReplyException(MessagingRequestReplyException.Reason.OVERLOADED));
         }
         try {
             JsonObject envelope = new JsonObject();
             envelope.addProperty(FIELD_REQUEST_ID, message.requestId().toString());
             envelope.addProperty(FIELD_REPLY_TO, message.replyTo().toString());
             envelope.addProperty(FIELD_TYPE, message.type().name());
-            if (message.type() == RequestReplyMessage.Type.ERROR) {
+            if (message.type() == MessagingRequestReplyMessage.Type.ERROR) {
                 envelope.addProperty(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
             } else {
                 envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload());
             }
-            String target = message.type() == RequestReplyMessage.Type.REQUEST ? topic : replyPrefix + message.replyTo();
+            String target = message.type() == MessagingRequestReplyMessage.Type.REQUEST ? topic : replyPrefix + message.replyTo();
             CompletableFuture<Void> result = new CompletableFuture<>();
             Objects.requireNonNull(sender.send(new DDMessage(target, MESSAGE_TYPE, envelope))).whenComplete((ignored, error) -> {
                 sendBudget.release();
@@ -216,7 +217,7 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
     }
 
     @Nullable
-    private static RequestReplyMessage<JsonObject> decode(@NotNull DDMessage message) {
+    private static MessagingRequestReplyMessage<JsonObject> decode(@NotNull DDMessage message) {
         if (!MESSAGE_TYPE.equals(message.type())) {
             return null;
         }
@@ -224,23 +225,23 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
             JsonObject envelope = message.payload();
             UUID requestId = uuid(envelope, FIELD_REQUEST_ID);
             UUID replyTo = uuid(envelope, FIELD_REPLY_TO);
-            RequestReplyMessage.Type type = RequestReplyMessage.Type.valueOf(string(envelope, FIELD_TYPE));
+            MessagingRequestReplyMessage.Type type = MessagingRequestReplyMessage.Type.valueOf(string(envelope, FIELD_TYPE));
             JsonElement data = envelope.get(FIELD_DATA);
-            RequestReplyMessage.Error error = null;
+            MessagingRequestReplyMessage.Error error = null;
             JsonObject payload = null;
-            if (type == RequestReplyMessage.Type.ERROR) {
+            if (type == MessagingRequestReplyMessage.Type.ERROR) {
                 if (data != null && !data.isJsonNull()) {
                     return null;
                 }
-                error = RequestReplyMessage.Error.valueOf(string(envelope, FIELD_ERROR));
+                error = MessagingRequestReplyMessage.Error.valueOf(string(envelope, FIELD_ERROR));
             } else {
                 if (envelope.has(FIELD_ERROR) || data == null || !data.isJsonObject() && !data.isJsonNull()
-                    || type == RequestReplyMessage.Type.REQUEST && data.isJsonNull()) {
+                    || type == MessagingRequestReplyMessage.Type.REQUEST && data.isJsonNull()) {
                     return null;
                 }
                 payload = data.isJsonNull() ? null : data.getAsJsonObject();
             }
-            return new RequestReplyMessage<>(requestId, replyTo, type, payload, error);
+            return new MessagingRequestReplyMessage<>(requestId, replyTo, type, payload, error);
         } catch (IllegalArgumentException e) {
             return null;
         }
@@ -265,7 +266,7 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
         return id;
     }
 
-    private final class Registration implements MessageSubscription {
+    private final class Registration implements MessagingSubscription {
         private final UUID endpointId;
         private final String replyTopic;
         private final Listener<JsonObject> listener;
@@ -294,13 +295,13 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
             subscription.close();
         }
 
-        private void requireReady() throws RequestReplyException {
+        private void requireReady() throws MessagingRequestReplyException {
             synchronized (lock) {
                 if (closed) {
-                    throw new RequestReplyException(RequestReplyException.Reason.CLOSED);
+                    throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.CLOSED);
                 }
                 if (openingDisconnected || channel != null && (status == null || !status.isReady())) {
-                    throw new RequestReplyException(RequestReplyException.Reason.DISCONNECTED);
+                    throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.DISCONNECTED);
                 }
             }
         }
@@ -331,9 +332,9 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
         }
 
         private void receive(@NotNull DDConnectionInfo connection, @NotNull DDMessage message, boolean requestTopic) {
-            RequestReplyMessage<JsonObject> frame = decode(message);
-            if (frame == null || (requestTopic ? frame.type() != RequestReplyMessage.Type.REQUEST
-                : frame.type() == RequestReplyMessage.Type.REQUEST || !endpointId.equals(frame.replyTo()))) {
+            MessagingRequestReplyMessage<JsonObject> frame = decode(message);
+            if (frame == null || (requestTopic ? frame.type() != MessagingRequestReplyMessage.Type.REQUEST
+                : frame.type() == MessagingRequestReplyMessage.Type.REQUEST || !endpointId.equals(frame.replyTo()))) {
                 return;
             }
             boolean drain = false;
@@ -366,7 +367,7 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
             }
         }
 
-        private boolean enqueue(@Nullable RequestReplyMessage<JsonObject> message) {
+        private boolean enqueue(@Nullable MessagingRequestReplyMessage<JsonObject> message) {
             if (message == null) {
                 if (!deliveries.isEmpty() && deliveries.getLast().message() == null) {
                     return false;
@@ -442,6 +443,6 @@ public final class DDRequestReplyTransport implements RequestReplyTransport<Json
         }
     }
 
-    private record Delivery(@Nullable RequestReplyMessage<JsonObject> message) {
+    private record Delivery(@Nullable MessagingRequestReplyMessage<JsonObject> message) {
     }
 }

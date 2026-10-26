@@ -34,12 +34,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(10)
-public class RpcContractTest extends RpcTestSupport {
+public class MessagingRpcContractTest extends MessagingRpcTestSupport {
     @Test
     void rejectsInvalidContractsBeforeSendingAndLeavesTheTopicAvailable() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             for (Class<?> type : List.of(
                 String.class, HiddenService.class, SealedService.class, GenericService.class, RawGenericService.class,
                 EmptyService.class, StaticOnlyService.class, ObjectOnlyService.class,
@@ -60,7 +60,7 @@ public class RpcContractTest extends RpcTestSupport {
 
     @Test
     void rejectsUnresolvedTypeVariablesInParameterizedOwnerTypes() {
-        assertThrows(IllegalArgumentException.class, () -> RpcContract.create(RawOwnedGenericService.class));
+        assertThrows(IllegalArgumentException.class, () -> MessagingRpcContract.create(RawOwnedGenericService.class));
     }
 
     @Test
@@ -70,7 +70,7 @@ public class RpcContractTest extends RpcTestSupport {
         assertTrue(bridge.isSynthetic());
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("bridge", GenericBridgeChild.class, codec));
             assertThrows(IllegalArgumentException.class,
                 () -> endpoint.register("bridge", GenericBridgeChild.class, value -> value, codec));
@@ -84,7 +84,7 @@ public class RpcContractTest extends RpcTestSupport {
     void rejectsUnrelatedParentsWithAmbiguousGenericParameterOrReturnTypesBeforeSending() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             for (Class<?> type : List.of(AmbiguousListCounter.class, AmbiguousListLoader.class)) {
                 assertThrows(IllegalArgumentException.class, () -> endpoint.proxy("ambiguous", type, codec), type.getName());
                 assertThrows(IllegalArgumentException.class, () -> endpoint.register("ambiguous", type, null, codec), type.getName());
@@ -102,7 +102,7 @@ public class RpcContractTest extends RpcTestSupport {
 
         for (Class<?> type : List.of(WideNarrowArrayLoader.class, WideArrayNarrowLoader.class,
             NarrowWideArrayLoader.class, NarrowArrayWideLoader.class, ArrayWideNarrowLoader.class, ArrayNarrowWideLoader.class)) {
-            var operation = RpcContract.create(type).operation("load(java.lang.String)");
+            var operation = MessagingRpcContract.create(type).operation("load(java.lang.String)");
 
             assertNotNull(operation, type.getName());
             assertEquals(ArrayList.class, operation.getReturnType(), type.getName());
@@ -114,15 +114,15 @@ public class RpcContractTest extends RpcTestSupport {
     void explicitChildRedeclarationsResolveGenericTypesForCallsThroughParentAndChildReferences() throws Exception {
         var count = ResolvedListCounter.class.getDeclaredMethod("count", List.class);
         var load = ResolvedListLoader.class.getDeclaredMethod("load", String.class);
-        assertEquals(count, RpcContract.create(ResolvedListCounter.class).operation("count(java.util.List)"));
-        assertEquals(load, RpcContract.create(ResolvedListLoader.class).operation("load(java.lang.String)"));
+        assertEquals(count, MessagingRpcContract.create(ResolvedListCounter.class).operation("count(java.util.List)"));
+        assertEquals(load, MessagingRpcContract.create(ResolvedListLoader.class).operation("load(java.lang.String)"));
         var clientTransport = new MemoryTransport();
         var serverTransport = new MemoryTransport();
         var clientCodec = new TestCodec();
         var serverCodec = new TestCodec();
         connect(clientTransport, serverTransport);
-        try (var client = RpcEndpoint.open(clientTransport, OPTIONS);
-             var server = RpcEndpoint.open(serverTransport, OPTIONS);
+        try (var client = MessagingRpcEndpoint.open(clientTransport, OPTIONS);
+             var server = MessagingRpcEndpoint.open(serverTransport, OPTIONS);
              var counter = server.register("count", ResolvedListCounter.class, List::size, serverCodec);
              var loader = server.register("load", ResolvedListLoader.class, List::of, serverCodec)) {
             ResolvedListCounter childCounter = client.proxy("count", ResolvedListCounter.class, clientCodec);
@@ -150,11 +150,11 @@ public class RpcContractTest extends RpcTestSupport {
 
     @Test
     void ignoresStaticMethodsAndKeepsConcreteDeclaredTypes() throws Exception {
-        RpcContract<StaticService> contract = RpcContract.create(StaticService.class);
+        MessagingRpcContract<StaticService> contract = MessagingRpcContract.create(StaticService.class);
         assertEquals(StaticService.class.getMethod("echo", String.class), contract.operation("echo(java.lang.String)"));
         assertNull(contract.operation("ignored()"));
 
-        RpcContract<ParameterizedService> parameterized = RpcContract.create(ParameterizedService.class);
+        MessagingRpcContract<ParameterizedService> parameterized = MessagingRpcContract.create(ParameterizedService.class);
         var method = ParameterizedService.class.getMethod("echo", List.class);
         assertEquals(method, parameterized.operation("echo(java.util.List)"));
         assertEquals(method.getGenericParameterTypes()[0], parameterized.operation("echo(java.util.List)").getGenericParameterTypes()[0]);
@@ -163,7 +163,7 @@ public class RpcContractTest extends RpcTestSupport {
 
     @Test
     void prefersTheConcreteParameterizedReturnRedeclaredByAChildContract() throws Exception {
-        RpcContract<NumberService> contract = RpcContract.create(NumberService.class);
+        MessagingRpcContract<NumberService> contract = MessagingRpcContract.create(NumberService.class);
 
         assertEquals(NumberService.class.getDeclaredMethod("numbers", String.class), contract.operation("numbers(java.lang.String)"));
         assertEquals("java.util.List<java.lang.Integer>",

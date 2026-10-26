@@ -36,32 +36,32 @@ import java.util.function.LongSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public final class RequestReplyEndpoint<P> implements AutoCloseable {
-    private static final Logger log = Logger.getLogger(RequestReplyEndpoint.class.getName());
+public final class MessagingRequestReplyEndpoint<P> implements AutoCloseable {
+    private static final Logger log = Logger.getLogger(MessagingRequestReplyEndpoint.class.getName());
     private final Object lock = new Object();
     private final UUID endpointId = UUID.randomUUID();
-    private final RequestReplyTransport<P> transport;
-    private final RequestReplyOptions options;
+    private final MessagingRequestReplyTransport<P> transport;
+    private final MessagingRequestReplyOptions options;
     private final LongSupplier nanoTime;
     private final Map<UUID, Pending> pending = new HashMap<>();
     private final Map<RequestKey, Incoming> incoming = new HashMap<>();
-    private final MessageSubscription subscription;
+    private final MessagingSubscription subscription;
     @Nullable
     private HandlerRegistration handler;
     private boolean closed;
     private long generation;
 
-    RequestReplyEndpoint(
-        @NotNull RequestReplyTransport<P> transport,
-        @NotNull RequestReplyOptions options,
+    MessagingRequestReplyEndpoint(
+        @NotNull MessagingRequestReplyTransport<P> transport,
+        @NotNull MessagingRequestReplyOptions options,
         @NotNull LongSupplier nanoTime
-    ) throws RequestReplyException {
+    ) throws MessagingRequestReplyException {
         this.transport = Objects.requireNonNull(transport);
         this.options = Objects.requireNonNull(options);
         this.nanoTime = Objects.requireNonNull(nanoTime);
-        this.subscription = Objects.requireNonNull(transport.subscribe(endpointId, new RequestReplyTransport.Listener<>() {
+        this.subscription = Objects.requireNonNull(transport.subscribe(endpointId, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull RequestReplyMessage<P> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<P> message) {
                 receive(message);
             }
 
@@ -73,27 +73,29 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
     }
 
     @NotNull
-    public static <P> RequestReplyEndpoint<P> open(@NotNull RequestReplyTransport<P> transport) throws RequestReplyException {
-        return open(transport, RequestReplyOptions.DEFAULT);
+    public static <P> MessagingRequestReplyEndpoint<P> open(
+        @NotNull MessagingRequestReplyTransport<P> transport
+    ) throws MessagingRequestReplyException {
+        return open(transport, MessagingRequestReplyOptions.DEFAULT);
     }
 
     @NotNull
-    public static <P> RequestReplyEndpoint<P> open(
-        @NotNull RequestReplyTransport<P> transport,
-        @NotNull RequestReplyOptions options
-    ) throws RequestReplyException {
-        return new RequestReplyEndpoint<>(transport, options, System::nanoTime);
+    public static <P> MessagingRequestReplyEndpoint<P> open(
+        @NotNull MessagingRequestReplyTransport<P> transport,
+        @NotNull MessagingRequestReplyOptions options
+    ) throws MessagingRequestReplyException {
+        return new MessagingRequestReplyEndpoint<>(transport, options, System::nanoTime);
     }
 
     @Nullable
-    public P request(@NotNull P payload) throws RequestReplyException, InterruptedException {
+    public P request(@NotNull P payload) throws MessagingRequestReplyException, InterruptedException {
         return request(payload, options.timeout());
     }
 
     @Nullable
-    public P request(@NotNull P payload, @NotNull Duration timeout) throws RequestReplyException, InterruptedException {
+    public P request(@NotNull P payload, @NotNull Duration timeout) throws MessagingRequestReplyException, InterruptedException {
         Objects.requireNonNull(payload);
-        long nanos = RequestReplyOptions.requireTimeout(timeout);
+        long nanos = MessagingRequestReplyOptions.requireTimeout(timeout);
         if (Thread.interrupted()) {
             throw new InterruptedException();
         }
@@ -102,30 +104,30 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
         Pending call = new Pending(started, nanos);
         synchronized (lock) {
             if (closed) {
-                throw new RequestReplyException(RequestReplyException.Reason.CLOSED);
+                throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.CLOSED);
             }
             if (pending.size() >= options.maxPendingRequests()) {
-                throw new RequestReplyException(RequestReplyException.Reason.OVERLOADED);
+                throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.OVERLOADED);
             }
             pending.put(requestId, call);
         }
         try {
             if (call.remaining() <= 0) {
-                fail(requestId, call, new RequestReplyException(RequestReplyException.Reason.TIMEOUT));
+                fail(requestId, call, new MessagingRequestReplyException(MessagingRequestReplyException.Reason.TIMEOUT));
             } else {
                 sendRequest(requestId, payload, call);
             }
             try {
                 return call.result.get(Math.max(0, call.remaining()), TimeUnit.NANOSECONDS);
             } catch (TimeoutException e) {
-                fail(requestId, call, new RequestReplyException(RequestReplyException.Reason.TIMEOUT));
+                fail(requestId, call, new MessagingRequestReplyException(MessagingRequestReplyException.Reason.TIMEOUT));
                 return call.result.get();
             }
         } catch (ExecutionException e) {
-            if (e.getCause() instanceof RequestReplyException failure) {
+            if (e.getCause() instanceof MessagingRequestReplyException failure) {
                 throw failure;
             }
-            throw new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, e.getCause());
+            throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED, e.getCause());
         } finally {
             synchronized (lock) {
                 pending.remove(requestId, call);
@@ -134,7 +136,7 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
     }
 
     @NotNull
-    public MessageSubscription handle(@NotNull RequestHandler<P> requestHandler) {
+    public MessagingSubscription handle(@NotNull MessagingRequestHandler<P> requestHandler) {
         Objects.requireNonNull(requestHandler);
         synchronized (lock) {
             if (closed || handler != null) {
@@ -152,7 +154,7 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
             }
         }
         try {
-            transport.send(RequestReplyMessage.request(requestId, endpointId, payload)).whenComplete((ignored, error) -> {
+            transport.send(MessagingRequestReplyMessage.request(requestId, endpointId, payload)).whenComplete((ignored, error) -> {
                 if (error != null) {
                     fail(requestId, call, sendFailure(error));
                 }
@@ -163,19 +165,19 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
     }
 
     @NotNull
-    private static RequestReplyException sendFailure(@NotNull Throwable error) {
+    private static MessagingRequestReplyException sendFailure(@NotNull Throwable error) {
         Throwable cause = error;
         while ((cause instanceof CompletionException || cause instanceof ExecutionException) && cause.getCause() != null) {
             cause = cause.getCause();
         }
-        return cause instanceof RequestReplyException failure
-            ? failure : new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, error);
+        return cause instanceof MessagingRequestReplyException failure
+            ? failure : new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED, error);
     }
 
     private void fail(
         @NotNull UUID requestId,
         @NotNull Pending expected,
-        @NotNull RequestReplyException failure
+        @NotNull MessagingRequestReplyException failure
     ) {
         synchronized (lock) {
             if (pending.remove(requestId, expected)) {
@@ -184,8 +186,8 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
         }
     }
 
-    private void receive(@NotNull RequestReplyMessage<P> message) {
-        if (message.type() == RequestReplyMessage.Type.REQUEST) {
+    private void receive(@NotNull MessagingRequestReplyMessage<P> message) {
+        if (message.type() == MessagingRequestReplyMessage.Type.REQUEST) {
             accept(message);
             return;
         }
@@ -194,20 +196,21 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
                 Pending call = pending.remove(message.requestId());
                 if (call != null) {
                     if (call.remaining() <= 0) {
-                        call.result.completeExceptionally(new RequestReplyException(RequestReplyException.Reason.TIMEOUT));
-                    } else if (message.type() == RequestReplyMessage.Type.RESPONSE) {
+                        call.result.completeExceptionally(
+                            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.TIMEOUT));
+                    } else if (message.type() == MessagingRequestReplyMessage.Type.RESPONSE) {
                         call.result.complete(message.payload());
                     } else {
-                        call.result.completeExceptionally(new RequestReplyException(Objects.requireNonNull(message.error())));
+                        call.result.completeExceptionally(new MessagingRequestReplyException(Objects.requireNonNull(message.error())));
                     }
                 }
             }
         }
     }
 
-    private void accept(@NotNull RequestReplyMessage<P> message) {
+    private void accept(@NotNull MessagingRequestReplyMessage<P> message) {
         Incoming accepted = null;
-        RequestReplyMessage.Error rejection = RequestReplyMessage.Error.OVERLOADED;
+        MessagingRequestReplyMessage.Error rejection = MessagingRequestReplyMessage.Error.OVERLOADED;
         synchronized (lock) {
             if (closed) {
                 return;
@@ -217,7 +220,7 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
                 return;
             }
             if (handler == null) {
-                rejection = RequestReplyMessage.Error.NO_HANDLER;
+                rejection = MessagingRequestReplyMessage.Error.NO_HANDLER;
             } else if (incoming.size() < options.maxConcurrentHandlers()) {
                 accepted = new Incoming(key, message, handler.requestHandler, generation);
                 incoming.put(key, accepted);
@@ -237,7 +240,7 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
         sendReply(message.failure(rejection));
     }
 
-    private void sendReply(@NotNull RequestReplyMessage<P> message) {
+    private void sendReply(@NotNull MessagingRequestReplyMessage<P> message) {
         try {
             transport.send(message).whenComplete((ignored, error) -> {
                 if (error != null) {
@@ -253,14 +256,14 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
         List<Incoming> stopped;
         synchronized (lock) {
             generation++;
-            failPending(RequestReplyException.Reason.DISCONNECTED);
+            failPending(MessagingRequestReplyException.Reason.DISCONNECTED);
             stopped = List.copyOf(incoming.values());
         }
         stopped.forEach(request -> request.task.cancel(true));
     }
 
-    private void failPending(@NotNull RequestReplyException.Reason reason) {
-        pending.values().forEach(call -> call.result.completeExceptionally(new RequestReplyException(reason)));
+    private void failPending(@NotNull MessagingRequestReplyException.Reason reason) {
+        pending.values().forEach(call -> call.result.completeExceptionally(new MessagingRequestReplyException(reason)));
         pending.clear();
     }
 
@@ -273,7 +276,7 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
             }
             closed = true;
             handler = null;
-            failPending(RequestReplyException.Reason.CLOSED);
+            failPending(MessagingRequestReplyException.Reason.CLOSED);
             stopped = List.copyOf(incoming.values());
         }
         stopped.forEach(request -> request.task.cancel(true));
@@ -298,10 +301,10 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
         }
     }
 
-    private final class HandlerRegistration implements MessageSubscription {
-        private final RequestHandler<P> requestHandler;
+    private final class HandlerRegistration implements MessagingSubscription {
+        private final MessagingRequestHandler<P> requestHandler;
 
-        private HandlerRegistration(@NotNull RequestHandler<P> requestHandler) {
+        private HandlerRegistration(@NotNull MessagingRequestHandler<P> requestHandler) {
             this.requestHandler = requestHandler;
         }
 
@@ -317,15 +320,15 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
 
     private final class Incoming implements Runnable {
         private final RequestKey key;
-        private final RequestReplyMessage<P> message;
-        private final RequestHandler<P> requestHandler;
+        private final MessagingRequestReplyMessage<P> message;
+        private final MessagingRequestHandler<P> requestHandler;
         private final long acceptedGeneration;
         private final FutureTask<Void> task;
 
         private Incoming(
             @NotNull RequestKey key,
-            @NotNull RequestReplyMessage<P> message,
-            @NotNull RequestHandler<P> requestHandler,
+            @NotNull MessagingRequestReplyMessage<P> message,
+            @NotNull MessagingRequestHandler<P> requestHandler,
             long acceptedGeneration
         ) {
             this.key = key;
@@ -350,14 +353,14 @@ public final class RequestReplyEndpoint<P> implements AutoCloseable {
         }
 
         private void process() {
-            RequestReplyMessage<P> reply;
+            MessagingRequestReplyMessage<P> reply;
             try {
                 reply = message.response(requestHandler.handle(Objects.requireNonNull(message.payload())));
             } catch (Exception e) {
                 if (e instanceof InterruptedException) {
                     Thread.currentThread().interrupt();
                 }
-                reply = message.failure(RequestReplyMessage.Error.HANDLER_FAILED);
+                reply = message.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED);
             }
             synchronized (lock) {
                 if (closed || acceptedGeneration != generation) {

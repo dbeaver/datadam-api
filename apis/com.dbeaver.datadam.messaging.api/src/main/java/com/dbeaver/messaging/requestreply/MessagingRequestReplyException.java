@@ -21,26 +21,26 @@ import org.jkiss.code.Nullable;
 
 import java.util.Objects;
 
-public class RequestReplyException extends Exception {
+public class MessagingRequestReplyException extends Exception {
     public enum Reason {
         CLOSED, DISCONNECTED, OVERLOADED, SEND_FAILED, TIMEOUT, REMOTE_ERROR
     }
 
     private final Reason reason;
     @Nullable
-    private final RequestReplyMessage.Error remoteError;
+    private final MessagingRequestReplyMessage.Error remoteError;
 
-    public RequestReplyException(@NotNull Reason reason) {
+    public MessagingRequestReplyException(@NotNull Reason reason) {
         this(reason, null);
     }
 
-    public RequestReplyException(@NotNull Reason reason, @Nullable Throwable cause) {
+    public MessagingRequestReplyException(@NotNull Reason reason, @Nullable Throwable cause) {
         super(message(Objects.requireNonNull(reason)), cause);
         this.reason = reason;
         this.remoteError = null;
     }
 
-    public RequestReplyException(@NotNull RequestReplyMessage.Error remoteError) {
+    public MessagingRequestReplyException(@NotNull MessagingRequestReplyMessage.Error remoteError) {
         super("Remote request failed: " + Objects.requireNonNull(remoteError));
         this.reason = Reason.REMOTE_ERROR;
         this.remoteError = remoteError;
@@ -52,7 +52,7 @@ public class RequestReplyException extends Exception {
     }
 
     @Nullable
-    public RequestReplyMessage.Error remoteError() {
+    public MessagingRequestReplyMessage.Error remoteError() {
         return remoteError;
     }
 

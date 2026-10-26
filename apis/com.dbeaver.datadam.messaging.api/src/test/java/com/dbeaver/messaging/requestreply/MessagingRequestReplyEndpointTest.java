@@ -64,7 +64,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(30)
-class RequestReplyEndpointTest {
+class MessagingRequestReplyEndpointTest {
     private static final Duration WAIT = Duration.ofSeconds(5);
     private final List<Thread> callers = new CopyOnWriteArrayList<>();
 
@@ -80,7 +80,7 @@ class RequestReplyEndpointTest {
     void subscribesBeforeReturningAndAcceptsAReplyBeforeSendCompletes() throws Exception {
         var transport = new MemoryTransport();
         var acknowledgement = new CompletableFuture<Void>();
-        try (var endpoint = RequestReplyEndpoint.open(transport)) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport)) {
             assertEquals(1, transport.listeners.size());
             transport.sender = message -> {
                 assertTrue(transport.listeners.containsKey(message.replyTo()));
@@ -90,7 +90,7 @@ class RequestReplyEndpointTest {
 
             assertEquals("immediate reply", endpoint.request("request"));
             assertFalse(acknowledgement.isDone());
-            assertEquals(RequestReplyMessage.Type.REQUEST, transport.next().type());
+            assertEquals(MessagingRequestReplyMessage.Type.REQUEST, transport.next().type());
             assertTrue(transport.sent.isEmpty());
 
             assertTrue(acknowledgement.completeExceptionally(new IllegalStateException("late send failure")));
@@ -106,15 +106,15 @@ class RequestReplyEndpointTest {
         var acknowledgement = new CompletableFuture<Void>();
         var cause = new IllegalStateException("send failure");
         transport.sender = message -> acknowledgement;
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1))) {
             Future<String> pending = async(() -> endpoint.request("request"));
-            RequestReplyMessage<String> request = transport.next();
+            MessagingRequestReplyMessage<String> request = transport.next();
 
             acknowledgement.completeExceptionally(cause);
 
-            assertSame(cause, failure(RequestReplyException.Reason.SEND_FAILED, pending).getCause());
+            assertSame(cause, failure(MessagingRequestReplyException.Reason.SEND_FAILED, pending).getCause());
             transport.deliver(request.response("too late"));
-            transport.deliver(request.failure(RequestReplyMessage.Error.HANDLER_FAILED));
+            transport.deliver(request.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED));
             assertTrue(transport.sent.isEmpty());
 
             transport.sender = message -> {
@@ -133,8 +133,8 @@ class RequestReplyEndpointTest {
         transport.sender = message -> {
             throw cause;
         };
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
-            assertSame(cause, failure(RequestReplyException.Reason.SEND_FAILED, () -> endpoint.request("request")).getCause());
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1))) {
+            assertSame(cause, failure(MessagingRequestReplyException.Reason.SEND_FAILED, () -> endpoint.request("request")).getCause());
             assertEquals("request", transport.next().payload());
             assertTrue(transport.sent.isEmpty());
 
@@ -149,21 +149,21 @@ class RequestReplyEndpointTest {
 
     @Test
     void preservesTypedAsynchronousSendFailuresAndReleasesCapacityBeforeLateNotifications() throws Exception {
-        for (RequestReplyException expected : List.of(
-            new RequestReplyException(RequestReplyException.Reason.OVERLOADED),
-            new RequestReplyException(RequestReplyException.Reason.DISCONNECTED),
-            new RequestReplyException(RequestReplyException.Reason.CLOSED),
-            new RequestReplyException(RequestReplyException.Reason.TIMEOUT),
-            new RequestReplyException(RequestReplyException.Reason.SEND_FAILED),
-            new RequestReplyException(RequestReplyMessage.Error.OVERLOADED))) {
+        for (MessagingRequestReplyException expected : List.of(
+            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.OVERLOADED),
+            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.DISCONNECTED),
+            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.CLOSED),
+            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.TIMEOUT),
+            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED),
+            new MessagingRequestReplyException(MessagingRequestReplyMessage.Error.OVERLOADED))) {
             for (Throwable error : List.of(expected, new CompletionException(expected), new ExecutionException(expected),
                 new CompletionException(new ExecutionException(new CompletionException(expected))))) {
                 var transport = new MemoryTransport();
                 var acknowledgement = new CompletableFuture<Void>();
                 transport.sender = message -> acknowledgement;
-                try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+                try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1))) {
                     Future<String> pending = async(() -> endpoint.request("request"));
-                    final RequestReplyMessage<String> request = transport.next();
+                    final MessagingRequestReplyMessage<String> request = transport.next();
 
                     acknowledgement.completeExceptionally(error);
 
@@ -184,18 +184,18 @@ class RequestReplyEndpointTest {
 
     @Test
     void preservesTypedSynchronousSendFailuresWrappedByCompletionStages() throws Exception {
-        for (RequestReplyException expected : List.of(
-            new RequestReplyException(RequestReplyException.Reason.OVERLOADED),
-            new RequestReplyException(RequestReplyException.Reason.DISCONNECTED),
-            new RequestReplyException(RequestReplyException.Reason.CLOSED),
-            new RequestReplyException(RequestReplyMessage.Error.HANDLER_FAILED))) {
+        for (MessagingRequestReplyException expected : List.of(
+            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.OVERLOADED),
+            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.DISCONNECTED),
+            new MessagingRequestReplyException(MessagingRequestReplyException.Reason.CLOSED),
+            new MessagingRequestReplyException(MessagingRequestReplyMessage.Error.HANDLER_FAILED))) {
             for (CompletionException error : List.of(new CompletionException(expected),
                 new CompletionException(new ExecutionException(expected)))) {
                 var transport = new MemoryTransport();
                 transport.sender = message -> {
                     throw error;
                 };
-                try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+                try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1))) {
                     assertSame(expected, failure(expected.reason(), () -> endpoint.request("first")));
                     assertSame(expected, failure(expected.reason(), () -> endpoint.request("second")));
                     assertEquals(2, transport.sent.size());
@@ -209,7 +209,7 @@ class RequestReplyEndpointTest {
         var cause = new IllegalStateException("untyped send failure");
         for (RuntimeException error : List.of(cause, new CompletionException(cause),
             new CompletionException(new ExecutionException(cause)), new CompletionException((Throwable) null),
-            new IllegalStateException(new RequestReplyException(RequestReplyException.Reason.DISCONNECTED)))) {
+            new IllegalStateException(new MessagingRequestReplyException(MessagingRequestReplyException.Reason.DISCONNECTED)))) {
             for (boolean asynchronous : List.of(false, true)) {
                 var transport = new MemoryTransport();
                 transport.sender = message -> {
@@ -218,8 +218,9 @@ class RequestReplyEndpointTest {
                     }
                     throw error;
                 };
-                try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
-                    assertSame(error, failure(RequestReplyException.Reason.SEND_FAILED, () -> endpoint.request("request")).getCause());
+                try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1))) {
+                    assertSame(error,
+                        failure(MessagingRequestReplyException.Reason.SEND_FAILED, () -> endpoint.request("request")).getCause());
                     assertEquals(1, transport.sent.size());
                 }
             }
@@ -229,25 +230,25 @@ class RequestReplyEndpointTest {
     @Test
     void correlatesConcurrentResponsesDeliveredInReverseOrder() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(8, 1))) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(8, 1))) {
             Map<String, Future<String>> results = new HashMap<>();
             for (int index = 0; index < 8; index++) {
                 String payload = "request-" + index;
                 results.put(payload, async(() -> endpoint.request(payload)));
             }
-            List<RequestReplyMessage<String>> requests = new ArrayList<>();
+            List<MessagingRequestReplyMessage<String>> requests = new ArrayList<>();
             Set<UUID> requestIds = new HashSet<>();
             Set<UUID> replyTargets = new HashSet<>();
             for (int index = 0; index < results.size(); index++) {
-                RequestReplyMessage<String> request = transport.next();
+                MessagingRequestReplyMessage<String> request = transport.next();
                 requests.add(request);
-                assertEquals(RequestReplyMessage.Type.REQUEST, request.type());
+                assertEquals(MessagingRequestReplyMessage.Type.REQUEST, request.type());
                 assertTrue(requestIds.add(request.requestId()));
                 replyTargets.add(request.replyTo());
             }
             assertEquals(1, replyTargets.size());
             for (int index = requests.size() - 1; index >= 0; index--) {
-                RequestReplyMessage<String> request = requests.get(index);
+                MessagingRequestReplyMessage<String> request = requests.get(index);
                 transport.deliver(request.response("reply:" + request.payload()));
             }
 
@@ -263,7 +264,7 @@ class RequestReplyEndpointTest {
         var transport = new MemoryTransport();
         var handlerThread = new AtomicReference<Thread>();
         var handled = new AtomicReference<String>();
-        try (var endpoint = RequestReplyEndpoint.open(transport);
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport);
              var registration = endpoint.handle(payload -> {
                  handlerThread.set(Thread.currentThread());
                  handled.set(payload);
@@ -283,23 +284,25 @@ class RequestReplyEndpointTest {
         var clientTransport = new MemoryTransport();
         var serverTransport = new MemoryTransport();
         connect(clientTransport, serverTransport);
-        try (var client = RequestReplyEndpoint.open(clientTransport);
-             var server = RequestReplyEndpoint.open(serverTransport)) {
-            RequestReplyException missing = failure(RequestReplyException.Reason.REMOTE_ERROR, () -> client.request("missing"));
-            assertEquals(RequestReplyMessage.Error.NO_HANDLER, missing.remoteError());
+        try (var client = MessagingRequestReplyEndpoint.open(clientTransport);
+             var server = MessagingRequestReplyEndpoint.open(serverTransport)) {
+            MessagingRequestReplyException missing = failure(MessagingRequestReplyException.Reason.REMOTE_ERROR,
+                () -> client.request("missing"));
+            assertEquals(MessagingRequestReplyMessage.Error.NO_HANDLER, missing.remoteError());
             assertNull(missing.getCause());
-            assertEquals(clientTransport.next().failure(RequestReplyMessage.Error.NO_HANDLER), serverTransport.next());
+            assertEquals(clientTransport.next().failure(MessagingRequestReplyMessage.Error.NO_HANDLER), serverTransport.next());
 
             try (var registration = server.handle(payload -> {
                 throw new IllegalStateException("private handler details: " + payload);
             })) {
-                RequestReplyException failed = failure(RequestReplyException.Reason.REMOTE_ERROR, () -> client.request("secret"));
+                MessagingRequestReplyException failed = failure(MessagingRequestReplyException.Reason.REMOTE_ERROR,
+                    () -> client.request("secret"));
 
-                assertEquals(RequestReplyMessage.Error.HANDLER_FAILED, failed.remoteError());
+                assertEquals(MessagingRequestReplyMessage.Error.HANDLER_FAILED, failed.remoteError());
                 assertNull(failed.getCause());
                 assertFalse(failed.toString().contains("private"));
                 assertFalse(failed.toString().contains("secret"));
-                assertEquals(clientTransport.next().failure(RequestReplyMessage.Error.HANDLER_FAILED), serverTransport.next());
+                assertEquals(clientTransport.next().failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED), serverTransport.next());
             }
         }
     }
@@ -307,7 +310,7 @@ class RequestReplyEndpointTest {
     @Test
     void releasesHandlerCapacityWhenReplySendingFails() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1));
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1));
              var registration = endpoint.handle(payload -> "reply:" + payload)) {
             for (boolean asynchronous : List.of(false, true)) {
                 transport.sender = message -> {
@@ -338,14 +341,14 @@ class RequestReplyEndpointTest {
             rejected.set(request);
             throw new RejectedExecutionException("Request execution unavailable");
         };
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1));
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1));
              var registration = endpoint.handle(payload -> {
                  calls.incrementAndGet();
                  return "reply:" + payload;
              })) {
             var request = request("rejected");
             assertDoesNotThrow(() -> transport.deliver(request));
-            assertEquals(request.failure(RequestReplyMessage.Error.OVERLOADED), transport.next());
+            assertEquals(request.failure(MessagingRequestReplyMessage.Error.OVERLOADED), transport.next());
             assertEquals(0, calls.get());
             rejected.get().run();
             assertEquals(0, calls.get());
@@ -365,7 +368,7 @@ class RequestReplyEndpointTest {
             var queued = new LinkedBlockingQueue<Runnable>();
             var calls = new AtomicInteger();
             transport.requestExecutor = queued::add;
-            try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1));
+            try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1));
                  var registration = endpoint.handle(payload -> {
                      calls.incrementAndGet();
                      return "reply:" + payload;
@@ -376,7 +379,7 @@ class RequestReplyEndpointTest {
                 assertEquals(1, queued.size());
                 var excess = request("excess");
                 transport.deliver(excess);
-                assertEquals(excess.failure(RequestReplyMessage.Error.OVERLOADED), transport.next());
+                assertEquals(excess.failure(MessagingRequestReplyMessage.Error.OVERLOADED), transport.next());
                 assertEquals(0, calls.get());
 
                 if (closing) {
@@ -402,27 +405,27 @@ class RequestReplyEndpointTest {
     @Test
     void isolatesReplyTargetsAndIgnoresUnknownAndDuplicateResponses() throws Exception {
         var transport = new MemoryTransport();
-        try (var first = RequestReplyEndpoint.open(transport);
-             var second = RequestReplyEndpoint.open(transport)) {
+        try (var first = MessagingRequestReplyEndpoint.open(transport);
+             var second = MessagingRequestReplyEndpoint.open(transport)) {
             final Future<String> firstResult = async(() -> first.request("first"));
-            RequestReplyMessage<String> firstRequest = transport.next();
+            MessagingRequestReplyMessage<String> firstRequest = transport.next();
             final Future<String> secondResult = async(() -> second.request("second"));
-            RequestReplyMessage<String> secondRequest = transport.next();
+            MessagingRequestReplyMessage<String> secondRequest = transport.next();
             assertNotEquals(firstRequest.replyTo(), secondRequest.replyTo());
 
-            transport.deliver(new RequestReplyMessage<>(firstRequest.requestId(), secondRequest.replyTo(),
-                RequestReplyMessage.Type.RESPONSE, "wrong endpoint", null));
-            transport.deliver(new RequestReplyMessage<>(secondRequest.requestId(), firstRequest.replyTo(),
-                RequestReplyMessage.Type.ERROR, null, RequestReplyMessage.Error.HANDLER_FAILED));
-            var unknown = RequestReplyMessage.request(UUID.randomUUID(), firstRequest.replyTo(), "unknown");
+            transport.deliver(new MessagingRequestReplyMessage<>(firstRequest.requestId(), secondRequest.replyTo(),
+                MessagingRequestReplyMessage.Type.RESPONSE, "wrong endpoint", null));
+            transport.deliver(new MessagingRequestReplyMessage<>(secondRequest.requestId(), firstRequest.replyTo(),
+                MessagingRequestReplyMessage.Type.ERROR, null, MessagingRequestReplyMessage.Error.HANDLER_FAILED));
+            var unknown = MessagingRequestReplyMessage.request(UUID.randomUUID(), firstRequest.replyTo(), "unknown");
             transport.deliver(unknown.response("unknown response"));
-            transport.deliver(unknown.failure(RequestReplyMessage.Error.NO_HANDLER));
+            transport.deliver(unknown.failure(MessagingRequestReplyMessage.Error.NO_HANDLER));
             assertFalse(firstResult.isDone());
             assertFalse(secondResult.isDone());
 
             transport.deliver(firstRequest.response("first reply"));
             transport.deliver(firstRequest.response("duplicate"));
-            transport.deliver(firstRequest.failure(RequestReplyMessage.Error.HANDLER_FAILED));
+            transport.deliver(firstRequest.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED));
             assertEquals("first reply", result(firstResult));
             assertFalse(secondResult.isDone());
             transport.deliver(secondRequest.response("second reply"));
@@ -434,16 +437,16 @@ class RequestReplyEndpointTest {
     @Test
     void usesTheDefaultTimeoutAndReleasesCapacityBeforeIgnoringLateReplies() throws Exception {
         var transport = new MemoryTransport();
-        var options = new RequestReplyOptions(Duration.ofMillis(100), 1, 1);
-        try (var endpoint = RequestReplyEndpoint.open(transport, options)) {
-            failure(RequestReplyException.Reason.TIMEOUT, () -> endpoint.request("timed out"));
-            RequestReplyMessage<String> expired = transport.next();
+        var options = new MessagingRequestReplyOptions(Duration.ofMillis(100), 1, 1);
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options)) {
+            failure(MessagingRequestReplyException.Reason.TIMEOUT, () -> endpoint.request("timed out"));
+            MessagingRequestReplyMessage<String> expired = transport.next();
             assertTrue(transport.sent.isEmpty());
 
             Future<String> next = async(() -> endpoint.request("next", WAIT));
-            final RequestReplyMessage<String> request = transport.next();
+            final MessagingRequestReplyMessage<String> request = transport.next();
             transport.deliver(expired.response("late response"));
-            transport.deliver(expired.failure(RequestReplyMessage.Error.HANDLER_FAILED));
+            transport.deliver(expired.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED));
             assertFalse(next.isDone());
             transport.deliver(request.response("next reply"));
 
@@ -460,8 +463,8 @@ class RequestReplyEndpointTest {
         var release = new CountDownLatch(1);
         var handlerThread = new AtomicReference<Thread>();
         connect(clientTransport, serverTransport);
-        try (var client = RequestReplyEndpoint.open(clientTransport, options(1, 1));
-             var server = RequestReplyEndpoint.open(serverTransport, options(1, 1));
+        try (var client = MessagingRequestReplyEndpoint.open(clientTransport, options(1, 1));
+             var server = MessagingRequestReplyEndpoint.open(serverTransport, options(1, 1));
              var registration = server.handle(payload -> {
                  handlerThread.set(Thread.currentThread());
                  entered.countDown();
@@ -471,7 +474,7 @@ class RequestReplyEndpointTest {
             try {
                 Future<String> expired = async(() -> client.request("expired", Duration.ofMillis(100)));
                 await(entered);
-                failure(RequestReplyException.Reason.TIMEOUT, expired);
+                failure(MessagingRequestReplyException.Reason.TIMEOUT, expired);
                 assertTrue(handlerThread.get().isAlive());
                 release.countDown();
                 join(handlerThread.get());
@@ -488,15 +491,16 @@ class RequestReplyEndpointTest {
     void rejectsRepliesAtTheDeadlineEvenWhenTheyArriveBeforeSendReturns() throws Exception {
         var transport = new MemoryTransport();
         var clock = new AtomicLong();
-        try (var endpoint = new RequestReplyEndpoint<>(transport, options(1, 1), clock::get)) {
+        try (var endpoint = new MessagingRequestReplyEndpoint<>(transport, options(1, 1), clock::get)) {
             for (boolean error : List.of(false, true)) {
                 transport.sender = message -> {
                     clock.addAndGet(WAIT.toNanos());
-                    transport.deliver(error ? message.failure(RequestReplyMessage.Error.HANDLER_FAILED) : message.response("late"));
+                    transport.deliver(error
+                        ? message.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED) : message.response("late"));
                     return CompletableFuture.completedFuture(null);
                 };
 
-                failure(RequestReplyException.Reason.TIMEOUT, () -> endpoint.request("expired"));
+                failure(MessagingRequestReplyException.Reason.TIMEOUT, () -> endpoint.request("expired"));
 
                 assertEquals("expired", transport.next().payload());
                 assertTrue(transport.sent.isEmpty());
@@ -512,7 +516,7 @@ class RequestReplyEndpointTest {
     @Test
     void doesNotSendOrConsumeCapacityWhenTheCallerIsAlreadyInterrupted() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1))) {
             Future<String> pending = async(() -> {
                 Thread.currentThread().interrupt();
                 return endpoint.request("already interrupted");
@@ -532,10 +536,10 @@ class RequestReplyEndpointTest {
     @Test
     void propagatesInterruptionAndReleasesThePendingSlotWithoutSendingCancellation() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1))) {
             var pending = new FutureTask<>(() -> endpoint.request("interrupted"));
             Thread caller = start(pending);
-            final RequestReplyMessage<String> interrupted = transport.next();
+            final MessagingRequestReplyMessage<String> interrupted = transport.next();
 
             caller.interrupt();
 
@@ -544,7 +548,7 @@ class RequestReplyEndpointTest {
             join(caller);
             assertTrue(transport.sent.isEmpty());
             Future<String> next = async(() -> endpoint.request("next"));
-            RequestReplyMessage<String> request = transport.next();
+            MessagingRequestReplyMessage<String> request = transport.next();
             transport.deliver(interrupted.response("too late"));
             assertFalse(next.isDone());
             transport.deliver(request.response("next reply"));
@@ -555,19 +559,19 @@ class RequestReplyEndpointTest {
     @Test
     void rejectsExcessPendingRequestsBeforeSendingAndReusesReleasedSlots() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(2, 1))) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(2, 1))) {
             final Future<String> first = async(() -> endpoint.request("first"));
-            final RequestReplyMessage<String> firstRequest = transport.next();
+            final MessagingRequestReplyMessage<String> firstRequest = transport.next();
             final Future<String> second = async(() -> endpoint.request("second"));
-            RequestReplyMessage<String> secondRequest = transport.next();
+            MessagingRequestReplyMessage<String> secondRequest = transport.next();
 
-            failure(RequestReplyException.Reason.OVERLOADED, () -> endpoint.request("excess"));
+            failure(MessagingRequestReplyException.Reason.OVERLOADED, () -> endpoint.request("excess"));
             assertTrue(transport.sent.isEmpty());
             transport.deliver(secondRequest.response("second reply"));
             assertEquals("second reply", result(second));
 
             final Future<String> third = async(() -> endpoint.request("third"));
-            RequestReplyMessage<String> thirdRequest = transport.next();
+            MessagingRequestReplyMessage<String> thirdRequest = transport.next();
             assertFalse(first.isDone());
             transport.deliver(thirdRequest.response("third reply"));
             transport.deliver(firstRequest.response("first reply"));
@@ -584,7 +588,7 @@ class RequestReplyEndpointTest {
         var release = new CountDownLatch(1);
         var calls = new AtomicInteger();
         var handlerThread = new AtomicReference<Thread>();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1));
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1));
              var registration = endpoint.handle(payload -> {
                  calls.incrementAndGet();
                  handlerThread.set(Thread.currentThread());
@@ -600,7 +604,7 @@ class RequestReplyEndpointTest {
                 var excess = request("excess");
 
                 transport.deliver(excess);
-                assertEquals(excess.failure(RequestReplyMessage.Error.OVERLOADED), transport.next());
+                assertEquals(excess.failure(MessagingRequestReplyMessage.Error.OVERLOADED), transport.next());
                 transport.deliver(first);
                 assertEquals(1, calls.get());
                 assertTrue(transport.sent.isEmpty());
@@ -627,7 +631,7 @@ class RequestReplyEndpointTest {
         var release = new CountDownLatch(1);
         var calls = new AtomicInteger();
         var handlerThreads = new ConcurrentHashMap<String, Thread>();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 2));
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 2));
              var registration = endpoint.handle(payload -> {
                  calls.incrementAndGet();
                  handlerThreads.put(payload, Thread.currentThread());
@@ -637,8 +641,8 @@ class RequestReplyEndpointTest {
              })) {
             try {
                 UUID requestId = UUID.randomUUID();
-                var first = RequestReplyMessage.request(requestId, UUID.randomUUID(), "first origin");
-                var second = RequestReplyMessage.request(requestId, UUID.randomUUID(), "second origin");
+                var first = MessagingRequestReplyMessage.request(requestId, UUID.randomUUID(), "first origin");
+                var second = MessagingRequestReplyMessage.request(requestId, UUID.randomUUID(), "second origin");
                 Thread firstDelivery = start(() -> transport.deliver(first));
                 Thread secondDelivery = start(() -> transport.deliver(second));
                 await(entered);
@@ -669,7 +673,7 @@ class RequestReplyEndpointTest {
         var transport = new MemoryTransport();
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 2))) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 2))) {
             try (var original = endpoint.handle(payload -> {
                 entered.countDown();
                 await(release);
@@ -694,7 +698,7 @@ class RequestReplyEndpointTest {
                     }
                     var unhandled = request("unhandled");
                     transport.deliver(unhandled);
-                    assertEquals(unhandled.failure(RequestReplyMessage.Error.NO_HANDLER), transport.next());
+                    assertEquals(unhandled.failure(MessagingRequestReplyMessage.Error.NO_HANDLER), transport.next());
                 } finally {
                     release.countDown();
                 }
@@ -705,8 +709,8 @@ class RequestReplyEndpointTest {
     @Test
     void closingFailsPendingWorkCancelsHandlersAndOnlyClosesItsOwnSubscription() throws Exception {
         try (var transport = new MemoryTransport();
-             var endpoint = RequestReplyEndpoint.open(transport);
-             var other = RequestReplyEndpoint.open(transport)) {
+             var endpoint = MessagingRequestReplyEndpoint.open(transport);
+             var other = MessagingRequestReplyEndpoint.open(transport)) {
             var entered = new CountDownLatch(1);
             var interrupted = new CountDownLatch(1);
             var release = new CountDownLatch(1);
@@ -723,22 +727,22 @@ class RequestReplyEndpointTest {
             })) {
                 try {
                     final Future<String> pending = async(() -> endpoint.request("pending"));
-                    RequestReplyMessage<String> outgoing = transport.next();
-                    RequestReplyTransport.Listener<String> oldListener = transport.listeners.get(outgoing.replyTo());
+                    MessagingRequestReplyMessage<String> outgoing = transport.next();
+                    MessagingRequestReplyTransport.Listener<String> oldListener = transport.listeners.get(outgoing.replyTo());
                     assertNotNull(oldListener);
                     start(() -> oldListener.onMessage(request("incoming")));
                     await(entered);
 
                     endpoint.close();
 
-                    failure(RequestReplyException.Reason.CLOSED, pending);
+                    failure(MessagingRequestReplyException.Reason.CLOSED, pending);
                     await(interrupted);
                     join(handlerThread.get());
                     assertEquals(1, transport.subscriptionCloses.get());
                     assertEquals(1, transport.listeners.size());
                     assertFalse(transport.closed);
                     assertFalse(transport.listeners.containsKey(outgoing.replyTo()));
-                    failure(RequestReplyException.Reason.CLOSED, () -> endpoint.request("closed"));
+                    failure(MessagingRequestReplyException.Reason.CLOSED, () -> endpoint.request("closed"));
                     assertThrows(IllegalStateException.class, () -> endpoint.handle(payload -> payload));
                     oldListener.onMessage(request("after close"));
                     oldListener.onMessage(outgoing.response("late reply"));
@@ -748,7 +752,7 @@ class RequestReplyEndpointTest {
                     assertTrue(transport.sent.isEmpty());
 
                     Future<String> surviving = async(() -> other.request("surviving endpoint"));
-                    RequestReplyMessage<String> request = transport.next();
+                    MessagingRequestReplyMessage<String> request = transport.next();
                     transport.deliver(request.response("still open"));
                     assertEquals("still open", result(surviving));
                 } finally {
@@ -761,23 +765,23 @@ class RequestReplyEndpointTest {
     @Test
     void disconnectFailsAllPendingRequestsAndAllowsFreshWorkWithoutReplayingOldRequests() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(2, 1))) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(2, 1))) {
             Future<String> first = async(() -> endpoint.request("first"));
-            final RequestReplyMessage<String> firstRequest = transport.next();
+            final MessagingRequestReplyMessage<String> firstRequest = transport.next();
             Future<String> second = async(() -> endpoint.request("second"));
-            final RequestReplyMessage<String> secondRequest = transport.next();
+            final MessagingRequestReplyMessage<String> secondRequest = transport.next();
 
             transport.disconnect();
 
-            failure(RequestReplyException.Reason.DISCONNECTED, first);
-            failure(RequestReplyException.Reason.DISCONNECTED, second);
+            failure(MessagingRequestReplyException.Reason.DISCONNECTED, first);
+            failure(MessagingRequestReplyException.Reason.DISCONNECTED, second);
             assertTrue(transport.sent.isEmpty());
             final Future<String> fresh = async(() -> endpoint.request("fresh"));
-            RequestReplyMessage<String> freshRequest = transport.next();
+            MessagingRequestReplyMessage<String> freshRequest = transport.next();
             assertEquals("fresh", freshRequest.payload());
             assertEquals(firstRequest.replyTo(), freshRequest.replyTo());
             transport.deliver(firstRequest.response("old first reply"));
-            transport.deliver(secondRequest.failure(RequestReplyMessage.Error.HANDLER_FAILED));
+            transport.deliver(secondRequest.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED));
             assertFalse(fresh.isDone());
             transport.deliver(freshRequest.response("fresh reply"));
 
@@ -800,7 +804,7 @@ class RequestReplyEndpointTest {
         var release = new CountDownLatch(1);
         var calls = new AtomicInteger();
         var oldHandler = new AtomicReference<Thread>();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1));
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1));
              var registration = endpoint.handle(payload -> {
                  calls.incrementAndGet();
                  if ("old".equals(payload)) {
@@ -812,20 +816,20 @@ class RequestReplyEndpointTest {
              })) {
             try {
                 Future<String> pending = async(() -> endpoint.request("old"));
-                final RequestReplyMessage<String> oldRequest = transport.next();
+                final MessagingRequestReplyMessage<String> oldRequest = transport.next();
                 await(entered);
 
                 transport.disconnect();
 
-                failure(RequestReplyException.Reason.DISCONNECTED, pending);
+                failure(MessagingRequestReplyException.Reason.DISCONNECTED, pending);
                 await(interrupted);
                 for (int index = 0; index < 4; index++) {
                     transport.disconnect();
-                    RequestReplyException failure = failure(RequestReplyException.Reason.REMOTE_ERROR,
+                    MessagingRequestReplyException failure = failure(MessagingRequestReplyException.Reason.REMOTE_ERROR,
                         () -> endpoint.request("excess"));
-                    assertEquals(RequestReplyMessage.Error.OVERLOADED, failure.remoteError());
-                    RequestReplyMessage<String> excess = transport.next();
-                    assertEquals(excess.failure(RequestReplyMessage.Error.OVERLOADED), transport.next());
+                    assertEquals(MessagingRequestReplyMessage.Error.OVERLOADED, failure.remoteError());
+                    MessagingRequestReplyMessage<String> excess = transport.next();
+                    assertEquals(excess.failure(MessagingRequestReplyMessage.Error.OVERLOADED), transport.next());
                     assertEquals(1, calls.get());
                     assertTrue(oldHandler.get().isAlive());
                 }
@@ -835,7 +839,7 @@ class RequestReplyEndpointTest {
                 assertTrue(transport.sent.isEmpty());
                 transport.deliver(oldRequest.response("late reply"));
                 assertEquals("reply:fresh", endpoint.request("fresh"));
-                RequestReplyMessage<String> fresh = transport.next();
+                MessagingRequestReplyMessage<String> fresh = transport.next();
                 assertEquals(fresh.response("reply:fresh"), transport.next());
                 assertEquals(2, calls.get());
                 assertEquals(1, transport.listeners.size());
@@ -848,7 +852,7 @@ class RequestReplyEndpointTest {
     @Test
     void rejectsInvalidRequestArgumentsBeforeSendingOrConsumingCapacity() throws Exception {
         var transport = new MemoryTransport();
-        try (var endpoint = RequestReplyEndpoint.open(transport, options(1, 1))) {
+        try (var endpoint = MessagingRequestReplyEndpoint.open(transport, options(1, 1))) {
             assertThrows(NullPointerException.class, () -> endpoint.request(null));
             assertThrows(NullPointerException.class, () -> endpoint.request("request", null));
             assertThrows(NullPointerException.class, () -> endpoint.handle(null));
@@ -866,35 +870,35 @@ class RequestReplyEndpointTest {
 
     @Test
     void propagatesSubscriptionFailureBeforePublishingAnEndpoint() {
-        var expected = new RequestReplyException(RequestReplyException.Reason.DISCONNECTED);
-        var transport = new RequestReplyTransport<String>() {
+        var expected = new MessagingRequestReplyException(MessagingRequestReplyException.Reason.DISCONNECTED);
+        var transport = new MessagingRequestReplyTransport<String>() {
             @NotNull
             @Override
-            public MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<String> listener)
-                    throws RequestReplyException {
+            public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<String> listener)
+                    throws MessagingRequestReplyException {
                 throw expected;
             }
 
             @NotNull
             @Override
-            public CompletionStage<Void> send(@NotNull RequestReplyMessage<String> message) {
+            public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<String> message) {
                 throw new AssertionError("Subscription failure must prevent sending");
             }
         };
 
-        assertSame(expected, assertThrows(RequestReplyException.class, () -> RequestReplyEndpoint.open(transport)));
-        assertThrows(NullPointerException.class, () -> RequestReplyEndpoint.open(null));
-        assertThrows(NullPointerException.class, () -> RequestReplyEndpoint.open(new MemoryTransport(), null));
+        assertSame(expected, assertThrows(MessagingRequestReplyException.class, () -> MessagingRequestReplyEndpoint.open(transport)));
+        assertThrows(NullPointerException.class, () -> MessagingRequestReplyEndpoint.open(null));
+        assertThrows(NullPointerException.class, () -> MessagingRequestReplyEndpoint.open(new MemoryTransport(), null));
     }
 
     @NotNull
-    private static RequestReplyOptions options(int pending, int handlers) {
-        return new RequestReplyOptions(WAIT, pending, handlers);
+    private static MessagingRequestReplyOptions options(int pending, int handlers) {
+        return new MessagingRequestReplyOptions(WAIT, pending, handlers);
     }
 
     @NotNull
-    private static RequestReplyMessage<String> request(@NotNull String payload) {
-        return RequestReplyMessage.request(UUID.randomUUID(), UUID.randomUUID(), payload);
+    private static MessagingRequestReplyMessage<String> request(@NotNull String payload) {
+        return MessagingRequestReplyMessage.request(UUID.randomUUID(), UUID.randomUUID(), payload);
     }
 
     @NotNull
@@ -917,16 +921,22 @@ class RequestReplyEndpointTest {
     }
 
     @NotNull
-    private static RequestReplyException failure(@NotNull RequestReplyException.Reason reason, @NotNull Executable action) {
-        RequestReplyException failure = assertThrows(RequestReplyException.class, action);
+    private static MessagingRequestReplyException failure(
+        @NotNull MessagingRequestReplyException.Reason reason,
+        @NotNull Executable action
+    ) {
+        MessagingRequestReplyException failure = assertThrows(MessagingRequestReplyException.class, action);
         assertEquals(reason, failure.reason());
         return failure;
     }
 
     @NotNull
-    private static RequestReplyException failure(@NotNull RequestReplyException.Reason reason, @NotNull Future<?> future) {
+    private static MessagingRequestReplyException failure(
+        @NotNull MessagingRequestReplyException.Reason reason,
+        @NotNull Future<?> future
+    ) {
         ExecutionException wrapper = assertThrows(ExecutionException.class, () -> result(future));
-        RequestReplyException failure = assertInstanceOf(RequestReplyException.class, wrapper.getCause());
+        MessagingRequestReplyException failure = assertInstanceOf(MessagingRequestReplyException.class, wrapper.getCause());
         assertEquals(reason, failure.reason());
         return failure;
     }
@@ -963,11 +973,11 @@ class RequestReplyEndpointTest {
         };
     }
 
-    private static final class MemoryTransport implements RequestReplyTransport<String>, AutoCloseable {
+    private static final class MemoryTransport implements MessagingRequestReplyTransport<String>, AutoCloseable {
         private final Map<UUID, Listener<String>> listeners = new ConcurrentHashMap<>();
-        private final BlockingQueue<RequestReplyMessage<String>> sent = new LinkedBlockingQueue<>();
+        private final BlockingQueue<MessagingRequestReplyMessage<String>> sent = new LinkedBlockingQueue<>();
         private final AtomicInteger subscriptionCloses = new AtomicInteger();
-        private volatile Function<RequestReplyMessage<String>, CompletionStage<Void>> sender =
+        private volatile Function<MessagingRequestReplyMessage<String>, CompletionStage<Void>> sender =
             message -> CompletableFuture.completedFuture(null);
         @Nullable
         private Executor requestExecutor;
@@ -975,7 +985,7 @@ class RequestReplyEndpointTest {
 
         @NotNull
         @Override
-        public MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<String> listener) {
+        public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<String> listener) {
             assertFalse(closed);
             assertNull(listeners.putIfAbsent(endpointId, listener));
             return () -> {
@@ -987,7 +997,7 @@ class RequestReplyEndpointTest {
 
         @NotNull
         @Override
-        public CompletionStage<Void> send(@NotNull RequestReplyMessage<String> message) {
+        public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<String> message) {
             assertFalse(closed);
             sent.add(message);
             return sender.apply(message);
@@ -996,13 +1006,13 @@ class RequestReplyEndpointTest {
         @Override
         public void executeRequest(@NotNull Runnable request) {
             if (requestExecutor == null) {
-                RequestReplyTransport.super.executeRequest(request);
+                MessagingRequestReplyTransport.super.executeRequest(request);
             } else {
                 requestExecutor.execute(request);
             }
         }
 
-        private void deliver(@NotNull RequestReplyMessage<String> message) {
+        private void deliver(@NotNull MessagingRequestReplyMessage<String> message) {
             List.copyOf(listeners.values()).forEach(listener -> listener.onMessage(message));
         }
 
@@ -1011,8 +1021,8 @@ class RequestReplyEndpointTest {
         }
 
         @NotNull
-        private RequestReplyMessage<String> next() throws InterruptedException {
-            RequestReplyMessage<String> message = sent.poll(WAIT.toMillis(), TimeUnit.MILLISECONDS);
+        private MessagingRequestReplyMessage<String> next() throws InterruptedException {
+            MessagingRequestReplyMessage<String> message = sent.poll(WAIT.toMillis(), TimeUnit.MILLISECONDS);
             assertNotNull(message, "No message was sent");
             return message;
         }

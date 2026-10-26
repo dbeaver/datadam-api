@@ -22,7 +22,7 @@ import org.jkiss.code.Nullable;
 import java.util.Objects;
 import java.util.UUID;
 
-public record RequestReplyMessage<P>(
+public record MessagingRequestReplyMessage<P>(
     @NotNull UUID requestId,
     @NotNull UUID replyTo,
     @NotNull Type type,
@@ -37,7 +37,7 @@ public record RequestReplyMessage<P>(
         NO_HANDLER, OVERLOADED, HANDLER_FAILED
     }
 
-    public RequestReplyMessage {
+    public MessagingRequestReplyMessage {
         Objects.requireNonNull(requestId);
         Objects.requireNonNull(replyTo);
         Objects.requireNonNull(type);
@@ -48,20 +48,20 @@ public record RequestReplyMessage<P>(
     }
 
     @NotNull
-    public static <P> RequestReplyMessage<P> request(@NotNull UUID requestId, @NotNull UUID replyTo, @NotNull P payload) {
-        return new RequestReplyMessage<>(requestId, replyTo, Type.REQUEST, Objects.requireNonNull(payload), null);
+    public static <P> MessagingRequestReplyMessage<P> request(@NotNull UUID requestId, @NotNull UUID replyTo, @NotNull P payload) {
+        return new MessagingRequestReplyMessage<>(requestId, replyTo, Type.REQUEST, Objects.requireNonNull(payload), null);
     }
 
     @NotNull
-    public RequestReplyMessage<P> response(@Nullable P result) {
+    public MessagingRequestReplyMessage<P> response(@Nullable P result) {
         requireRequest();
-        return new RequestReplyMessage<>(requestId, replyTo, Type.RESPONSE, result, null);
+        return new MessagingRequestReplyMessage<>(requestId, replyTo, Type.RESPONSE, result, null);
     }
 
     @NotNull
-    public RequestReplyMessage<P> failure(@NotNull Error reason) {
+    public MessagingRequestReplyMessage<P> failure(@NotNull Error reason) {
         requireRequest();
-        return new RequestReplyMessage<>(requestId, replyTo, Type.ERROR, null, Objects.requireNonNull(reason));
+        return new MessagingRequestReplyMessage<>(requestId, replyTo, Type.ERROR, null, Objects.requireNonNull(reason));
     }
 
     private void requireRequest() {

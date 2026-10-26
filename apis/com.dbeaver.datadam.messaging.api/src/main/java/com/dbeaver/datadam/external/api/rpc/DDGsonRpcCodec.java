@@ -16,7 +16,7 @@
  */
 package com.dbeaver.datadam.external.api.rpc;
 
-import com.dbeaver.messaging.rpc.RpcCodec;
+import com.dbeaver.messaging.rpc.MessagingRpcCodec;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import org.jkiss.code.NotNull;
@@ -25,7 +25,7 @@ import org.jkiss.code.Nullable;
 import java.lang.reflect.Type;
 import java.util.Objects;
 
-public final class DDGsonRpcCodec implements RpcCodec<JsonElement> {
+public final class DDGsonRpcCodec implements MessagingRpcCodec<JsonElement> {
     private final Gson gson;
 
     public DDGsonRpcCodec(@NotNull Gson gson) {

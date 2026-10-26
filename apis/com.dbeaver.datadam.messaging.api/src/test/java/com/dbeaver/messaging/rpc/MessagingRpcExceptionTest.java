@@ -28,18 +28,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class RpcExceptionTest {
+class MessagingRpcExceptionTest {
     @Test
     void includesRemoteTextInOrdinaryExceptionLoggingWithoutLoadingTheRemoteClass() {
-        var details = new RpcExceptionDetails("unavailable.application.Failure", "Application failed",
+        var details = new MessagingRpcExceptionDetails("unavailable.application.Failure", "Application failed",
             "unavailable.application.Failure: Application failed\n\tat remote.Receiver.call(Receiver.java:42)", true);
 
-        var failure = new RpcException(RpcMessage.Error.HANDLER_FAILED, details);
+        var failure = new MessagingRpcException(MessagingRpcMessage.Error.HANDLER_FAILED, details);
         StringWriter printed = new StringWriter();
         failure.printStackTrace(new PrintWriter(printed));
 
-        assertEquals(RpcException.Reason.REMOTE_ERROR, failure.reason());
-        assertEquals(RpcMessage.Error.HANDLER_FAILED, failure.remoteError());
+        assertEquals(MessagingRpcException.Reason.REMOTE_ERROR, failure.reason());
+        assertEquals(MessagingRpcMessage.Error.HANDLER_FAILED, failure.remoteError());
         assertSame(details, failure.remoteException());
         assertTrue(failure.getMessage().contains(details.type()));
         assertTrue(failure.getMessage().contains(details.message()));
@@ -52,13 +52,13 @@ class RpcExceptionTest {
 
     @Test
     void preservesCodeOnlyErrorsAndLocalCausesWithoutInventingRemoteDiagnostics() {
-        var remote = new RpcException(RpcMessage.Error.UNKNOWN_SERVICE);
+        var remote = new MessagingRpcException(MessagingRpcMessage.Error.UNKNOWN_SERVICE);
         assertEquals("Remote RPC call failed: UNKNOWN_SERVICE", remote.getMessage());
         assertNull(remote.getCause());
         assertNull(remote.remoteException());
 
         var cause = new IllegalStateException("Local failure");
-        var local = new RpcException(RpcException.Reason.SEND_FAILED, cause);
+        var local = new MessagingRpcException(MessagingRpcException.Reason.SEND_FAILED, cause);
         assertSame(cause, local.getCause());
         assertNull(local.remoteException());
         assertNull(local.remoteError());

@@ -21,12 +21,12 @@ import org.jkiss.code.Nullable;
 
 import java.util.Objects;
 
-public record RpcMessage<P>(
+public record MessagingRpcMessage<P>(
     @NotNull Type type,
     @Nullable String operation,
     @Nullable P payload,
     @Nullable Error error,
-    @Nullable RpcExceptionDetails exception
+    @Nullable MessagingRpcExceptionDetails exception
 ) {
     public enum Type {
         REQUEST, RESPONSE, ERROR
@@ -36,7 +36,7 @@ public record RpcMessage<P>(
         UNKNOWN_SERVICE, UNKNOWN_OPERATION, INVALID_REQUEST, HANDLER_FAILED, CODEC_FAILED
     }
 
-    public RpcMessage {
+    public MessagingRpcMessage {
         Objects.requireNonNull(type);
         if (exception != null && type != Type.ERROR) {
             throw new IllegalArgumentException("RPC exception details require an error response");
@@ -52,22 +52,22 @@ public record RpcMessage<P>(
     }
 
     @NotNull
-    public static <P> RpcMessage<P> request(@NotNull String operation, @Nullable P payload) {
-        return new RpcMessage<>(Type.REQUEST, operation, payload, null, null);
+    public static <P> MessagingRpcMessage<P> request(@NotNull String operation, @Nullable P payload) {
+        return new MessagingRpcMessage<>(Type.REQUEST, operation, payload, null, null);
     }
 
     @NotNull
-    public static <P> RpcMessage<P> response(@Nullable P payload) {
-        return new RpcMessage<>(Type.RESPONSE, null, payload, null, null);
+    public static <P> MessagingRpcMessage<P> response(@Nullable P payload) {
+        return new MessagingRpcMessage<>(Type.RESPONSE, null, payload, null, null);
     }
 
     @NotNull
-    public static <P> RpcMessage<P> failure(@NotNull Error error) {
+    public static <P> MessagingRpcMessage<P> failure(@NotNull Error error) {
         return failure(error, null);
     }
 
     @NotNull
-    public static <P> RpcMessage<P> failure(@NotNull Error error, @Nullable RpcExceptionDetails exception) {
-        return new RpcMessage<>(Type.ERROR, null, null, Objects.requireNonNull(error), exception);
+    public static <P> MessagingRpcMessage<P> failure(@NotNull Error error, @Nullable MessagingRpcExceptionDetails exception) {
+        return new MessagingRpcMessage<>(Type.ERROR, null, null, Objects.requireNonNull(error), exception);
     }
 }

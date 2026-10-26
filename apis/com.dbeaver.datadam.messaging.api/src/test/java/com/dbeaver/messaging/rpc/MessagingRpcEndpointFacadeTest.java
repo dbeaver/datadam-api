@@ -16,11 +16,11 @@
  */
 package com.dbeaver.messaging.rpc;
 
-import com.dbeaver.messaging.requestreply.MessageSubscription;
-import com.dbeaver.messaging.requestreply.RequestReplyException;
-import com.dbeaver.messaging.requestreply.RequestReplyMessage;
-import com.dbeaver.messaging.requestreply.RequestReplyOptions;
-import com.dbeaver.messaging.requestreply.RequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyMessage;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyOptions;
+import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
+import com.dbeaver.messaging.requestreply.MessagingSubscription;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Test;
@@ -47,14 +47,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(30)
-public class RpcEndpointFacadeTest extends RpcTestSupport {
+public class MessagingRpcEndpointFacadeTest extends MessagingRpcTestSupport {
     @Test
     void usesTheSameFacadeForTextAndBinaryPayloadRepresentations() throws Exception {
         var textTransport = new LoopbackTransport<String>(() -> { });
         var binaryTransport = new LoopbackTransport<byte[]>(() -> { });
-        try (RpcEndpoint text = RpcEndpoint.open(textTransport, new TextCodec());
-             RpcEndpoint binary = RpcEndpoint.open(binaryTransport, new BinaryCodec(), OPTIONS)) {
-            for (RpcEndpoint endpoint : List.of(text, binary)) {
+        try (MessagingRpcEndpoint text = MessagingRpcEndpoint.open(textTransport, new TextCodec());
+             MessagingRpcEndpoint binary = MessagingRpcEndpoint.open(binaryTransport, new BinaryCodec(), OPTIONS)) {
+            for (MessagingRpcEndpoint endpoint : List.of(text, binary)) {
                 assertFalse(endpoint.isClosed());
                 assertFalse(endpoint.isCloseComplete());
                 try (var registration = endpoint.register("text", TextService.class, value -> value)) {
@@ -64,7 +64,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                     endpoint.close();
                     assertTrue(endpoint.isClosed());
                     assertTrue(endpoint.isCloseComplete());
-                    failure(RpcException.Reason.CLOSED, () -> proxy.apply("closed"));
+                    failure(MessagingRpcException.Reason.CLOSED, () -> proxy.apply("closed"));
                 }
             }
         }
@@ -83,7 +83,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                 throw new AssertionError(e);
             }
         });
-        try (RpcEndpoint endpoint = RpcEndpoint.open(transport, new TextCodec(), OPTIONS)) {
+        try (MessagingRpcEndpoint endpoint = MessagingRpcEndpoint.open(transport, new TextCodec(), OPTIONS)) {
             endpoint.proxy("text", TextService.class);
             assertFalse(endpoint.isClosed());
             Future<?> closing = async(() -> {
@@ -95,7 +95,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                 assertTrue(endpoint.isClosed());
                 assertFalse(endpoint.isCloseComplete());
                 assertFalse(closing.isDone());
-                failure(RpcException.Reason.CLOSED, () -> endpoint.proxy("text", TextService.class));
+                failure(MessagingRpcException.Reason.CLOSED, () -> endpoint.proxy("text", TextService.class));
                 endpoint.close();
             } finally {
                 releaseCleanup.countDown();
@@ -104,7 +104,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
             assertTrue(endpoint.isClosed());
             assertTrue(endpoint.isCloseComplete());
         }
-        try (RpcEndpoint reopened = RpcEndpoint.open(transport, new TextCodec(), OPTIONS);
+        try (MessagingRpcEndpoint reopened = MessagingRpcEndpoint.open(transport, new TextCodec(), OPTIONS);
              var registration = reopened.register("text", TextService.class, value -> "fresh:" + value)) {
             assertFalse(reopened.isClosed());
             assertEquals("fresh:value", reopened.proxy("text", TextService.class).apply("value"));
@@ -117,7 +117,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
         var transport = new LoopbackTransport<String>(() -> {
             throw failure;
         });
-        RpcEndpoint endpoint = RpcEndpoint.open(transport, new TextCodec(), OPTIONS);
+        MessagingRpcEndpoint endpoint = MessagingRpcEndpoint.open(transport, new TextCodec(), OPTIONS);
         endpoint.proxy("text", TextService.class);
 
         assertSame(failure, assertThrows(IllegalStateException.class, endpoint::close));
@@ -144,7 +144,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
         first.decoder = (value, type) -> "one:" + value;
         second.encoder = (value, type) -> "second:" + value;
         second.decoder = (value, type) -> "two:" + value;
-        try (var endpoint = RpcEndpoint.open(transport, fallback, OPTIONS);
+        try (var endpoint = MessagingRpcEndpoint.open(transport, fallback, OPTIONS);
              var defaultService = endpoint.register("default", TextService.class, value -> value);
              var customService = endpoint.register("custom", TextService.class, value -> value, service)) {
             TextService defaultProxy = endpoint.proxy("default", TextService.class);
@@ -172,25 +172,25 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
     void shorterProxyTimeoutDoesNotChangeOtherProxiesSharingTheTopic() throws Exception {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, codec, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, codec, OPTIONS)) {
             TextService first = endpoint.proxy("text", TextService.class);
             TextService expiring = endpoint.proxy("text", TextService.class, Duration.ofMillis(100));
             TextService second = endpoint.proxy("text", TextService.class);
             Future<String> firstCall = async(() -> first.apply("first"));
-            var firstRequest = transport.next();
+            final var firstRequest = transport.next();
             Future<String> secondCall = async(() -> second.apply("second"));
-            var secondRequest = transport.next();
+            final var secondRequest = transport.next();
 
-            failure(RpcException.Reason.TIMEOUT, () -> expiring.apply("expire"));
+            failure(MessagingRpcException.Reason.TIMEOUT, () -> expiring.apply("expire"));
             var expiredRequest = transport.next();
 
             assertFalse(firstCall.isDone());
             assertFalse(secondCall.isDone());
-            transport.deliver(expiredRequest.response(RpcMessage.response("late")));
+            transport.deliver(expiredRequest.response(MessagingRpcMessage.response("late")));
             assertFalse(firstCall.isDone());
             assertFalse(secondCall.isDone());
-            transport.deliver(firstRequest.response(RpcMessage.response("first reply")));
-            transport.deliver(secondRequest.response(RpcMessage.response("second reply")));
+            transport.deliver(firstRequest.response(MessagingRpcMessage.response("first reply")));
+            transport.deliver(secondRequest.response(MessagingRpcMessage.response("second reply")));
             assertEquals("first reply", result(firstCall));
             assertEquals("second reply", result(secondCall));
             assertEquals(3, codec.encoded.size());
@@ -208,25 +208,25 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
         var custom = new TestCodec();
         custom.encoder = (value, type) -> "custom:" + value;
         custom.decoder = (value, type) -> "decoded:" + value;
-        var options = new RequestReplyOptions(Duration.ofMillis(100), 16, 16);
-        try (var endpoint = RpcEndpoint.open(transport, fallback, options)) {
+        var options = new MessagingRequestReplyOptions(Duration.ofMillis(100), 16, 16);
+        try (var endpoint = MessagingRpcEndpoint.open(transport, fallback, options)) {
             TextService first = endpoint.proxy("text", TextService.class);
             TextService extended = endpoint.proxy("text", TextService.class, custom, WAIT);
             TextService second = endpoint.proxy("text", TextService.class, fallback);
-            Future<String> extendedCall = async(() -> extended.apply("extended"));
+            final Future<String> extendedCall = async(() -> extended.apply("extended"));
             var extendedRequest = transport.next();
             assertEquals("custom:extended", extendedRequest.payload().payload());
 
-            failure(RpcException.Reason.TIMEOUT, () -> first.apply("first"));
+            failure(MessagingRpcException.Reason.TIMEOUT, () -> first.apply("first"));
             var firstRequest = transport.next();
-            failure(RpcException.Reason.TIMEOUT, () -> second.apply("second"));
+            failure(MessagingRpcException.Reason.TIMEOUT, () -> second.apply("second"));
             var secondRequest = transport.next();
 
             assertFalse(extendedCall.isDone());
-            transport.deliver(firstRequest.response(RpcMessage.response("first late reply")));
-            transport.deliver(secondRequest.response(RpcMessage.response("second late reply")));
+            transport.deliver(firstRequest.response(MessagingRpcMessage.response("first late reply")));
+            transport.deliver(secondRequest.response(MessagingRpcMessage.response("second late reply")));
             assertFalse(extendedCall.isDone());
-            transport.deliver(extendedRequest.response(RpcMessage.response("extended reply")));
+            transport.deliver(extendedRequest.response(MessagingRpcMessage.response("extended reply")));
             assertEquals("decoded:extended reply", result(extendedCall));
             assertEquals(1, custom.encoded.size());
             assertEquals(1, custom.decoded.size());
@@ -242,7 +242,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
     void validatesProxyTimeoutsBeforeOpeningAnyTopic() {
         var transport = new MemoryTransport();
         var codec = new TestCodec();
-        try (var endpoint = RpcEndpoint.open(transport, codec, OPTIONS)) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, codec, OPTIONS)) {
             for (Duration timeout : List.of(
                 Duration.ZERO, Duration.ofNanos(-1), Duration.ofSeconds(-1),
                 Duration.ofSeconds(Long.MAX_VALUE), Duration.ofSeconds(Long.MIN_VALUE)
@@ -271,7 +271,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                 throw failure;
             }
         });
-        var endpoint = RpcEndpoint.open(transport, new TextCodec());
+        var endpoint = MessagingRpcEndpoint.open(transport, new TextCodec());
         endpoint.proxy("one", TextService.class);
         endpoint.proxy("two", TextService.class);
         endpoint.proxy("three", TextService.class);
@@ -284,7 +284,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
     @Test
     void missingDefaultFailsBeforeOpeningAnyTopic() {
         var openings = new AtomicInteger();
-        try (var endpoint = RpcEndpoint.<Object>open(topic -> {
+        try (var endpoint = MessagingRpcEndpoint.<Object>open(topic -> {
             openings.incrementAndGet();
             return new MemoryTransport().forTopic(topic);
         })) {
@@ -300,9 +300,9 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
     @Test
     void incompatibleBindingPayloadsFailThroughTheCodecErrorBoundary() {
         var transport = new LoopbackTransport<String>(() -> { });
-        try (var endpoint = RpcEndpoint.open(transport, new TextCodec());
+        try (var endpoint = MessagingRpcEndpoint.open(transport, new TextCodec());
              var registration = endpoint.register("text", TextService.class, value -> value)) {
-            remoteFailure(RpcMessage.Error.CODEC_FAILED,
+            remoteFailure(MessagingRpcMessage.Error.CODEC_FAILED,
                 () -> endpoint.proxy("text", TextService.class, new BinaryCodec()).apply("incompatible"));
             assertEquals("compatible", endpoint.proxy("text", TextService.class).apply("compatible"));
         }
@@ -314,7 +314,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var openings = new AtomicInteger();
-        try (var endpoint = RpcEndpoint.<Object>open(topic -> {
+        try (var endpoint = MessagingRpcEndpoint.<Object>open(topic -> {
             openings.incrementAndGet();
             if (topic.equals("blocked")) {
                 entered.countDown();
@@ -322,7 +322,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                     await(release);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    throw new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, e);
+                    throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED, e);
                 }
             }
             return transport.forTopic(topic);
@@ -360,13 +360,13 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                 throw new AssertionError(e);
             }
         });
-        try (var endpoint = RpcEndpoint.<String>open(topic -> {
+        try (var endpoint = MessagingRpcEndpoint.<String>open(topic -> {
             opening.countDown();
             try {
                 await(releaseOpening);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, e);
+                throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED, e);
             }
             return transport.forTopic(topic);
         }, OPTIONS)) {
@@ -381,7 +381,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                 endpoint.close();
                 assertFalse(endpoint.isCloseComplete());
                 releaseCleanup.countDown();
-                failure(RpcException.Reason.CLOSED, pending);
+                failure(MessagingRpcException.Reason.CLOSED, pending);
                 assertTrue(endpoint.isCloseComplete());
                 assertEquals(1, closes.get());
                 assertTrue(transport.listeners.isEmpty());
@@ -395,7 +395,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
     @Test
     void supportsMoreThanSixtyFourReceiverTopicsAndReusesSharedSubscriptions() {
         var transport = new MemoryTransport();
-        try (var endpoint = RpcEndpoint.open(transport, new TestCodec())) {
+        try (var endpoint = MessagingRpcEndpoint.open(transport, new TestCodec())) {
             for (int index = 0; index < 128; index++) {
                 endpoint.register("topic." + index, TextService.class, value -> value);
                 endpoint.proxy("topic." + index, TextService.class);
@@ -420,7 +420,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var openings = new AtomicInteger();
-        try (var endpoint = RpcEndpoint.<Object>open(topic -> {
+        try (var endpoint = MessagingRpcEndpoint.<Object>open(topic -> {
             openings.incrementAndGet();
             if (topic.equals("reserved")) {
                 entered.countDown();
@@ -428,7 +428,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                     await(release);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    throw new RequestReplyException(RequestReplyException.Reason.SEND_FAILED, e);
+                    throw new MessagingRequestReplyException(MessagingRequestReplyException.Reason.SEND_FAILED, e);
                 }
             }
             return transport.forTopic(topic);
@@ -449,7 +449,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
                 assertEquals(129, transport.subscriptionCloses.get());
                 assertTrue(transport.listeners.isEmpty());
                 release.countDown();
-                failure(RpcException.Reason.CLOSED, pending);
+                failure(MessagingRpcException.Reason.CLOSED, pending);
                 assertTrue(endpoint.isCloseComplete());
                 assertEquals(130, transport.subscriptionCloses.get());
                 assertTrue(transport.listeners.isEmpty());
@@ -465,7 +465,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
         String apply(@Nullable String value);
     }
 
-    private static final class TextCodec implements RpcCodec<String> {
+    private static final class TextCodec implements MessagingRpcCodec<String> {
         @Nullable
         @Override
         public String encode(@Nullable Object value, @NotNull Type type) {
@@ -479,7 +479,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
         }
     }
 
-    private static final class BinaryCodec implements RpcCodec<byte[]> {
+    private static final class BinaryCodec implements MessagingRpcCodec<byte[]> {
         @Nullable
         @Override
         public byte[] encode(@Nullable Object value, @NotNull Type type) {
@@ -493,8 +493,8 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
         }
     }
 
-    private static final class LoopbackTransport<P> implements RpcTransport<P> {
-        private final Map<UUID, RequestReplyTransport.Listener<RpcMessage<P>>> listeners = new ConcurrentHashMap<>();
+    private static final class LoopbackTransport<P> implements MessagingRpcTransport<P> {
+        private final Map<UUID, MessagingRequestReplyTransport.Listener<MessagingRpcMessage<P>>> listeners = new ConcurrentHashMap<>();
         private final Map<UUID, String> topics = new ConcurrentHashMap<>();
         private final Runnable onClose;
 
@@ -504,11 +504,11 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
 
         @NotNull
         @Override
-        public RequestReplyTransport<RpcMessage<P>> forTopic(@NotNull String topic) {
-            return new RequestReplyTransport<>() {
+        public MessagingRequestReplyTransport<MessagingRpcMessage<P>> forTopic(@NotNull String topic) {
+            return new MessagingRequestReplyTransport<>() {
                 @NotNull
                 @Override
-                public MessageSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<RpcMessage<P>> listener) {
+                public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<MessagingRpcMessage<P>> listener) {
                     listeners.put(endpointId, listener);
                     topics.put(endpointId, topic);
                     return () -> {
@@ -520,7 +520,7 @@ public class RpcEndpointFacadeTest extends RpcTestSupport {
 
                 @NotNull
                 @Override
-                public CompletionStage<Void> send(@NotNull RequestReplyMessage<RpcMessage<P>> message) {
+                public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<P>> message) {
                     List.copyOf(listeners.entrySet()).stream().filter(entry -> topic.equals(topics.get(entry.getKey())))
                         .forEach(entry -> entry.getValue().onMessage(message));
                     return CompletableFuture.completedFuture(null);
