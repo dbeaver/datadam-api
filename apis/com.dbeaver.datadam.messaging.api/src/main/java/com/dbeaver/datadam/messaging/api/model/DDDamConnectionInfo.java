@@ -18,12 +18,12 @@ package com.dbeaver.datadam.messaging.api.model;
 
 import org.jkiss.code.NotNull;
 
-public record DDMessagingConnectionInfo(
+public record DDDamConnectionInfo(
     @NotNull String deploymentId,
     @NotNull String applicationRunId,
     @NotNull String connectionId
 ) {
-    public DDMessagingConnectionInfo {
+    public DDDamConnectionInfo {
         DDMessagingMessage.requireText(deploymentId, "deploymentId");
         DDMessagingMessage.requireText(applicationRunId, "applicationRunId");
         DDMessagingMessage.requireText(connectionId, "connectionId");

@@ -18,7 +18,7 @@ package com.dbeaver.datadam.messaging.api.client;
 
 import com.dbeaver.datadam.messaging.api.DDMessagingApi;
 import com.dbeaver.datadam.messaging.api.exception.DDMessagingException;
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import com.dbeaver.datadam.messaging.api.model.DDMessagingMessage;
 import com.google.gson.JsonElement;
 import org.jkiss.code.NotNull;
@@ -49,7 +49,7 @@ public final class DDMessagingCallbackClient extends DDMessagingGraphQlClient {
     public void deliver(
         @NotNull UUID subscriptionId,
         @NotNull UUID accountId,
-        @NotNull DDMessagingConnectionInfo connection,
+        @NotNull DDDamConnectionInfo connection,
         @NotNull DDMessagingMessage message
     ) throws DDMessagingException {
         readDeliveryResult(request("DeliverExternalDamMessage", DELIVER_MUTATION,
@@ -60,7 +60,7 @@ public final class DDMessagingCallbackClient extends DDMessagingGraphQlClient {
     public CompletionStage<Void> deliverAsync(
         @NotNull UUID subscriptionId,
         @NotNull UUID accountId,
-        @NotNull DDMessagingConnectionInfo connection,
+        @NotNull DDDamConnectionInfo connection,
         @NotNull DDMessagingMessage message
     ) {
         return requestAsync("DeliverExternalDamMessage", DELIVER_MUTATION,
@@ -72,7 +72,7 @@ public final class DDMessagingCallbackClient extends DDMessagingGraphQlClient {
     private static Map<String, ?> deliveryVariables(
         @NotNull UUID subscriptionId,
         @NotNull UUID accountId,
-        @NotNull DDMessagingConnectionInfo connection,
+        @NotNull DDDamConnectionInfo connection,
         @NotNull DDMessagingMessage message
     ) {
         return Map.of(

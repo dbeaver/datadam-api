@@ -16,12 +16,12 @@
  */
 package com.dbeaver.datadam.messaging.api.transport;
 
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class DDMessagingChannelStatusTest {
-    private static final DDMessagingConnectionInfo CONNECTION = new DDMessagingConnectionInfo("deployment", "run", "socket");
+    private static final DDDamConnectionInfo CONNECTION = new DDDamConnectionInfo("deployment", "run", "socket");
 
     @Test
     void onlyConnectedStatusIsReadyAndCarriesConnectionInformation() {

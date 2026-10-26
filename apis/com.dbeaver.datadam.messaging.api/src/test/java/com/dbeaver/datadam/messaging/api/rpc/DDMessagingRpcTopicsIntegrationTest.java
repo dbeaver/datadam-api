@@ -16,7 +16,7 @@
  */
 package com.dbeaver.datadam.messaging.api.rpc;
 
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import com.dbeaver.datadam.messaging.api.model.DDMessagingMessage;
 import com.dbeaver.datadam.messaging.api.transport.DDMessagingChannel;
 import com.dbeaver.datadam.messaging.api.transport.DDMessagingChannelState;
@@ -48,7 +48,7 @@ import java.util.function.Consumer;
 
 @Timeout(10)
 class DDMessagingRpcTopicsIntegrationTest {
-    private static final DDMessagingConnectionInfo CONNECTION = new DDMessagingConnectionInfo("desktop", "run", "physical-connection");
+    private static final DDDamConnectionInfo CONNECTION = new DDDamConnectionInfo("desktop", "run", "physical-connection");
     private static final MessagingRequestReplyOptions OPTIONS = new MessagingRequestReplyOptions(Duration.ofSeconds(2), 16, 8);
 
     @Test

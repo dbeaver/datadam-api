@@ -16,12 +16,12 @@
  */
 package com.dbeaver.datadam.messaging.api.transport;
 
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import org.jkiss.code.NotNull;
 
 /** Receives physical connection lifecycle notifications. */
 public interface DDMessagingConnectionListener {
-    void onConnected(@NotNull DDMessagingConnectionInfo connection);
+    void onConnected(@NotNull DDDamConnectionInfo connection);
 
-    void onDisconnected(@NotNull DDMessagingConnectionInfo connection);
+    void onDisconnected(@NotNull DDDamConnectionInfo connection);
 }

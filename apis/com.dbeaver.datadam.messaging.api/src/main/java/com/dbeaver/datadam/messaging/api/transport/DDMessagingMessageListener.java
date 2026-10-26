@@ -16,12 +16,12 @@
  */
 package com.dbeaver.datadam.messaging.api.transport;
 
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import com.dbeaver.datadam.messaging.api.model.DDMessagingMessage;
 import org.jkiss.code.NotNull;
 
 /** Receives topic messages with their source connection. */
 @FunctionalInterface
 public interface DDMessagingMessageListener {
-    void onMessage(@NotNull DDMessagingConnectionInfo connection, @NotNull DDMessagingMessage message);
+    void onMessage(@NotNull DDDamConnectionInfo connection, @NotNull DDMessagingMessage message);
 }

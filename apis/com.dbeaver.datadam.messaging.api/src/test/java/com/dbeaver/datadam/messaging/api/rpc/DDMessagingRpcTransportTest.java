@@ -17,7 +17,7 @@
 package com.dbeaver.datadam.messaging.api.rpc;
 
 import com.dbeaver.datadam.messaging.api.DDMessagingProtocol;
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import com.dbeaver.datadam.messaging.api.model.DDMessagingMessage;
 import com.dbeaver.datadam.messaging.api.requestreply.DDMessagingRequestReplyTransport;
 import com.dbeaver.datadam.messaging.api.transport.DDMessagingChannel;
@@ -77,7 +77,7 @@ import java.util.function.Consumer;
 @Timeout(10)
 public class DDMessagingRpcTransportTest {
     private static final String TOPIC = "custom.files";
-    private static final DDMessagingConnectionInfo CONNECTION = new DDMessagingConnectionInfo("desktop", "run", "socket");
+    private static final DDDamConnectionInfo CONNECTION = new DDDamConnectionInfo("desktop", "run", "socket");
     private static final MessagingRequestReplyOptions OPTIONS = new MessagingRequestReplyOptions(Duration.ofSeconds(2), 16, 8);
     private static final MessagingRpcCodec<JsonElement> CODEC = new GsonCodec();
 

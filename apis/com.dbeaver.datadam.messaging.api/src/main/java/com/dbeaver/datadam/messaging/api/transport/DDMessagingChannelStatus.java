@@ -16,13 +16,13 @@
  */
 package com.dbeaver.datadam.messaging.api.transport;
 
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
 import java.util.Objects;
 
-public record DDMessagingChannelStatus(@NotNull DDMessagingChannelState state, @Nullable DDMessagingConnectionInfo connection) {
+public record DDMessagingChannelStatus(@NotNull DDMessagingChannelState state, @Nullable DDDamConnectionInfo connection) {
     public DDMessagingChannelStatus {
         Objects.requireNonNull(state);
         if ((state == DDMessagingChannelState.CONNECTED) != (connection != null)) {

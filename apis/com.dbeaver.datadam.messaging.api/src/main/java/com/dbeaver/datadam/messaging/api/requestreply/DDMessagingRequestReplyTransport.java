@@ -17,7 +17,7 @@
 package com.dbeaver.datadam.messaging.api.requestreply;
 
 import com.dbeaver.datadam.messaging.api.exception.DDMessagingException;
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import com.dbeaver.datadam.messaging.api.model.DDMessagingMessage;
 import com.dbeaver.datadam.messaging.api.transport.DDMessagingChannel;
 import com.dbeaver.datadam.messaging.api.transport.DDMessagingChannelStatus;
@@ -331,7 +331,7 @@ public final class DDMessagingRequestReplyTransport implements MessagingRequestR
             return disconnected && enqueue(null);
         }
 
-        private void receive(@NotNull DDMessagingConnectionInfo connection, @NotNull DDMessagingMessage message, boolean requestTopic) {
+        private void receive(@NotNull DDDamConnectionInfo connection, @NotNull DDMessagingMessage message, boolean requestTopic) {
             MessagingRequestReplyMessage<JsonObject> frame = decode(message);
             if (frame == null || (requestTopic ? frame.type() != MessagingRequestReplyMessage.Type.REQUEST
                 : frame.type() == MessagingRequestReplyMessage.Type.REQUEST || !endpointId.equals(frame.replyTo()))) {

@@ -18,7 +18,7 @@ package com.dbeaver.datadam.messaging.api.client;
 
 import com.dbeaver.datadam.messaging.api.DDMessagingApi;
 import com.dbeaver.datadam.messaging.api.exception.DDMessagingException;
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import com.dbeaver.datadam.messaging.api.model.DDMessagingMessage;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -63,7 +63,7 @@ class DDMessagingCallbackClientTest {
     private static final String SECRET = "external-dam-callback-secret-2026-test";
     private static final UUID SUBSCRIPTION_ID = UUID.randomUUID();
     private static final UUID ACCOUNT_ID = UUID.randomUUID();
-    private static final DDMessagingConnectionInfo CONNECTION = new DDMessagingConnectionInfo("deployment", "run", "socket");
+    private static final DDDamConnectionInfo CONNECTION = new DDDamConnectionInfo("deployment", "run", "socket");
     private static final DDMessagingMessage MESSAGE = new DDMessagingMessage("projects", "updated",
         JsonParser.parseString("""
             {"nested":{"value":42},"nothing":null,"integer":9007199254740993,

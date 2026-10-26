@@ -17,7 +17,7 @@
 package com.dbeaver.datadam.messaging.api.requestreply;
 
 import com.dbeaver.datadam.messaging.api.exception.DDMessagingException;
-import com.dbeaver.datadam.messaging.api.model.DDMessagingConnectionInfo;
+import com.dbeaver.datadam.messaging.api.model.DDDamConnectionInfo;
 import com.dbeaver.datadam.messaging.api.model.DDMessagingMessage;
 import com.dbeaver.datadam.messaging.api.transport.DDMessagingChannel;
 import com.dbeaver.datadam.messaging.api.transport.DDMessagingChannelState;
@@ -56,7 +56,7 @@ import java.util.function.Consumer;
 @Timeout(10)
 class DDMessagingRequestReplyTransportTest {
     private static final String TOPIC = "projects";
-    private static final DDMessagingConnectionInfo CONNECTION = new DDMessagingConnectionInfo("desktop", "run", "socket");
+    private static final DDDamConnectionInfo CONNECTION = new DDDamConnectionInfo("desktop", "run", "socket");
 
     @Test
     void exchangesRequestsInBothDirectionsThroughExistingMessageChannels() throws Exception {
@@ -219,16 +219,16 @@ class DDMessagingRequestReplyTransportTest {
         try (var subscription = adapter.subscribe(endpoint, received)) {
             adapter.send(request(endpoint)).toCompletableFuture().join();
             DDMessagingMessage wire = channel.sent.getLast();
-            channel.deliver(new DDMessagingConnectionInfo("other", "run", "socket"), wire);
-            channel.deliver(new DDMessagingConnectionInfo("desktop", "other", "socket"), wire);
-            channel.deliver(new DDMessagingConnectionInfo("desktop", "run", "other"), wire);
+            channel.deliver(new DDDamConnectionInfo("other", "run", "socket"), wire);
+            channel.deliver(new DDDamConnectionInfo("desktop", "other", "socket"), wire);
+            channel.deliver(new DDDamConnectionInfo("desktop", "run", "other"), wire);
             Assertions.assertTrue(received.messages.isEmpty());
             channel.setStatus(new DDMessagingChannelStatus(DDMessagingChannelState.DISCONNECTED, null));
             Assertions.assertEquals(1, received.disconnects);
             assertFailure(MessagingRequestReplyException.Reason.DISCONNECTED, adapter.send(request(endpoint)));
             channel.deliver(CONNECTION, wire);
             Assertions.assertTrue(received.messages.isEmpty());
-            DDMessagingConnectionInfo replacement = new DDMessagingConnectionInfo("desktop", "new-run", "new-socket");
+            DDDamConnectionInfo replacement = new DDDamConnectionInfo("desktop", "new-run", "new-socket");
             channel.setStatus(new DDMessagingChannelStatus(DDMessagingChannelState.CONNECTED, replacement));
             channel.deliver(CONNECTION, wire);
             channel.deliver(replacement, wire);
@@ -267,7 +267,7 @@ class DDMessagingRequestReplyTransportTest {
             try {
                 await(messageEntered);
                 CountDownLatch replacing = new CountDownLatch(1);
-                DDMessagingConnectionInfo replacement = new DDMessagingConnectionInfo("desktop", "next-run", "next-socket");
+                DDDamConnectionInfo replacement = new DDDamConnectionInfo("desktop", "next-run", "next-socket");
                 FutureTask<Void> state = async(() -> {
                     replacing.countDown();
                     channel.setStatus(new DDMessagingChannelStatus(DDMessagingChannelState.CONNECTED, replacement));
@@ -315,7 +315,7 @@ class DDMessagingRequestReplyTransportTest {
         })) {
             adapter.send(request(endpoint)).toCompletableFuture().join();
             DDMessagingMessage wire = channel.sent.getLast();
-            DDMessagingConnectionInfo replacement = new DDMessagingConnectionInfo("desktop", "next-run", "next-socket");
+            DDDamConnectionInfo replacement = new DDDamConnectionInfo("desktop", "next-run", "next-socket");
             FutureTask<Void> state = async(() ->
                 channel.setStatus(new DDMessagingChannelStatus(DDMessagingChannelState.CONNECTED, replacement)));
             try {
@@ -387,7 +387,7 @@ class DDMessagingRequestReplyTransportTest {
         })) {
             adapter.send(request(endpoint)).toCompletableFuture().join();
             DDMessagingMessage wire = channel.sent.getLast();
-            DDMessagingConnectionInfo replacement = new DDMessagingConnectionInfo("desktop", "next-run", "next-socket");
+            DDDamConnectionInfo replacement = new DDDamConnectionInfo("desktop", "next-run", "next-socket");
             DDMessagingChannelStatus ready = new DDMessagingChannelStatus(DDMessagingChannelState.CONNECTED, replacement);
             channel.status = ready;
 
@@ -792,7 +792,7 @@ class DDMessagingRequestReplyTransportTest {
             List.copyOf(observers).forEach(observer -> observer.accept(next));
         }
 
-        private void deliver(@NotNull DDMessagingConnectionInfo source, @NotNull DDMessagingMessage message) {
+        private void deliver(@NotNull DDDamConnectionInfo source, @NotNull DDMessagingMessage message) {
             for (TopicSubscription subscription : List.copyOf(subscriptions)) {
                 if (subscription.active && subscription.topic.equals(message.topic())) {
                     subscription.listener.onMessage(source, message);

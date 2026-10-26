@@ -55,8 +55,8 @@ class DDMessagingMessageTest {
 
     @Test
     void rejectsMissingConnectionIdentifiers() {
-        assertThrows(IllegalArgumentException.class, () -> new DDMessagingConnectionInfo(" ", "run-1", "connection-1"));
-        assertThrows(IllegalArgumentException.class, () -> new DDMessagingConnectionInfo("DI_desktop", " ", "connection-1"));
-        assertThrows(IllegalArgumentException.class, () -> new DDMessagingConnectionInfo("DI_desktop", "run-1", " "));
+        assertThrows(IllegalArgumentException.class, () -> new DDDamConnectionInfo(" ", "run-1", "connection-1"));
+        assertThrows(IllegalArgumentException.class, () -> new DDDamConnectionInfo("DI_desktop", " ", "connection-1"));
+        assertThrows(IllegalArgumentException.class, () -> new DDDamConnectionInfo("DI_desktop", "run-1", " "));
     }
 }
