@@ -34,6 +34,7 @@ public record DDSsoClientConfig(
     @NotNull String scope
 ) {
     @Override
+    @NotNull
     public String toString() {
         return "DDSsoClientConfig[issuer=" + issuer + ", clientId=" + clientId + "]";
     }

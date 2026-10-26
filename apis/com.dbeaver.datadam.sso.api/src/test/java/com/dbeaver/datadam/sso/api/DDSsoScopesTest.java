@@ -17,6 +17,7 @@
 package com.dbeaver.datadam.sso.api;
 
 import org.assertj.core.api.Assertions;
+import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -37,7 +38,7 @@ class DDSsoScopesTest {
     @NullAndEmptySource
     @ValueSource(strings = {" ", " account:access", "account:access ", "account:access  dbeaver-storage:access",
         "account:access\tdbeaver-storage:access", "account:access\n", "a\"b", "a\\b", "права"})
-    void rejectsInvalidWireScopes(String scope) {
+    void rejectsInvalidWireScopes(@Nullable String scope) {
         Assertions.assertThatThrownBy(() -> DDSsoScopes.parse(scope)).isInstanceOf(IllegalArgumentException.class);
     }
 }

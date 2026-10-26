@@ -16,9 +16,9 @@
  */
 package com.dbeaver.datadam.sso.api.client;
 
-import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
-import org.assertj.core.api.Assertions;
+import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
+import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoAuthorizeRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
@@ -26,10 +26,10 @@ import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoPublicJwk;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpServer;
+import org.assertj.core.api.Assertions;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
@@ -37,9 +37,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.InetSocketAddress;
@@ -175,7 +175,7 @@ class DDSsoServiceTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"completion\":null}", "{\"completion\":\"\"}", "{\"completion\":\"unsafe&state=other\"}"})
-    void rejectsInvalidLoginCompletionsBeforeBuildingRedirect(String json) {
+    void rejectsInvalidLoginCompletionsBeforeBuildingRedirect(@NotNull String json) {
         responseJson.set(json);
         Assertions.assertThatThrownBy(() -> service.approveLogin(new DDSsoLoginApprovalRequest("B".repeat(43),
             new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW))))
@@ -184,7 +184,7 @@ class DDSsoServiceTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"dbeaver-desktop", "account", "external-client"})
-    void acceptsAccessTokensForAnyClientButOnlyTheExpectedAudienceAndPurpose(String clientId) throws Exception {
+    void acceptsAccessTokensForAnyClientButOnlyTheExpectedAudienceAndPurpose(@NotNull String clientId) throws Exception {
         var claims = claims();
         claims.put("aud", DDSsoConstants.API_AUDIENCE);
         claims.put("token_use", DDSsoConstants.TOKEN_USE_ACCESS);
@@ -414,7 +414,8 @@ class DDSsoServiceTest {
     @Test
     void httpClientReturnsUnverifiedTokenWithoutFetchingSigningKeys() throws Exception {
         responseJson.set(gson.toJson(Map.of("id_token", "opaque-unverified-token", "expires_in", 300)));
-        var response = http.exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", "account", "https://account.example.com/sso/callback", null));
+        var response = http.exchangeCodeForTokens(new DDSsoTokenRequest(
+            "code", "verifier", "account", "https://account.example.com/sso/callback", null));
         Assertions.assertThat(response.idToken()).isEqualTo("opaque-unverified-token");
         Assertions.assertThat(response.expiresIn()).isEqualTo(300);
         Assertions.assertThat(jwksRequests).hasValue(0);
@@ -464,7 +465,8 @@ class DDSsoServiceTest {
     @Test
     void httpClientFormEncodesEachBasicCredentialBeforeBase64() throws Exception {
         var config = new DDSsoClientConfig("https://sso.example.com", "http://127.0.0.1:" + server.getAddress().getPort(),
-            "client:+ %é", "secret:+ %ß", "https://account.example.com/sso/callback", "account", Duration.ofMinutes(5), null, "account:access");
+            "client:+ %é", "secret:+ %ß", "https://account.example.com/sso/callback", "account",
+            Duration.ofMinutes(5), null, "account:access");
         responseJson.set(gson.toJson(Map.of("access_token", "access", "expires_in", 300)));
         new DDSsoClient(config).exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", config.clientId(), null, null));
         Assertions.assertThat(credentials.get()).isEqualTo("Basic " + Base64.getEncoder().encodeToString(
