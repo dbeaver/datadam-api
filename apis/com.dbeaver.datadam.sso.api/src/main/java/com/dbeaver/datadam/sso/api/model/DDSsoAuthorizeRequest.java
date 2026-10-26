@@ -17,16 +17,20 @@
 package com.dbeaver.datadam.sso.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 /**
  * Parameters of an authorization request. Only the S256 PKCE challenge method is supported.
  * HTTP controllers must explicitly bind the corresponding snake_case query parameters.
+ * Ordinary DataDam access uses scopes only. Resource identifies an explicitly configured target such as MCP.
  */
 public record DDSsoAuthorizeRequest(
     @NotNull String clientId,
     @NotNull String redirectUri,
     @NotNull String state,
     @NotNull String codeChallenge,
-    @NotNull String codeChallengeMethod
+    @NotNull String codeChallengeMethod,
+    @Nullable String resource,
+    @NotNull String scope
 ) {
 }
