@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 final class MessagingRpcContract<T> {
     private static final Map<Class<?>, Class<?>> BOXED = Map.of(
@@ -66,7 +67,7 @@ final class MessagingRpcContract<T> {
         Map<String, Method> operations = new HashMap<>();
         declarations.forEach((id, methods) -> operations.put(id, selectOperation(methods)));
         for (Method method : type.getMethods()) {
-            if (method.isBridge() && method.getParameterCount() == 1 && !operations.containsKey(operationId(method))) {
+            if (method.isBridge() && !operations.containsKey(operationId(method))) {
                 throw new IllegalArgumentException("RPC contract has an unresolved generic bridge operation");
             }
         }
@@ -88,7 +89,8 @@ final class MessagingRpcContract<T> {
 
     @NotNull
     static String operationId(@NotNull Method method) {
-        return method.getName() + "(" + method.getParameterTypes()[0].getTypeName() + ")";
+        return method.getName() + Arrays.stream(method.getParameterTypes())
+            .map(Class::getTypeName).collect(Collectors.joining(",", "(", ")"));
     }
 
     static boolean accepts(@NotNull Class<?> type, @Nullable Object value) {
@@ -128,11 +130,13 @@ final class MessagingRpcContract<T> {
     }
 
     private static void validate(@NotNull Method method) {
-        if (method.isDefault() || method.isVarArgs() || method.getParameterCount() != 1 || method.getTypeParameters().length != 0
-            || !isConcrete(method.getGenericParameterTypes()[0]) || !isConcrete(method.getGenericReturnType())
+        if (method.isDefault() || method.getTypeParameters().length != 0
+            || !Arrays.stream(method.getGenericParameterTypes()).allMatch(MessagingRpcContract::isConcrete)
+            || !isConcrete(method.getGenericReturnType())
             || CompletionStage.class.isAssignableFrom(method.getReturnType()) || Future.class.isAssignableFrom(method.getReturnType())
             || operationId(method).length() > 1024) {
-            throw new IllegalArgumentException("RPC operations must be abstract, synchronous methods with one concretely typed argument");
+            throw new IllegalArgumentException(
+                "RPC operations must be abstract, synchronous methods with concrete argument and result types");
         }
     }
 

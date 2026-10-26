@@ -134,7 +134,7 @@ public class MessagingRpcEndpointTest extends MessagingRpcTestSupport {
             assertEquals(List.of(new CodecCall(expected, returnType), new CodecCall(null, returnType)), serverCodec.encoded);
             assertEquals(serverCodec.encoded, clientCodec.decoded);
             assertEquals("count(java.util.List)", clientTransport.next().payload().operation());
-            assertNull(clientTransport.next().payload().payload());
+            assertEquals(Arrays.asList((Object) null), clientTransport.next().payload().arguments());
             assertEquals(MessagingRpcMessage.Type.RESPONSE, serverTransport.next().payload().type());
             assertEquals(MessagingRpcMessage.response(null), serverTransport.next().payload());
         }
@@ -309,7 +309,7 @@ public class MessagingRpcEndpointTest extends MessagingRpcTestSupport {
                     assertFalse(failure.toString().contains("secret"));
                     assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.HANDLER_FAILED, details),
                         serverTransport.next().payload());
-                    assertEquals("secret argument", clientTransport.next().payload().payload());
+                    assertEquals(List.of("secret argument"), clientTransport.next().payload().arguments());
                     assertTrue(clientTransport.sent.isEmpty());
                     assertTrue(serverTransport.sent.isEmpty());
                 }
@@ -442,7 +442,7 @@ public class MessagingRpcEndpointTest extends MessagingRpcTestSupport {
              }, codec)) {
             for (String operation : List.of("missing(java.lang.String)", "echo(int)")) {
                 assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_OPERATION),
-                    client.request(MessagingRpcMessage.request(operation, "value")));
+                    client.request(MessagingRpcMessage.request(operation, List.of("value"))));
             }
             for (MessagingRpcMessage<Object> invalid : List.of(MessagingRpcMessage.<Object>response("not a request"),
                 MessagingRpcMessage.<Object>failure(MessagingRpcMessage.Error.HANDLER_FAILED))) {
@@ -460,7 +460,8 @@ public class MessagingRpcEndpointTest extends MessagingRpcTestSupport {
         var codec = new TestCodec();
         try (var endpoint = MessagingRpcEndpoint.open(transport, OPTIONS)) {
             EchoService proxy = endpoint.proxy("echo", EchoService.class, codec);
-            List<MessagingRpcMessage<Object>> invalid = Arrays.asList(null, MessagingRpcMessage.request("echo(java.lang.String)", "value"));
+            List<MessagingRpcMessage<Object>> invalid = Arrays.asList(null,
+                MessagingRpcMessage.request("echo(java.lang.String)", List.of("value")));
             for (MessagingRpcMessage<Object> reply : invalid) {
                 transport.sender = request -> {
                     transport.deliver(request.response(reply));
@@ -584,7 +585,7 @@ public class MessagingRpcEndpointTest extends MessagingRpcTestSupport {
             assertTrue(transport.sent.isEmpty());
             Future<String> fresh = async(() -> proxy.echo("fresh"));
             var freshRequest = transport.next();
-            assertEquals("fresh", freshRequest.payload().payload());
+            assertEquals(List.of("fresh"), freshRequest.payload().arguments());
             transport.deliver(oldRequest.response(MessagingRpcMessage.response("late")));
             assertFalse(fresh.isDone());
             transport.deliver(freshRequest.response(MessagingRpcMessage.response("fresh reply")));
@@ -605,7 +606,7 @@ public class MessagingRpcEndpointTest extends MessagingRpcTestSupport {
                 () -> endpoint.proxy("echo", EchoService.class, codec).echo("expire"));
 
             assertNull(failure.remoteError());
-            assertEquals("expire", transport.next().payload().payload());
+            assertEquals(List.of("expire"), transport.next().payload().arguments());
             assertTrue(transport.sent.isEmpty());
             assertEquals(List.of(new CodecCall("expire", String.class)), codec.encoded);
             assertTrue(codec.decoded.isEmpty());
@@ -784,7 +785,7 @@ public class MessagingRpcEndpointTest extends MessagingRpcTestSupport {
                 }
                 var order = new ArrayList<String>();
                 for (int index = 0; index < results.size(); index++) {
-                    order.add(assertInstanceOf(String.class, clientTransport.next().payload().payload()));
+                    order.add(assertInstanceOf(String.class, clientTransport.next().payload().arguments().get(0)));
                 }
                 await(decoding);
                 releaseDecoding.countDown();

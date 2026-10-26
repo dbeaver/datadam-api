@@ -92,6 +92,7 @@ class DDMessagingRpcTopicsIntegrationTest {
                     JsonElement envelope = message.payload().get("data");
                     Assertions.assertFalse(envelope.getAsJsonObject().has("topic"));
                     Assertions.assertEquals("dbeaver.rpc.v2", envelope.getAsJsonObject().get("protocol").getAsString());
+                    Assertions.assertEquals(1, envelope.getAsJsonObject().getAsJsonArray("data").size());
                 }
             }
             firstGreeting.close();

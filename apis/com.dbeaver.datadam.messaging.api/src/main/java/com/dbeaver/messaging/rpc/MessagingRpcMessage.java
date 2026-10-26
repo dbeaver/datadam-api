@@ -19,11 +19,15 @@ package com.dbeaver.messaging.rpc;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 
 public record MessagingRpcMessage<P>(
     @NotNull Type type,
     @Nullable String operation,
+    @NotNull List<P> arguments,
     @Nullable P payload,
     @Nullable Error error,
     @Nullable MessagingRpcExceptionDetails exception
@@ -38,27 +42,28 @@ public record MessagingRpcMessage<P>(
 
     public MessagingRpcMessage {
         Objects.requireNonNull(type);
+        arguments = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(arguments)));
         if (exception != null && type != Type.ERROR) {
             throw new IllegalArgumentException("RPC exception details require an error response");
         }
         if (type == Type.REQUEST) {
-            if (operation == null || operation.isBlank() || operation.length() > 1024 || error != null) {
+            if (operation == null || operation.isBlank() || operation.length() > 1024 || payload != null || error != null) {
                 throw new IllegalArgumentException("Invalid RPC request");
             }
-        } else if (operation != null || type == Type.ERROR && (error == null || payload != null)
+        } else if (operation != null || !arguments.isEmpty() || type == Type.ERROR && (error == null || payload != null)
             || type == Type.RESPONSE && error != null) {
             throw new IllegalArgumentException("Invalid RPC response");
         }
     }
 
     @NotNull
-    public static <P> MessagingRpcMessage<P> request(@NotNull String operation, @Nullable P payload) {
-        return new MessagingRpcMessage<>(Type.REQUEST, operation, payload, null, null);
+    public static <P> MessagingRpcMessage<P> request(@NotNull String operation, @NotNull List<P> arguments) {
+        return new MessagingRpcMessage<>(Type.REQUEST, operation, arguments, null, null, null);
     }
 
     @NotNull
     public static <P> MessagingRpcMessage<P> response(@Nullable P payload) {
-        return new MessagingRpcMessage<>(Type.RESPONSE, null, payload, null, null);
+        return new MessagingRpcMessage<>(Type.RESPONSE, null, List.of(), payload, null, null);
     }
 
     @NotNull
@@ -68,6 +73,6 @@ public record MessagingRpcMessage<P>(
 
     @NotNull
     public static <P> MessagingRpcMessage<P> failure(@NotNull Error error, @Nullable MessagingRpcExceptionDetails exception) {
-        return new MessagingRpcMessage<>(Type.ERROR, null, null, Objects.requireNonNull(error), exception);
+        return new MessagingRpcMessage<>(Type.ERROR, null, List.of(), null, Objects.requireNonNull(error), exception);
     }
 }

@@ -57,6 +57,8 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -75,7 +77,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 @Timeout(10)
-public class DDMessagingRpcTransportTest {
+class DDMessagingRpcTransportTest {
     private static final String TOPIC = "custom.files";
     private static final DDDamConnectionInfo CONNECTION = new DDDamConnectionInfo("desktop", "run", "socket");
     private static final MessagingRequestReplyOptions OPTIONS = new MessagingRequestReplyOptions(Duration.ofSeconds(2), 16, 8);
@@ -271,6 +273,172 @@ public class DDMessagingRpcTransportTest {
     }
 
     @Test
+    void roundTripsZeroArgumentsAndOverloadsUsingEveryParameterAcrossJsonFraming() {
+        FakeChannel left = new FakeChannel();
+        FakeChannel right = new FakeChannel();
+        left.forward = message -> right.deliver(DDMessagingProtocol.decode(DDMessagingProtocol.encode(message)));
+        right.forward = message -> left.deliver(DDMessagingProtocol.decode(DDMessagingProtocol.encode(message)));
+        var codec = new DDMessagingGsonRpcCodec(new Gson());
+        Overloaded implementation = new Overloaded() {
+            @Override
+            @NotNull
+            public String apply() {
+                return "zero";
+            }
+
+            @Override
+            @NotNull
+            public String apply(@Nullable String first) {
+                return "one:" + first;
+            }
+
+            @Override
+            @NotNull
+            public String apply(@Nullable String first, @Nullable String second) {
+                return "two:" + first + ":" + second;
+            }
+
+            @Override
+            @NotNull
+            public String apply(@Nullable String first, int second) {
+                return "number:" + first + ":" + second;
+            }
+
+            @Override
+            @NotNull
+            public String apply(@Nullable String first, @Nullable String second, @Nullable String third) {
+                return "three:" + first + ":" + second + ":" + third;
+            }
+        };
+        try (var caller = MessagingRpcEndpoint.open(DDMessagingRpcTransport.forChannel(left), codec, OPTIONS);
+             var handler = MessagingRpcEndpoint.open(DDMessagingRpcTransport.forChannel(right), codec, OPTIONS);
+             var service = handler.register(TOPIC, Overloaded.class, implementation)) {
+            Overloaded proxy = caller.proxy(TOPIC, Overloaded.class);
+            Assertions.assertEquals("zero", proxy.apply());
+            Assertions.assertEquals("one:first", proxy.apply("first"));
+            Assertions.assertEquals("two:first:second", proxy.apply("first", "second"));
+            Assertions.assertEquals("number:first:2", proxy.apply("first", 2));
+            Assertions.assertEquals("three:first:null:third", proxy.apply("first", null, "third"));
+            Assertions.assertEquals("one:null", proxy.apply(null));
+            Assertions.assertEquals("two:null:null", proxy.apply(null, null));
+            List<String> expectedData = List.of("[]", "[\"first\"]", "[\"first\",\"second\"]", "[\"first\",2]",
+                "[\"first\",null,\"third\"]", "[null]", "[null,null]");
+            String text = String.class.getTypeName();
+            List<String> expectedOperations = List.of("apply()", "apply(" + text + ")", "apply(" + text + "," + text + ")",
+                "apply(" + text + ",int)", "apply(" + text + "," + text + "," + text + ")", "apply(" + text + ")",
+                "apply(" + text + "," + text + ")");
+            Assertions.assertEquals(expectedData.size(), left.sent.size());
+            Assertions.assertEquals(expectedData.size(), right.sent.size());
+            for (int i = 0; i < expectedData.size(); i++) {
+                JsonObject request = left.sent.get(i).payload().getAsJsonObject("data");
+                Assertions.assertEquals(Set.of("protocol", "type", "operation", "data"), request.keySet());
+                Assertions.assertEquals(expectedOperations.get(i), request.get("operation").getAsString());
+                Assertions.assertEquals(JsonParser.parseString(expectedData.get(i)), request.get("data"));
+                JsonObject response = right.sent.get(i).payload().getAsJsonObject("data");
+                Assertions.assertEquals(Set.of("protocol", "type", "data"), response.keySet());
+                Assertions.assertEquals("RESPONSE", response.get("type").getAsString());
+                Assertions.assertTrue(response.get("data").isJsonPrimitive());
+            }
+        }
+    }
+
+    @Test
+    void roundTripsVarargsAsOneArrayArgumentAcrossJsonFraming() {
+        FakeChannel left = new FakeChannel();
+        FakeChannel right = new FakeChannel();
+        left.forward = message -> right.deliver(DDMessagingProtocol.decode(DDMessagingProtocol.encode(message)));
+        right.forward = message -> left.deliver(DDMessagingProtocol.decode(DDMessagingProtocol.encode(message)));
+        var codec = new DDMessagingGsonRpcCodec(new Gson());
+        try (var caller = MessagingRpcEndpoint.open(DDMessagingRpcTransport.forChannel(left), codec, OPTIONS);
+             var handler = MessagingRpcEndpoint.open(DDMessagingRpcTransport.forChannel(right), codec, OPTIONS);
+             var service = handler.register(TOPIC, Varargs.class,
+                 (prefix, values) -> prefix + ":" + (values == null ? "null" : Arrays.toString(values)))) {
+            Varargs proxy = caller.proxy(TOPIC, Varargs.class);
+            Assertions.assertEquals("empty:[]", proxy.apply("empty"));
+            Assertions.assertEquals("many:[first, null, third]", proxy.apply("many", "first", null, "third"));
+            Assertions.assertEquals("null:null", proxy.apply("null", (String[]) null));
+            List<String> expectedData = List.of("[\"empty\",[]]", "[\"many\",[\"first\",null,\"third\"]]", "[\"null\",null]");
+            Assertions.assertEquals(expectedData.size(), left.sent.size());
+            for (int i = 0; i < expectedData.size(); i++) {
+                JsonObject request = left.sent.get(i).payload().getAsJsonObject("data");
+                Assertions.assertEquals("apply(" + String.class.getTypeName() + "," + String[].class.getTypeName() + ")",
+                    request.get("operation").getAsString());
+                Assertions.assertEquals(JsonParser.parseString(expectedData.get(i)), request.get("data"));
+                Assertions.assertEquals(2, request.getAsJsonArray("data").size());
+            }
+        }
+    }
+
+    @Test
+    void roundTripsEachArgumentsDeclaredRecordAndGenericTypesAcrossJsonFraming() throws Exception {
+        FakeChannel left = new FakeChannel();
+        FakeChannel right = new FakeChannel();
+        left.forward = message -> right.deliver(DDMessagingProtocol.decode(DDMessagingProtocol.encode(message)));
+        right.forward = message -> left.deliver(DDMessagingProtocol.decode(DDMessagingProtocol.encode(message)));
+        CountingCodec callerCodec = new CountingCodec(new DDMessagingGsonRpcCodec(new Gson()));
+        CountingCodec handlerCodec = new CountingCodec(new DDMessagingGsonRpcCodec(new Gson()));
+        Item selected = new Item("selected", List.of("chosen"));
+        List<Item> items = List.of(new Item("nested", List.of("tag")));
+        List<Integer> numbers = List.of(7, 8);
+        try (var caller = MessagingRpcEndpoint.open(DDMessagingRpcTransport.forChannel(left), callerCodec, OPTIONS);
+             var handler = MessagingRpcEndpoint.open(DDMessagingRpcTransport.forChannel(right), handlerCodec, OPTIONS);
+             var service = handler.register(TOPIC, RecordArguments.class, (label, item, values, counts) -> {
+                 Assertions.assertEquals(items, values);
+                 Assertions.assertEquals(numbers, counts);
+                 Assertions.assertInstanceOf(Item.class, values.getFirst());
+                 Assertions.assertInstanceOf(Integer.class, counts.getFirst());
+                 return new Item(label + ":" + (item == null ? "null" : item.name()) + ":" + counts.getFirst(),
+                     values.getFirst().tags());
+             })) {
+            RecordArguments proxy = caller.proxy(TOPIC, RecordArguments.class);
+            Assertions.assertEquals(new Item("label:selected:7", List.of("tag")), proxy.apply("label", selected, items, numbers));
+            Assertions.assertEquals(new Item("null:null:7", List.of("tag")), proxy.apply(null, null, items, numbers));
+            List<Type> argumentTypes = Arrays.asList(RecordArguments.class
+                .getMethod("apply", String.class, Item.class, List.class, List.class).getGenericParameterTypes());
+            Assertions.assertEquals(8, callerCodec.encodedTypes.size());
+            Assertions.assertEquals(argumentTypes, callerCodec.encodedTypes.subList(0, 4));
+            Assertions.assertEquals(argumentTypes, callerCodec.encodedTypes.subList(4, 8));
+            Assertions.assertEquals(callerCodec.encodedTypes, handlerCodec.decodedTypes);
+            Assertions.assertEquals(List.of(Item.class, Item.class), handlerCodec.encodedTypes);
+            Assertions.assertEquals(handlerCodec.encodedTypes, callerCodec.decodedTypes);
+            Assertions.assertEquals(JsonParser.parseString("[\"label\",{\"name\":\"selected\",\"tags\":[\"chosen\"]},"
+                + "[{\"name\":\"nested\",\"tags\":[\"tag\"]}],[7,8]]"),
+                left.sent.getFirst().payload().getAsJsonObject("data").get("data"));
+            Assertions.assertEquals(JsonParser.parseString("[null,null,[{\"name\":\"nested\",\"tags\":[\"tag\"]}],[7,8]]"),
+                left.sent.getLast().payload().getAsJsonObject("data").get("data"));
+        }
+    }
+
+    @Test
+    void rejectsWrongArgumentCountsAndNullPrimitiveArgumentsAcrossJsonFraming() throws Exception {
+        FakeChannel left = new FakeChannel();
+        FakeChannel right = new FakeChannel();
+        left.forward = message -> right.deliver(DDMessagingProtocol.decode(DDMessagingProtocol.encode(message)));
+        right.forward = message -> left.deliver(DDMessagingProtocol.decode(DDMessagingProtocol.encode(message)));
+        AtomicInteger calls = new AtomicInteger();
+        var codec = new DDMessagingGsonRpcCodec(new Gson());
+        try (var caller = MessagingRequestReplyEndpoint.open(DDMessagingRpcTransport.forChannel(left, TOPIC), OPTIONS);
+             var handler = MessagingRpcEndpoint.open(DDMessagingRpcTransport.forChannel(right), codec, OPTIONS);
+             var service = handler.register(TOPIC, Numbers.class, (first, second, third) -> {
+                 calls.incrementAndGet();
+                 return first + second + third;
+             })) {
+            for (List<JsonElement> arguments : List.<List<JsonElement>>of(List.of(), List.of(new JsonPrimitive(1)),
+                List.of(new JsonPrimitive(1), new JsonPrimitive(2)),
+                List.of(new JsonPrimitive(1), new JsonPrimitive(2), new JsonPrimitive(3), new JsonPrimitive(4)),
+                Arrays.asList(new JsonPrimitive(1), null, new JsonPrimitive(3)))) {
+                Assertions.assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST),
+                    caller.request(MessagingRpcMessage.request("sum(int,int,int)", arguments)));
+            }
+            Assertions.assertEquals(0, calls.get());
+            Assertions.assertEquals(MessagingRpcMessage.response(new JsonPrimitive(6)),
+                caller.request(MessagingRpcMessage.request("sum(int,int,int)",
+                    List.of(new JsonPrimitive(1), new JsonPrimitive(2), new JsonPrimitive(3)))));
+            Assertions.assertEquals(1, calls.get());
+        }
+    }
+
+    @Test
     void preservesCorrelationOuterTypesAndBothErrorNamespaces() throws Exception {
         MemoryTransport delegate = new MemoryTransport();
         DDMessagingRpcTransport adapter = new DDMessagingRpcTransport(delegate);
@@ -286,7 +454,7 @@ public class DDMessagingRpcTransportTest {
             Assertions.assertEquals(MessagingRequestReplyMessage.Type.REQUEST, sent.type());
             Assertions.assertEquals("dbeaver.rpc.v2", Objects.requireNonNull(sent.payload()).get("protocol").getAsString());
             JsonObject expectedRequest = requestEnvelope();
-            expectedRequest.addProperty("data", "argument");
+            expectedRequest.add("data", JsonParser.parseString("[\"argument\"]"));
             Assertions.assertEquals(expectedRequest, sent.payload());
             Assertions.assertFalse(sent.payload().has("topic"));
             delegate.deliver(sent);
@@ -432,6 +600,44 @@ public class DDMessagingRpcTransportTest {
     }
 
     @Test
+    void roundTripsZeroSingleAndMultipleArgumentsAsJsonArrays() throws Exception {
+        MemoryTransport delegate = new MemoryTransport();
+        DDMessagingRpcTransport adapter = new DDMessagingRpcTransport(delegate);
+        UUID endpoint = UUID.randomUUID();
+        Received received = new Received();
+        List<List<JsonElement>> cases = List.of(List.of(), Collections.singletonList(null), List.of(new JsonPrimitive("single")),
+            Arrays.asList(new JsonPrimitive("first"), null, new JsonPrimitive(3)),
+            List.of(JsonParser.parseString("[1,null,3]"), JsonNull.INSTANCE, JsonParser.parseString("{\"name\":\"record\"}")));
+        try (var subscription = adapter.subscribe(endpoint, received)) {
+            for (List<JsonElement> arguments : cases) {
+                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = MessagingRequestReplyMessage.request(
+                    UUID.randomUUID(), endpoint, MessagingRpcMessage.request("apply", arguments));
+                adapter.send(request).toCompletableFuture().join();
+                MessagingRequestReplyMessage<JsonObject> wire = delegate.sent.getLast();
+                JsonObject envelope = JsonParser.parseString(Objects.requireNonNull(wire.payload()).toString()).getAsJsonObject();
+                Assertions.assertEquals(Set.of("protocol", "type", "operation", "data"), envelope.keySet());
+                JsonArray expected = new JsonArray();
+                arguments.forEach(expected::add);
+                Assertions.assertEquals(expected, envelope.get("data"));
+                delegate.deliver(new MessagingRequestReplyMessage<>(wire.requestId(), wire.replyTo(), wire.type(), envelope, wire.error()));
+                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> decoded = received.messages.getLast();
+                Assertions.assertEquals(request.requestId(), decoded.requestId());
+                Assertions.assertEquals(endpoint, decoded.replyTo());
+                Assertions.assertEquals(MessagingRequestReplyMessage.Type.REQUEST, decoded.type());
+                MessagingRpcMessage<JsonElement> rpc = Objects.requireNonNull(decoded.payload());
+                Assertions.assertEquals(MessagingRpcMessage.Type.REQUEST, rpc.type());
+                Assertions.assertEquals("apply", rpc.operation());
+                Assertions.assertEquals(arguments.stream().map(value -> value == null || value.isJsonNull() ? null : value).toList(),
+                    rpc.arguments());
+                Assertions.assertNull(rpc.payload());
+                Assertions.assertNull(rpc.error());
+                Assertions.assertNull(rpc.exception());
+            }
+            Assertions.assertEquals(cases.size(), received.messages.size());
+        }
+    }
+
+    @Test
     void acceptsArbitraryJsonValuesAndNormalizesEncodedNull() throws Exception {
         MemoryTransport delegate = new MemoryTransport();
         DDMessagingRpcTransport adapter = new DDMessagingRpcTransport(delegate);
@@ -445,14 +651,21 @@ public class DDMessagingRpcTransportTest {
                 MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(endpoint, value);
                 adapter.send(request).toCompletableFuture().join();
                 MessagingRequestReplyMessage<JsonObject> wire = delegate.sent.getLast();
-                Assertions.assertEquals(value, Objects.requireNonNull(wire.payload()).get("data"));
+                JsonArray arguments = Objects.requireNonNull(wire.payload()).getAsJsonArray("data");
+                Assertions.assertEquals(1, arguments.size());
+                Assertions.assertEquals(value, arguments.get(0));
                 delegate.deliver(wire);
+                MessagingRpcMessage<JsonElement> decoded = Objects.requireNonNull(received.messages.getLast().payload());
+                Assertions.assertNull(decoded.payload());
+                Assertions.assertEquals(1, decoded.arguments().size());
                 Assertions.assertEquals(value.isJsonNull() ? null : value,
-                    Objects.requireNonNull(received.messages.getLast().payload()).payload());
+                    decoded.arguments().getFirst());
                 adapter.send(request.response(MessagingRpcMessage.response(value))).toCompletableFuture().join();
+                Assertions.assertEquals(value, Objects.requireNonNull(delegate.sent.getLast().payload()).get("data"));
                 delegate.deliver(delegate.sent.getLast());
                 Assertions.assertEquals(MessagingRpcMessage.Type.RESPONSE,
                     Objects.requireNonNull(received.messages.getLast().payload()).type());
+                Assertions.assertTrue(received.messages.getLast().payload().arguments().isEmpty());
                 Assertions.assertEquals(value.isJsonNull() ? null : value, received.messages.getLast().payload().payload());
             }
         }
@@ -472,15 +685,18 @@ public class DDMessagingRpcTransportTest {
                 adapter.send(type == MessagingRequestReplyMessage.Type.REQUEST
                     ? request : request.response(MessagingRpcMessage.response(argument)));
                 JsonObject wire = Objects.requireNonNull(delegate.sent.getLast().payload());
+                JsonObject wireValue = (type == MessagingRequestReplyMessage.Type.REQUEST
+                    ? wire.getAsJsonArray("data").get(0) : wire.get("data")).getAsJsonObject();
                 argument.getAsJsonArray("items").add("caller");
-                Assertions.assertEquals(1, wire.getAsJsonObject("data").getAsJsonArray("items").size());
+                Assertions.assertEquals(1, wireValue.getAsJsonArray("items").size());
                 delegate.deliver(delegate.sent.getLast());
-                JsonObject decoded = Objects.requireNonNull(Objects.requireNonNull(received.messages.getLast().payload()).payload())
-                    .getAsJsonObject();
-                wire.getAsJsonObject("data").getAsJsonArray("items").add("delegate");
+                MessagingRpcMessage<JsonElement> receivedMessage = Objects.requireNonNull(received.messages.getLast().payload());
+                JsonObject decoded = Objects.requireNonNull(type == MessagingRequestReplyMessage.Type.REQUEST
+                    ? receivedMessage.arguments().getFirst() : receivedMessage.payload()).getAsJsonObject();
+                wireValue.getAsJsonArray("items").add("delegate");
                 Assertions.assertEquals(1, decoded.getAsJsonArray("items").size());
                 decoded.getAsJsonArray("items").add("listener");
-                Assertions.assertEquals("delegate", wire.getAsJsonObject("data").getAsJsonArray("items").get(1).getAsString());
+                Assertions.assertEquals("delegate", wireValue.getAsJsonArray("items").get(1).getAsString());
                 Assertions.assertEquals("caller", argument.getAsJsonArray("items").get(1).getAsString());
             }
         }
@@ -527,6 +743,12 @@ public class DDMessagingRpcTransportTest {
                 mutation.accept(invalid);
                 delegate.deliver(MessagingRequestReplyMessage.request(request.requestId(), endpoint, invalid));
             }
+            for (JsonElement data : List.of(JsonNull.INSTANCE, new JsonPrimitive("legacy scalar"),
+                new JsonPrimitive("[]"), new JsonPrimitive(1), new JsonPrimitive(true), new JsonObject())) {
+                JsonObject invalid = requestEnvelope();
+                invalid.add("data", data);
+                delegate.deliver(MessagingRequestReplyMessage.request(request.requestId(), endpoint, invalid));
+            }
             Assertions.assertTrue(received.messages.isEmpty());
             JsonObject boundary = requestEnvelope();
             boundary.addProperty("operation", "x".repeat(1024));
@@ -534,6 +756,7 @@ public class DDMessagingRpcTransportTest {
             Assertions.assertEquals(1, received.messages.size());
             MessagingRpcMessage<JsonElement> accepted = Objects.requireNonNull(received.messages.getLast().payload());
             Assertions.assertEquals("x".repeat(1024), accepted.operation());
+            Assertions.assertEquals(Collections.singletonList(null), accepted.arguments());
             Assertions.assertNull(accepted.payload());
         }
     }
@@ -676,21 +899,24 @@ public class DDMessagingRpcTransportTest {
                  throw new IllegalStateException("Handler failed");
              })) {
             handler.proxy("missing", Text.class);
-            MessagingRpcMessage<JsonElement> missingService = missingCaller.request(MessagingRpcMessage.request("apply", null));
+            MessagingRpcMessage<JsonElement> missingService =
+                missingCaller.request(MessagingRpcMessage.request("apply", Collections.singletonList(null)));
             Assertions.assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_SERVICE), missingService);
-            MessagingRpcMessage<JsonElement> missingOperation = caller.request(MessagingRpcMessage.request("missing", null));
+            MessagingRpcMessage<JsonElement> missingOperation =
+                caller.request(MessagingRpcMessage.request("missing", Collections.singletonList(null)));
             Assertions.assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_OPERATION), missingOperation);
             String operation = "apply(" + String.class.getTypeName() + ")";
             final JsonSyntaxException expectedCodecFailure = Assertions.assertThrows(JsonSyntaxException.class,
                 () -> CODEC.decode(new JsonObject(), String.class));
-            MessagingRpcMessage<JsonElement> codecFailure = caller.request(MessagingRpcMessage.request(operation, new JsonObject()));
+            MessagingRpcMessage<JsonElement> codecFailure =
+                caller.request(MessagingRpcMessage.request(operation, List.of(new JsonObject())));
             Assertions.assertEquals(MessagingRpcMessage.Error.CODEC_FAILED, codecFailure.error());
             MessagingRpcExceptionDetails codecDetails = Objects.requireNonNull(codecFailure.exception());
             Assertions.assertEquals(expectedCodecFailure.getClass().getName(), codecDetails.type());
             Assertions.assertEquals(expectedCodecFailure.getMessage(), codecDetails.message());
             Assertions.assertTrue(codecDetails.stackTrace().startsWith(expectedCodecFailure + System.lineSeparator()));
             MessagingRpcMessage<JsonElement> handlerFailure =
-                caller.request(MessagingRpcMessage.request(operation, new JsonPrimitive("value")));
+                caller.request(MessagingRpcMessage.request(operation, List.of(new JsonPrimitive("value"))));
             Assertions.assertEquals(MessagingRpcMessage.Error.HANDLER_FAILED, handlerFailure.error());
             MessagingRpcExceptionDetails handlerDetails = Objects.requireNonNull(handlerFailure.exception());
             Assertions.assertEquals(IllegalStateException.class.getName(), handlerDetails.type());
@@ -1078,7 +1304,8 @@ public class DDMessagingRpcTransportTest {
         @NotNull UUID endpoint,
         @Nullable JsonElement value
     ) {
-        return MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, MessagingRpcMessage.request("apply", value));
+        return MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint,
+            MessagingRpcMessage.request("apply", Collections.singletonList(value)));
     }
 
     private static void assertSendFailure(@NotNull Throwable expected, @NotNull CompletionStage<Void> result) {
@@ -1097,7 +1324,7 @@ public class DDMessagingRpcTransportTest {
     @NotNull
     private static JsonObject requestEnvelope() {
         return JsonParser.parseString("{\"protocol\":\"dbeaver.rpc.v2\",\"type\":\"REQUEST\","
-            + "\"operation\":\"apply\",\"data\":null}").getAsJsonObject();
+            + "\"operation\":\"apply\",\"data\":[null]}").getAsJsonObject();
     }
 
     @NotNull
@@ -1186,6 +1413,37 @@ public class DDMessagingRpcTransportTest {
         void accept(@Nullable String value);
     }
 
+    public interface Overloaded {
+        @NotNull
+        String apply();
+
+        @NotNull
+        String apply(@Nullable String first);
+
+        @NotNull
+        String apply(@Nullable String first, @Nullable String second);
+
+        @NotNull
+        String apply(@Nullable String first, int second);
+
+        @NotNull
+        String apply(@Nullable String first, @Nullable String second, @Nullable String third);
+    }
+
+    public interface Varargs {
+        @NotNull
+        String apply(@NotNull String prefix, @Nullable String... values);
+    }
+
+    public interface RecordArguments {
+        @NotNull
+        Item apply(@Nullable String label, @Nullable Item selected, @NotNull List<Item> items, @NotNull List<Integer> numbers);
+    }
+
+    public interface Numbers {
+        int sum(int first, int second, int third);
+    }
+
     public record Item(@NotNull String name, @NotNull List<String> tags) {
     }
 
@@ -1207,21 +1465,34 @@ public class DDMessagingRpcTransportTest {
     }
 
     private static final class CountingCodec implements MessagingRpcCodec<JsonElement> {
+        private final MessagingRpcCodec<JsonElement> codec;
         private final AtomicInteger encodes = new AtomicInteger();
         private final AtomicInteger decodes = new AtomicInteger();
+        private final List<Type> encodedTypes = new ArrayList<>();
+        private final List<Type> decodedTypes = new ArrayList<>();
+
+        private CountingCodec() {
+            this(CODEC);
+        }
+
+        private CountingCodec(@NotNull MessagingRpcCodec<JsonElement> codec) {
+            this.codec = codec;
+        }
 
         @Override
         @Nullable
         public JsonElement encode(@Nullable Object value, @NotNull Type type) throws Exception {
             encodes.incrementAndGet();
-            return CODEC.encode(value, type);
+            encodedTypes.add(type);
+            return codec.encode(value, type);
         }
 
         @Override
         @Nullable
         public Object decode(@Nullable JsonElement payload, @NotNull Type type) throws Exception {
             decodes.incrementAndGet();
-            return CODEC.decode(payload, type);
+            decodedTypes.add(type);
+            return codec.decode(payload, type);
         }
     }
 

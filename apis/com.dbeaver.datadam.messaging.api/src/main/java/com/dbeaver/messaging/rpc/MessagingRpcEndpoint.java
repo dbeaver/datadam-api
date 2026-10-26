@@ -26,7 +26,9 @@ import org.jkiss.code.Nullable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.lang.reflect.Type;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -202,7 +204,7 @@ public final class MessagingRpcEndpoint implements AutoCloseable {
                     };
                 }
                 Method operation = Objects.requireNonNull(contract.operation(MessagingRpcContract.operationId(method)));
-                return invoke(selected, operation, Objects.requireNonNull(arguments)[0], bindingCodec, timeout);
+                return invoke(selected, operation, arguments == null ? new Object[0] : arguments, bindingCodec, timeout);
             });
             return type.cast(proxy);
         }
@@ -211,7 +213,7 @@ public final class MessagingRpcEndpoint implements AutoCloseable {
         private Object invoke(
             @NotNull Topic topic,
             @NotNull Method operation,
-            @Nullable Object argument,
+            @NotNull Object[] arguments,
             @NotNull MessagingRpcCodec<P> codec,
             @NotNull Duration timeout
         ) {
@@ -223,8 +225,12 @@ public final class MessagingRpcEndpoint implements AutoCloseable {
             }
             MessagingRpcMessage<P> request;
             try {
-                P payload = codec.encode(argument, operation.getGenericParameterTypes()[0]);
-                request = MessagingRpcMessage.request(MessagingRpcContract.operationId(operation), payload);
+                Type[] types = operation.getGenericParameterTypes();
+                List<P> encoded = new ArrayList<>(arguments.length);
+                for (int index = 0; index < arguments.length; index++) {
+                    encoded.add(codec.encode(arguments[index], types[index]));
+                }
+                request = MessagingRpcMessage.request(MessagingRpcContract.operationId(operation), encoded);
             } catch (Exception e) {
                 throw codecFailure(e);
             }
@@ -280,19 +286,27 @@ public final class MessagingRpcEndpoint implements AutoCloseable {
             if (operation == null) {
                 return MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_OPERATION);
             }
-            Object argument;
+            if (request.arguments().size() != operation.getParameterCount()) {
+                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST);
+            }
+            Object[] arguments = new Object[operation.getParameterCount()];
+            Type[] types = operation.getGenericParameterTypes();
+            Class<?>[] parameterTypes = operation.getParameterTypes();
             try {
-                argument = registration.codec.decode(request.payload(), operation.getGenericParameterTypes()[0]);
+                for (int index = 0; index < arguments.length; index++) {
+                    Object argument = registration.codec.decode(request.arguments().get(index), types[index]);
+                    if (!MessagingRpcContract.accepts(parameterTypes[index], argument)) {
+                        return MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST);
+                    }
+                    arguments[index] = argument;
+                }
             } catch (Exception e) {
                 restoreInterruption(e);
                 return MessagingRpcMessage.failure(MessagingRpcMessage.Error.CODEC_FAILED, MessagingRpcExceptionDetails.capture(e));
             }
-            if (!MessagingRpcContract.accepts(operation.getParameterTypes()[0], argument)) {
-                return MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST);
-            }
             Object result;
             try {
-                result = operation.invoke(registration.implementation, argument);
+                result = operation.invoke(registration.implementation, arguments);
             } catch (InvocationTargetException e) {
                 restoreInterruption(e.getCause());
                 return MessagingRpcMessage.failure(MessagingRpcMessage.Error.HANDLER_FAILED,

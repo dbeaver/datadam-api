@@ -271,7 +271,8 @@ The application must arrange the intended receiver's subscription before calling
 the same topic are not service discovery. Replica routing and exact callback-process ownership constraints still apply.
 
 `DDMessagingGsonRpcCodec` retains the supplied `Gson` instance, including application adapters and naming policies, and preserves
-the declared generic `Type` passed by RPC. Encoded JSON null is represented as a nullable application payload. The
+the declared generic `Type` passed by RPC for each argument and result. Each argument is encoded and decoded independently;
+a varargs parameter is one array argument. Encoded JSON null is represented as a nullable application payload. The
 neutral messaging packages remain independent of Gson, and each proxy or registration can supply another compatible codec.
 The resulting `MessagingRpcEndpoint` is not parameterized by JSON or by any other payload representation.
 
@@ -380,19 +381,23 @@ obtain the new endpoint and register the appropriate implementations again. Back
 process-local; the existing exact-owner callback routing requirement still applies.
 
 The inner JSON envelope uses `protocol: "dbeaver.rpc.v2"`, `type`, and `data`, plus `operation` for requests
-or a fixed `error` code for failures. Error envelopes contain `exception`: either null or an object with string `type`,
+or a fixed `error` code for failures. Request `data` is always a positional JSON array: `[]` for no arguments,
+`[value]` for one argument, `[null]` for one null argument, or `[value1, value2]` for multiple arguments. A varargs
+array occupies one position, so a single string varargs parameter can produce `[["a", "b"]]`.
+Error envelopes contain `exception`: either null or an object with string `type`,
 nullable string `message`, string `stackTrace`, and boolean `truncated`. The receiver formats causes and suppressed
-exceptions locally; no `Throwable` object is serialized and the application codec is not involved. Application `data`
-can be any JSON value, including null; the outer DataDam message remains an object and retains its existing
-request/reply correlation and source validation. Malformed inner envelopes
+exceptions locally; no `Throwable` object is serialized and the application codec is not involved. Each encoded argument
+and response `data` can be any JSON value, including null; the outer DataDam message remains an object and retains its
+existing request/reply correlation and source validation. Malformed inner envelopes
 are ignored without exposing raw contents. Transport validation and RPC validation do not replace authentication.
 
 The adapter bounds framing, snapshot copying, and outstanding sends to 128 operations without a waiting queue.
 Cancellation of a returned send future does not free its slot until the underlying send actually finishes.
 
-Interfaces declare ordinary one-argument methods returning values or `void`; applications do not implement transport
-listeners. A `void` call waits for handler completion. Local serialization errors and transport failures become unchecked
-`MessagingRpcException`. Remote handler and codec failures preserve their codes and expose `remoteException()` with bounded
+Interfaces declare ordinary methods with zero, one, or multiple arguments, including varargs, returning values or `void`;
+applications do not implement transport listeners. A `void` call waits for handler completion. Local serialization errors
+and transport failures become unchecked `MessagingRpcException`. Remote handler and codec failures preserve their codes
+and expose `remoteException()` with bounded
 type, message, and stack-trace text; ordinary exception logging includes the remote trace through a local diagnostic
 cause. Limits are 256 UTF-16 code units for the type, 1,024 for the message, and 8,192 for the trace, with `truncated`
 indicating incomplete diagnostics. Errors without exception details have null `remoteException()`.

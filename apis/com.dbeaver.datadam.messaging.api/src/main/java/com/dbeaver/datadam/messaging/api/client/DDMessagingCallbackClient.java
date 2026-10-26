@@ -31,6 +31,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
 public final class DDMessagingCallbackClient extends DDMessagingGraphQlClient {
+    private static final String DELIVER_FIELD = "deliverExternalDamMessage";
+    private static final String DELIVER_OPERATION = "DeliverExternalDamMessage";
     private static final String DELIVER_MUTATION = """
         mutation DeliverExternalDamMessage($subscriptionId: ID!, $accountId: ID!,
             $connection: ExternalDamConnectionInfoInput!, $message: ExternalDamMessageInput!) {
@@ -52,8 +54,8 @@ public final class DDMessagingCallbackClient extends DDMessagingGraphQlClient {
         @NotNull DDDamConnectionInfo connection,
         @NotNull DDMessagingMessage message
     ) throws DDMessagingException {
-        readDeliveryResult(request("DeliverExternalDamMessage", DELIVER_MUTATION,
-            deliveryVariables(subscriptionId, accountId, connection, message), "deliverExternalDamMessage"));
+        readDeliveryResult(request(DELIVER_OPERATION, DELIVER_MUTATION,
+            deliveryVariables(subscriptionId, accountId, connection, message), DELIVER_FIELD));
     }
 
     @NotNull
@@ -63,8 +65,8 @@ public final class DDMessagingCallbackClient extends DDMessagingGraphQlClient {
         @NotNull DDDamConnectionInfo connection,
         @NotNull DDMessagingMessage message
     ) {
-        return requestAsync("DeliverExternalDamMessage", DELIVER_MUTATION,
-            deliveryVariables(subscriptionId, accountId, connection, message), "deliverExternalDamMessage",
+        return requestAsync(DELIVER_OPERATION, DELIVER_MUTATION,
+            deliveryVariables(subscriptionId, accountId, connection, message), DELIVER_FIELD,
             DDMessagingCallbackClient::readDeliveryResult);
     }
 

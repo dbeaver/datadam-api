@@ -215,7 +215,7 @@ public class MessagingRpcEndpointFacadeTest extends MessagingRpcTestSupport {
             TextService second = endpoint.proxy("text", TextService.class, fallback);
             final Future<String> extendedCall = async(() -> extended.apply("extended"));
             var extendedRequest = transport.next();
-            assertEquals("custom:extended", extendedRequest.payload().payload());
+            assertEquals(List.of("custom:extended"), extendedRequest.payload().arguments());
 
             failure(MessagingRpcException.Reason.TIMEOUT, () -> first.apply("first"));
             var firstRequest = transport.next();

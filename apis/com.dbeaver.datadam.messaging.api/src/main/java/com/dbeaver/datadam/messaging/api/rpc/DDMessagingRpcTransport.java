@@ -25,12 +25,15 @@ import com.dbeaver.messaging.requestreply.MessagingSubscription;
 import com.dbeaver.messaging.rpc.MessagingRpcExceptionDetails;
 import com.dbeaver.messaging.rpc.MessagingRpcMessage;
 import com.dbeaver.messaging.rpc.MessagingRpcTransport;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -157,8 +160,14 @@ public final class DDMessagingRpcTransport implements MessagingRequestReplyTrans
         } else {
             if (message.type() == MessagingRpcMessage.Type.REQUEST) {
                 envelope.addProperty(FIELD_OPERATION, message.operation());
+                JsonArray arguments = new JsonArray();
+                for (JsonElement argument : message.arguments()) {
+                    arguments.add(argument == null ? JsonNull.INSTANCE : argument.deepCopy());
+                }
+                envelope.add(FIELD_DATA, arguments);
+            } else {
+                envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload().deepCopy());
             }
-            envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload().deepCopy());
         }
         return envelope;
     }
@@ -200,10 +209,18 @@ public final class DDMessagingRpcTransport implements MessagingRequestReplyTrans
                 if (data == null || envelope.size() != (type == MessagingRpcMessage.Type.REQUEST ? 4 : 3)) {
                     return null;
                 }
-                JsonElement snapshot = data.isJsonNull() ? null : data.deepCopy();
-                payload = type == MessagingRpcMessage.Type.REQUEST
-                    ? MessagingRpcMessage.request(string(envelope, FIELD_OPERATION), snapshot)
-                    : MessagingRpcMessage.response(snapshot);
+                if (type == MessagingRpcMessage.Type.REQUEST) {
+                    if (!data.isJsonArray()) {
+                        return null;
+                    }
+                    List<JsonElement> arguments = new ArrayList<>(data.getAsJsonArray().size());
+                    for (JsonElement argument : data.getAsJsonArray()) {
+                        arguments.add(argument.isJsonNull() ? null : argument.deepCopy());
+                    }
+                    payload = MessagingRpcMessage.request(string(envelope, FIELD_OPERATION), arguments);
+                } else {
+                    payload = MessagingRpcMessage.response(data.isJsonNull() ? null : data.deepCopy());
+                }
             }
             return new MessagingRequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), payload, message.error());
         } catch (IllegalArgumentException e) {

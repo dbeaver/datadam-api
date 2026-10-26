@@ -152,6 +152,10 @@ adapter encodes the neutral protocol envelope; the local codec encodes applicati
 long-polling, or in-memory transport can implement this interface without changing RPC code. No WebSocket types or
 JSON library are used here.
 
+Requests use `MessagingRpcMessage.request(operation, arguments)`. The `arguments` list is an immutable positional
+snapshot that preserves null entries, and the request's `payload` is null. Responses and errors have an empty
+`arguments` list; a response result is carried in `payload`.
+
 ### Application-owned registrations and callers
 
 Obtain an endpoint once from the application's connection owner, then pass it to ordinary Java objects. Registration
@@ -201,16 +205,20 @@ cleanup throws. A repeated `close()` does not wait for another thread's ongoing 
 
 ### Contracts and codecs
 
-- Contracts are public, nonsealed interfaces with at least one abstract operation and exactly one argument per method.
+- Contracts are public, nonsealed interfaces with at least one abstract operation. Methods can take zero, one, or multiple
+  arguments, including varargs.
   Return values can be ordinary reference or primitive types, or `void`. Reference arguments and results can be null.
 - Inherited abstract operations and overloads are supported. Operation IDs combine the method name and its erased
-  argument type; only methods from the registered interface can be invoked. Incoming names never trigger class loading
-  or arbitrary reflective lookup on the implementation.
-- Concrete generic argument and result types, such as `List<Document>`, reach the codec as `Type` values. Unresolved
-  type variables, generic methods, default methods, varargs, and `Future`/`CompletionStage` returns are rejected during
-  proxy construction or registration. Generic-parent substitutions are not inferred. Inherited operations with
-  ambiguous generic argument or result types must be explicitly redeclared in the public contract.
-- `MessagingRpcCodec.encode(value, type)` and `decode(payload, type)` are selected per proxy or implementation registration. Implementations must handle
+  argument types in declaration order as `methodName(type1,type2,...)`; a zero-argument method uses `foo()`.
+  A varargs parameter uses its array type and occupies one argument position. Only methods from the registered interface
+  can be invoked. Incoming names never trigger class loading or arbitrary reflective lookup on the implementation.
+- Concrete generic argument and result types, such as `List<Document>`, reach the codec as `Type` values for each argument
+  and result. Unresolved type variables, generic methods, default methods, and `Future`/`CompletionStage` returns are
+  rejected during proxy construction or registration. Generic-parent substitutions are not inferred. Inherited operations
+  with ambiguous generic argument or result types must be explicitly redeclared in the public contract.
+- `MessagingRpcCodec.encode(value, type)` and `decode(payload, type)` are selected per proxy or implementation registration
+  and invoked independently for each argument in declaration order and for the result. Zero-argument calls do not invoke
+  the argument codec; varargs are encoded and decoded as one array value. Implementations must handle
   nulls and concurrent calls. Serialization remains application-owned; the RPC core does not construct application
   types or select a serialization framework. Payload immutability and snapshot requirements are the same as request/reply.
   Peers must use compatible contracts and codecs; no automatic contract negotiation or class transfer is performed.
