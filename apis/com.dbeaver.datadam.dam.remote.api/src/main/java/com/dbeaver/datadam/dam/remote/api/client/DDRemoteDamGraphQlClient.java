@@ -30,6 +30,7 @@ import org.jkiss.dbeaver.DBException;
 import org.jkiss.utils.CommonUtils;
 import org.jkiss.utils.HttpConstants;
 
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -99,7 +100,7 @@ abstract class DDRemoteDamGraphQlClient extends AbstractRestClient {
                 }
                 try {
                     int code = response.statusCode();
-                    if (code < HttpConstants.CODE_OK || code >= HttpConstants.CODE_MULTIPLE_CHOICES) {
+                    if (code < HttpConstants.CODE_OK || code >= HttpURLConnection.HTTP_MULT_CHOICE) {
                         throw mapErrorResponse(code, "", request.uri());
                     }
                     return readResult(response.body(), field);

@@ -19,10 +19,15 @@ package com.dbeaver.datadam.sso.api.model;
 import org.jkiss.code.NotNull;
 
 import java.time.Instant;
+import java.util.Set;
 
 /** Validated access claims; authorization is resolved from current database state by each API. */
 public record DDSsoAccessIdentity(
     @NotNull String subject, @NotNull String email, @NotNull String source,
-    @NotNull String clientId, @NotNull Instant authTime
+    @NotNull String clientId, @NotNull Instant authTime,
+    @NotNull String audience, @NotNull Set<String> scopes
 ) {
+    public DDSsoAccessIdentity {
+        scopes = Set.copyOf(scopes);
+    }
 }
