@@ -139,3 +139,37 @@ HTTP `500` uses `INTERNAL_ERROR`.
 `DDExternalLicenseService` is also implemented by the LM controller. Transport
 resources belong to the client proxy and are released through `RestClient.close(client)`;
 the shared service interface has no lifecycle methods.
+
+## MCP function API
+
+`apis/com.dbeaver.datadam.mcp.api` exports `DDMcpFunctionService` for desktop tool discovery and execution.
+`getFunctions()` returns descriptors with `id`, display `name`, optional `description` and `List<DDMcpFunctionParameter> parameters`.
+Each parameter has `name`, `type` (`STRING`, `INTEGER`, `NUMBER`, `BOOLEAN`), optional `description`, `required`,
+optional `defaultValue` and optional `validValues`. Defaults and allowed values are strings interpreted according to `type`.
+The MCP server builds each tool's JSON Schema `inputSchema` from these parameters.
+`callFunction(DDMcpFunctionCall)` accepts `functionId` and `Map<String, Object> arguments`, and returns a JSON value
+and an `error` flag; execution errors use `error=true`.
+The MCP server maps object results to `structuredContent` and the flag to `isError`.
+Function IDs are unique and match `[a-zA-Z0-9_.-]{1,128}`; display names are nonblank and parameter names are nonblank and unique.
+Results use `JsonNull.INSTANCE` for JSON null, never a Java null.
+
+Register the desktop implementation on its ready Remote DAM RPC endpoint:
+
+```java
+var codec = new DDRemoteDamGsonRpcCodec(new GsonBuilder()
+    .serializeNulls()
+    .setObjectToNumberStrategy(ToNumberPolicy.BIG_DECIMAL)
+    .create());
+var registration = rpc.register(DDMcpFunctionService.SERVICE_ID, DDMcpFunctionService.class, implementation, codec);
+```
+
+The shared topic is `dbeaver.mcp.functions`. Retain the registration until the implementation is unavailable,
+then close it. Both peers must use the renamed MCP contract; Java argument type names are part of RPC operation IDs.
+Configure `serializeNulls()` and `ToNumberPolicy.BIG_DECIMAL` on both peers to preserve explicit null entries
+and numeric precision in argument maps, including nested maps and lists. Gson's default `Object` number handling uses `Double`.
+
+The desktop exposes only functions allowed for `MCP`/`ALL`, rechecks permissions and arguments on every call,
+and enforces enabled connections and result limits. Database credentials remain on the desktop.
+Remote DAM transports thrown exceptions as RPC diagnostics, not as reconstructed `DDMcpFunctionException` objects.
+MCP returns a generic error for remote handler failures without exposing diagnostic stack traces.
+Timeout or interruption does not guarantee remote cancellation or SQL rollback; calls are never replayed automatically.
