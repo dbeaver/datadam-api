@@ -140,93 +140,28 @@ HTTP `500` uses `INTERNAL_ERROR`.
 resources belong to the client proxy and are released through `RestClient.close(client)`;
 the shared service interface has no lifecycle methods.
 
-## AI function API
+## MCP function API
 
-`apis/com.dbeaver.datadam.ai.api` is the shared contract for remotely available desktop AI functions.
-It is an OSGi bundle usable from DBeaver and a Maven dependency usable from DataDam Account.
-It depends on shared annotations and Gson, not on Spring, desktop UI or the DBeaver AI registry.
+`apis/com.dbeaver.datadam.mcp.api` exports `DDMcpFunctionService` for desktop tool discovery and execution.
+`getFunctions()` returns descriptors with `id`, display `name`, optional `description` and JSON Schema `inputSchema`.
+`callFunction(DDMcpFunctionCall)` returns a JSON value and an `error` flag; execution errors use `error=true`.
+The MCP server maps descriptors to tools, object results to `structuredContent`, and the flag to `isError`.
+Function IDs are unique and match `[a-zA-Z0-9_.-]{1,128}`; names are nonblank and schemas declare `"type":"object"`.
+Results use `JsonNull.INSTANCE` for JSON null, never a Java null.
 
-The desktop implements `com.dbeaver.datadam.ai.api.service.DDAiFunctionService`:
+Register the desktop implementation on its ready Remote DAM RPC endpoint:
 
 ```java
-List<DDAiFunctionDescriptor> getFunctions() throws DDAiFunctionException;
-DDAiFunctionResult callFunction(DDAiFunctionCall call) throws DDAiFunctionException;
+var codec = new DDRemoteDamGsonRpcCodec(new GsonBuilder().serializeNulls().create());
+var registration = rpc.register(DDMcpFunctionService.SERVICE_ID, DDMcpFunctionService.class, implementation, codec);
 ```
 
-Both methods are synchronous. The transport supplies a proxy bound to an authorized desktop,
-dispatches the call and correlates its response. User/account identity, desktop/connection IDs,
-request IDs, topics, deadlines and WebSocket envelopes are not service arguments. Implementations
-must not construct JSON-RPC replies or manage transport listeners.
+The shared topic is `dbeaver.mcp.functions`. Retain the registration until the implementation is unavailable,
+then close it. Both peers must use the renamed MCP contract; Java argument type names are part of RPC operation IDs.
+Use `JsonObject`/`JsonElement` and `serializeNulls()` on both peers to preserve explicit nulls and numeric precision.
 
-### DTOs
-
-| DTO | Fields | Meaning |
-| --- | --- | --- |
-| `DDAiFunctionDescriptor` | `id`, `name`, nullable `description`, `inputSchema` | Stable callable ID, display name, AI description and full JSON Schema object for arguments. |
-| `DDAiFunctionCall` | `functionId`, `arguments` | The exact descriptor ID and an object containing named arguments. Use an empty object when there are none. |
-| `DDAiFunctionResult` | `value`, `error` | JSON result value and an execution-failure flag. |
-| `DDAiFunctionErrorCode` | `FUNCTION_NOT_FOUND`, `INVALID_ARGUMENTS`, `ACCESS_DENIED`, `INTERNAL_ERROR` | Service-level errors represented by `DDAiFunctionException`. |
-
-Function IDs must be unique within a desktop and use 1–128 ASCII letters, digits, underscores,
-dots or hyphens. Use the registry's full function ID (including its toolbox prefix) where applicable;
-do not use the human-readable name or legacy ID as the callable identifier. Names must be nonblank.
-`inputSchema` must declare `"type":"object"` and can contain nested schemas, required properties,
-enums and defaults. There is no separate parameter-description DTO: the JSON Schema preserves
-these definitions without duplicating the schema language. `getFunctions()` returns the complete
-list; this version does not paginate.
-
-Example descriptor and invocation payloads (not transport envelopes):
-
-```json
-{
-  "id": "database_listTableNames",
-  "name": "List tables",
-  "description": "List tables in a selected schema",
-  "inputSchema": {
-    "type": "object",
-    "properties": {"schema": {"type": "string"}},
-    "required": ["schema"]
-  }
-}
-```
-
-```json
-{"functionId":"database_listTableNames","arguments":{"schema":"public"}}
-```
-
-`value` supports strings, objects, arrays, numbers, booleans and explicit JSON null (`JsonNull.INSTANCE`);
-it must not be a Java null. For example, `{"value":{"tables":["orders"]},"error":false}` is a structured
-success, and `{"value":"SQL execution failed","error":true}` is a tool execution failure.
-Convert desktop-specific objects to JSON values; never transfer callbacks, UI objects or Java throwables.
-
-`DDAiFunctionException(code, message, data)` represents rejection of the service call, such as an unknown
-function or invalid arguments. `data` is an optional JSON object. The transport must preserve these
-explicit error fields rather than serializing Java exception internals. Messages and data are exposed
-to the AI caller. Database execution failures are returned as `DDAiFunctionResult` with `error=true`.
-
-JSON serialization must preserve explicit nulls and numeric precision. When using Gson, use
-`new GsonBuilder().serializeNulls().create()` and retain `JsonObject`/`JsonElement` values instead of
-round-tripping through `Map<String, Object>` with double-valued numbers. Omit unknown optional fields
-or ignore them when reading; never silently drop argument fields whose value is JSON null.
-
-### Desktop responsibilities
-
-Return only functions with an allowed remote purpose (`MCP` or `ALL` in the current DBeaver registry),
-subject to local permissions and context. Recheck eligibility and arguments in `callFunction()`;
-a caller can request an ID without first fetching the list. Do not use a denylist of UI functions.
-Only explicitly enabled database connections may be accessed. Keep existing AI restrictions and
-result limits. The API carries neither database credentials nor connection configurations.
-
-### Account integration and outstanding transport work
-
-Account maps descriptor `id` to MCP tool `name`, display `name` to `title`, and forwards the schema.
-String results become text directly; other JSON values become JSON text. Object values are also
-returned as MCP `structuredContent`; `error` maps to `isError`. Service exceptions map to JSON-RPC
-errors: unknown function/invalid arguments → `-32602`, access denied → `-32001`, internal error → `-32603`.
-
-Account's `DDMcpClientProvider` is the integration seam for the future External DAM service proxy.
-The desktop team can implement this shared interface and test against stubs before that proxy is ready.
-There is no production External DAM adapter yet. The transport wire format, routing identity and
-remote cancellation API still need agreement. A thread interruption or an MCP timeout does not by
-itself guarantee cancellation or rollback of a remote SQL operation. Never automatically replay SQL
-when delivery or execution outcome is unknown.
+The desktop exposes only functions allowed for `MCP`/`ALL`, rechecks permissions and arguments on every call,
+and enforces enabled connections and result limits. Database credentials remain on the desktop.
+Remote DAM transports thrown exceptions as RPC diagnostics, not as reconstructed `DDMcpFunctionException` objects.
+MCP returns a generic error for remote handler failures without exposing diagnostic stack traces.
+Timeout or interruption does not guarantee remote cancellation or SQL rollback; calls are never replayed automatically.

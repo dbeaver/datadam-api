@@ -14,18 +14,18 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.ai.api;
+package com.dbeaver.datadam.mcp.api;
 
-import com.dbeaver.datadam.ai.api.model.DDAiFunctionCall;
-import com.dbeaver.datadam.ai.api.model.DDAiFunctionDescriptor;
-import com.dbeaver.datadam.ai.api.model.DDAiFunctionResult;
+import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionCall;
+import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionDescriptor;
+import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionResult;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-class DDAiFunctionContractTest {
+class DDMcpFunctionContractTest {
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
     @Test
@@ -34,16 +34,16 @@ class DDAiFunctionContractTest {
             {"type":"object","properties":{"filter":{"type":"object","properties":{"ids":{"type":"array",
             "items":{"type":"integer"}}}}},"required":["filter"],"additionalProperties":false}
             """).getAsJsonObject();
-        var descriptor = new DDAiFunctionDescriptor("database_query", "Query", null, schema);
-        Assertions.assertEquals(descriptor, gson.fromJson(gson.toJson(descriptor), DDAiFunctionDescriptor.class));
+        var descriptor = new DDMcpFunctionDescriptor("database_query", "Query", null, schema);
+        Assertions.assertEquals(descriptor, gson.fromJson(gson.toJson(descriptor), DDMcpFunctionDescriptor.class));
     }
 
     @Test
     void preservesNumericArgumentsWithoutDoubleConversion() {
         var arguments = JsonParser.parseString("{\"id\":9007199254740993,\"amount\":0.1234567890123456789,\"value\":null}")
             .getAsJsonObject();
-        var call = new DDAiFunctionCall("database_query", arguments);
-        var decoded = gson.fromJson(gson.toJson(call), DDAiFunctionCall.class);
+        var call = new DDMcpFunctionCall("database_query", arguments);
+        var decoded = gson.fromJson(gson.toJson(call), DDMcpFunctionCall.class);
         Assertions.assertEquals("9007199254740993", decoded.arguments().get("id").getAsString());
         Assertions.assertEquals("0.1234567890123456789", decoded.arguments().get("amount").getAsString());
         Assertions.assertTrue(decoded.arguments().get("value").isJsonNull());
@@ -51,7 +51,7 @@ class DDAiFunctionContractTest {
 
     @Test
     void preservesExecutionFailureAndStructuredResult() {
-        var result = new DDAiFunctionResult(JsonParser.parseString("{\"message\":\"Permission denied\",\"rows\":[]}"), true);
-        Assertions.assertEquals(result, gson.fromJson(gson.toJson(result), DDAiFunctionResult.class));
+        var result = new DDMcpFunctionResult(JsonParser.parseString("{\"message\":\"Permission denied\",\"rows\":[]}"), true);
+        Assertions.assertEquals(result, gson.fromJson(gson.toJson(result), DDMcpFunctionResult.class));
     }
 }

@@ -10,9 +10,9 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>com.dbeaver.datadam.ai.api</artifactId>
+    <artifactId>com.dbeaver.datadam.mcp.api</artifactId>
     <packaging>eclipse-plugin</packaging>
-    <name>DataDam AI API</name>
+    <name>DataDam MCP API</name>
 
     <dependencies>
         <dependency>

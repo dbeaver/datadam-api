@@ -14,31 +14,10 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.ai.api.exception;
+package com.dbeaver.datadam.mcp.api.model;
 
-import com.dbeaver.datadam.ai.api.model.DDAiFunctionErrorCode;
 import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
-import org.jkiss.code.Nullable;
 
-public class DDAiFunctionException extends Exception {
-    private final DDAiFunctionErrorCode code;
-    @Nullable
-    private final JsonObject data;
-
-    public DDAiFunctionException(@NotNull DDAiFunctionErrorCode code, @NotNull String message, @Nullable JsonObject data) {
-        super(message);
-        this.code = code;
-        this.data = data;
-    }
-
-    @NotNull
-    public DDAiFunctionErrorCode getCode() {
-        return code;
-    }
-
-    @Nullable
-    public JsonObject getData() {
-        return data;
-    }
+public record DDMcpFunctionCall(@NotNull String functionId, @NotNull JsonObject arguments) {
 }

@@ -14,11 +14,10 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.ai.api.model;
+package com.dbeaver.datadam.mcp.api.model;
 
-public enum DDAiFunctionErrorCode {
-    FUNCTION_NOT_FOUND,
-    INVALID_ARGUMENTS,
-    ACCESS_DENIED,
-    INTERNAL_ERROR
+import com.google.gson.JsonElement;
+import org.jkiss.code.NotNull;
+
+public record DDMcpFunctionResult(@NotNull JsonElement value, boolean error) {
 }

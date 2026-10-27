@@ -14,23 +14,25 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.ai.api.service;
+package com.dbeaver.datadam.mcp.api.service;
 
-import com.dbeaver.datadam.ai.api.exception.DDAiFunctionException;
-import com.dbeaver.datadam.ai.api.model.DDAiFunctionCall;
-import com.dbeaver.datadam.ai.api.model.DDAiFunctionDescriptor;
-import com.dbeaver.datadam.ai.api.model.DDAiFunctionResult;
+import com.dbeaver.datadam.mcp.api.exception.DDMcpFunctionException;
+import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionCall;
+import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionDescriptor;
+import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionResult;
 import org.jkiss.code.NotNull;
 
 import java.util.List;
 
 /**
- * Remotely available AI functions of one authenticated desktop.
+ * Remotely available MCP functions of one authenticated desktop.
  */
-public interface DDAiFunctionService {
-    @NotNull
-    List<DDAiFunctionDescriptor> getFunctions() throws DDAiFunctionException;
+public interface DDMcpFunctionService {
+    String SERVICE_ID = "dbeaver.mcp.functions";
 
     @NotNull
-    DDAiFunctionResult callFunction(@NotNull DDAiFunctionCall call) throws DDAiFunctionException;
+    List<DDMcpFunctionDescriptor> getFunctions() throws DDMcpFunctionException;
+
+    @NotNull
+    DDMcpFunctionResult callFunction(@NotNull DDMcpFunctionCall call) throws DDMcpFunctionException;
 }
