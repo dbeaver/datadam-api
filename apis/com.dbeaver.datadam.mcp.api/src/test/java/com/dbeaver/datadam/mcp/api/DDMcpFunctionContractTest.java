@@ -18,6 +18,7 @@ package com.dbeaver.datadam.mcp.api;
 
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionCall;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionDescriptor;
+import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionParameter;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionResult;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -25,16 +26,19 @@ import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 class DDMcpFunctionContractTest {
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
     @Test
-    void preservesNestedSchemaAndOptionalDescription() {
-        var schema = JsonParser.parseString("""
-            {"type":"object","properties":{"filter":{"type":"object","properties":{"ids":{"type":"array",
-            "items":{"type":"integer"}}}}},"required":["filter"],"additionalProperties":false}
-            """).getAsJsonObject();
-        var descriptor = new DDMcpFunctionDescriptor("database_query", "Query", null, schema);
+    void preservesTypedParametersAndOptionalDescription() {
+        var descriptor = new DDMcpFunctionDescriptor("database_query", "Query", null, List.of(
+            new DDMcpFunctionParameter("query", DDMcpFunctionParameter.Type.STRING, "SQL query", true, null, null),
+            new DDMcpFunctionParameter("limit", DDMcpFunctionParameter.Type.INTEGER, null, false, "100", List.of("10", "100")),
+            new DDMcpFunctionParameter("ratio", DDMcpFunctionParameter.Type.NUMBER, null, false, "0.5", null),
+            new DDMcpFunctionParameter("readOnly", DDMcpFunctionParameter.Type.BOOLEAN, null, false, "true", null)
+        ));
         Assertions.assertEquals(descriptor, gson.fromJson(gson.toJson(descriptor), DDMcpFunctionDescriptor.class));
     }
 

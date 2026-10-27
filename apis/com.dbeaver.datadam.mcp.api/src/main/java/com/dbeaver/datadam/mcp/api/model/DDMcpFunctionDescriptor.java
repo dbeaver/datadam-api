@@ -16,14 +16,15 @@
  */
 package com.dbeaver.datadam.mcp.api.model;
 
-import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
+
+import java.util.List;
 
 public record DDMcpFunctionDescriptor(
     @NotNull String id,
     @NotNull String name,
     @Nullable String description,
-    @NotNull JsonObject inputSchema
+    @NotNull List<DDMcpFunctionParameter> parameters
 ) {
 }
