@@ -14,10 +14,17 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.sso.api.model;
+package com.dbeaver.datadam.dam.remote.api.exception;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.dbeaver.DBException;
 
-/** Account backend assertion for a browser-bound desktop authorization. */
-public record DDSsoDesktopApprovalRequest(@NotNull String requestId, @NotNull DDSsoIdentity identity) {
+public class DDRemoteDamException extends DBException {
+    public DDRemoteDamException(@NotNull String message) {
+        super(message);
+    }
+
+    public DDRemoteDamException(@NotNull String message, @NotNull Throwable cause) {
+        super(message, cause);
+    }
 }

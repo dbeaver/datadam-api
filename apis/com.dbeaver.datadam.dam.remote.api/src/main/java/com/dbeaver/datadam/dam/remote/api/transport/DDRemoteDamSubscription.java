@@ -14,18 +14,11 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.sso.api.model;
+package com.dbeaver.datadam.dam.remote.api.transport;
 
-import com.dbeaver.datadam.sso.api.DDSsoConstants;
-import com.google.gson.annotations.SerializedName;
-import org.jkiss.code.NotNull;
-import org.jkiss.utils.oauth.OAuthConstants;
-
-/** Tokens issued solely to the public desktop client. */
-public record DDSsoDesktopTokenResponse(
-    @SerializedName("access_token") @NotNull String accessToken,
-    @SerializedName("token_type") @NotNull String tokenType,
-    @SerializedName(DDSsoConstants.RESPONSE_EXPIRES_IN) long expiresIn,
-    @SerializedName(OAuthConstants.RESULT_PROP_TOKEN_ID) @NotNull String idToken
-) {
+/** Controls the lifetime of a DataDam listener registration. */
+@FunctionalInterface
+public interface DDRemoteDamSubscription extends AutoCloseable {
+    @Override
+    void close();
 }

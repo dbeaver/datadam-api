@@ -1,0 +1,21 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Vendor: DBeaver Corp
+Bundle-Name: DataDam Remote DAM API
+Bundle-SymbolicName: com.dbeaver.datadam.dam.remote.api
+Bundle-Version: 0.0.17.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Export-Package: com.dbeaver.datadam.dam.remote.api,
+ com.dbeaver.datadam.dam.remote.api.client,
+ com.dbeaver.datadam.dam.remote.api.exception,
+ com.dbeaver.datadam.dam.remote.api.model,
+ com.dbeaver.datadam.dam.remote.api.requestreply,
+ com.dbeaver.datadam.dam.remote.api.rpc,
+ com.dbeaver.datadam.dam.remote.api.transport,
+ com.dbeaver.messaging.requestreply,
+ com.dbeaver.messaging.rpc
+Bundle-ActivationPolicy: lazy
+Require-Bundle: org.jkiss.utils,
+ com.dbeaver.rest.client;visibility:=reexport,
+ com.google.gson
+Automatic-Module-Name: com.dbeaver.datadam.dam.remote.api

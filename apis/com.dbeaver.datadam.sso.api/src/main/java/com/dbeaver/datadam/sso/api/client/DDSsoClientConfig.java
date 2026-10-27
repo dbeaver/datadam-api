@@ -29,9 +29,12 @@ public record DDSsoClientConfig(
     @NotNull String clientSecret,
     @NotNull String redirectUri,
     @NotNull String identitySource,
-    @NotNull Duration jwksCacheTtl
+    @NotNull Duration jwksCacheTtl,
+    @Nullable String resource,
+    @NotNull String scope
 ) {
     @Override
+    @NotNull
     public String toString() {
         return "DDSsoClientConfig[issuer=" + issuer + ", clientId=" + clientId + "]";
     }

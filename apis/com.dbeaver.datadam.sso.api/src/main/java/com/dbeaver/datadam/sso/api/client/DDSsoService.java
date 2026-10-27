@@ -18,11 +18,11 @@ package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
-import com.dbeaver.datadam.sso.api.model.DDSsoDesktopApprovalRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoDesktopApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
+import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
+import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenResponse;
 import org.jkiss.code.NotNull;
@@ -49,9 +49,14 @@ public class DDSsoService {
         return client.endpoint(path);
     }
 
+    /**
+     * Exchanges an authorization code for a verified identity used to establish a local browser session.
+     * Requires an internal id_token; its signature and identity claims are validated before returning.
+     */
     @NotNull
-    public DDSsoIdentity exchange(@NotNull String code, @NotNull String codeVerifier) throws DDSsoClientException {
-        DDSsoTokenResponse token = client.exchange(new DDSsoTokenRequest(code, codeVerifier, properties.clientId(), properties.redirectUri()));
+    public DDSsoIdentity exchangeCodeForIdentity(@NotNull String code, @NotNull String codeVerifier) throws DDSsoClientException {
+        DDSsoTokenResponse token = client.exchangeCodeForTokens(new DDSsoTokenRequest(code, codeVerifier, properties.clientId(),
+            properties.redirectUri(), properties.resource()));
         if (token.idToken() == null || token.idToken().length() > DDSsoTokenVerifier.MAX_TOKEN_LENGTH || token.expiresIn() <= 0) {
             throw new DDSsoClientException("Invalid SSO token response");
         }
@@ -69,11 +74,11 @@ public class DDSsoService {
     }
 
     @NotNull
-    public String approveDesktop(@NotNull DDSsoDesktopApprovalRequest request) throws DDSsoClientException {
-        DDSsoDesktopApprovalResponse approval = client.approveDesktop(request);
+    public String approveLogin(@NotNull DDSsoLoginApprovalRequest request) throws DDSsoClientException {
+        DDSsoLoginApprovalResponse approval = client.approveLogin(request);
         if (approval.completion() == null || !DDSsoConstants.BASE64URL_256_PATTERN.matcher(approval.completion()).matches()) {
-            throw new DDSsoClientException("Invalid SSO desktop approval response");
+            throw new DDSsoClientException("Invalid SSO login approval response");
         }
-        return endpoint(DDSsoConstants.DESKTOP_RESUME_PATH) + "?completion=" + approval.completion();
+        return endpoint(DDSsoConstants.LOGIN_RESUME_PATH) + "?completion=" + approval.completion();
     }
 }

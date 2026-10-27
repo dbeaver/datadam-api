@@ -21,6 +21,7 @@
     <modules>
         <module>com.dbeaver.datadam.ai.api</module>
         <module>com.dbeaver.datadam.dm.api</module>
+        <module>com.dbeaver.datadam.dam.remote.api</module>
         <module>com.dbeaver.datadam.share.api</module>
         <module>com.dbeaver.datadam.lm.api</module>
         <module>com.dbeaver.datadam.sso.api</module>

@@ -14,9 +14,12 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.sso.api.model;
+package com.dbeaver.datadam.dam.remote.api.model;
 
 import org.jkiss.code.NotNull;
 
-public record DDSsoDesktopApprovalResponse(@NotNull String completion) {
+public record DDRemoteDamHandshakeResponse(@NotNull String damSessionId) {
+    public DDRemoteDamHandshakeResponse {
+        DDRemoteDamMessage.requireText(damSessionId, "damSessionId");
+    }
 }
