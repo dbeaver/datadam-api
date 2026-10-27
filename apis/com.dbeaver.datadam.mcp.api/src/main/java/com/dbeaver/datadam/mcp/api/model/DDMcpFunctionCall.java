@@ -16,8 +16,9 @@
  */
 package com.dbeaver.datadam.mcp.api.model;
 
-import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
 
-public record DDMcpFunctionCall(@NotNull String functionId, @NotNull JsonObject arguments) {
+import java.util.Map;
+
+public record DDMcpFunctionCall(@NotNull String functionId, @NotNull Map<String, Object> arguments) {
 }
