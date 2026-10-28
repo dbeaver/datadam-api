@@ -19,6 +19,7 @@
     <description>DataDam API</description>
 
     <modules>
+        <module>com.dbeaver.datadam.mcp.api</module>
         <module>com.dbeaver.datadam.dm.api</module>
         <module>com.dbeaver.datadam.dam.remote.api</module>
         <module>com.dbeaver.datadam.share.api</module>
