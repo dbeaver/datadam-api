@@ -22,6 +22,7 @@ import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoHandoffResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
+import com.dbeaver.datadam.sso.api.model.DDSsoRefreshRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenResponse;
 import com.dbeaver.rest.client.AbstractRestClient;
@@ -81,6 +82,21 @@ public class DDSsoClient extends AbstractRestClient {
         }
         if (request.resource() != null) {
             parameters.put(DDSsoConstants.PARAM_RESOURCE, request.resource());
+        }
+        return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
+            DDSsoTokenResponse.class, "Invalid SSO token response");
+    }
+
+    @NotNull
+    public DDSsoTokenResponse refresh(@NotNull DDSsoRefreshRequest request) throws DDSsoClientException {
+        Map<String, String> parameters = new HashMap<>(Map.of(
+            OAuthConstants.PARAM_GRANT_TYPE, OAuthConstants.GRANT_TYPE_REFRESH_TOKEN,
+            OAuthConstants.RESPONSE_PARAM_REFRESH_TOKEN, request.refreshToken(), OAuthConstants.AUTH_PROP_CLIENT_ID, request.clientId()));
+        if (request.resource() != null) {
+            parameters.put(DDSsoConstants.PARAM_RESOURCE, request.resource());
+        }
+        if (request.scope() != null) {
+            parameters.put(DDSsoConstants.PARAM_SCOPE, request.scope());
         }
         return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
