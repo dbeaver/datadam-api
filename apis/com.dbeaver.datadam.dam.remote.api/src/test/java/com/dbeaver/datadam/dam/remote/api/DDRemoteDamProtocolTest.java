@@ -27,6 +27,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DDRemoteDamProtocolTest {
@@ -45,17 +46,60 @@ class DDRemoteDamProtocolTest {
 
     @Test
     void roundTripsHandshakeRequestWithoutAccountCredentialsOrProtocolVersion() {
-        DDRemoteDamHandshakeRequest hello = new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "DBeaver", "26.2.4");
+        DDRemoteDamHandshakeRequest hello = new DDRemoteDamHandshakeRequest(
+            "DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4");
         String encoded = DDRemoteDamProtocol.encodeHandshakeRequest(hello);
         JsonObject envelope = JsonParser.parseString(encoded).getAsJsonObject();
 
         assertEquals(hello, DDRemoteDamProtocol.decodeHandshakeRequest(encoded));
         assertEquals("hello", envelope.get("type").getAsString());
         assertEquals(2, envelope.size());
-        assertEquals(4, envelope.getAsJsonObject("payload").size());
+        assertEquals(5, envelope.getAsJsonObject("payload").size());
+        assertEquals("workspace-1", envelope.getAsJsonObject("payload").get("workspaceId").getAsString());
         assertFalse(encoded.contains("accountId"));
         assertFalse(encoded.contains("accessToken"));
         assertFalse(encoded.contains("protocolVersion"));
+    }
+
+    @Test
+    void usesAnExplicitWorkspaceSentinelForTheLegacyConstructor() {
+        DDRemoteDamHandshakeRequest hello = new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "DBeaver", "26.2.4");
+
+        assertEquals(DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID, hello.workspaceId());
+        assertNotEquals(hello.appDeploymentId(), hello.workspaceId());
+        assertEquals(hello, DDRemoteDamProtocol.decodeHandshakeRequest(DDRemoteDamProtocol.encodeHandshakeRequest(hello)));
+    }
+
+    @Test
+    void acceptsLegacyHandshakeWithoutAWorkspaceId() {
+        DDRemoteDamHandshakeRequest hello = DDRemoteDamProtocol.decodeHandshakeRequest("""
+            {"type":"hello","payload":{
+                "appDeploymentId":"DI_remoteDam","appInstanceId":"run-1","product":"DBeaver","version":"26.2.4"
+            }}
+            """);
+
+        assertEquals(new DDRemoteDamHandshakeRequest(
+            "DI_remoteDam", "run-1", DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID, "DBeaver", "26.2.4"), hello);
+        assertNotEquals(hello.appDeploymentId(), hello.workspaceId());
+    }
+
+    @Test
+    void acceptsWorkspaceIdLengthBoundariesAndRejectsNullBlankAndOversizedIds() {
+        for (String workspaceId : List.of("w", "w".repeat(256))) {
+            DDRemoteDamHandshakeRequest hello = new DDRemoteDamHandshakeRequest(
+                "DI_remoteDam", "run-1", workspaceId, "DBeaver", "26.2.4");
+
+            assertEquals(hello, DDRemoteDamProtocol.decodeHandshakeRequest(DDRemoteDamProtocol.encodeHandshakeRequest(hello)));
+        }
+        for (String workspaceId : new String[] {null, "", " ", "\t\n", "w".repeat(257)}) {
+            assertThrows(IllegalArgumentException.class, () ->
+                new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", workspaceId, "DBeaver", "26.2.4"));
+        }
+        JsonObject oversized = JsonParser.parseString(DDRemoteDamProtocol.encodeHandshakeRequest(
+            new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4"))).getAsJsonObject();
+        oversized.getAsJsonObject("payload").addProperty("workspaceId", "w".repeat(257));
+
+        assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeHandshakeRequest(oversized.toString()));
     }
 
     @Test
@@ -159,15 +203,16 @@ class DDRemoteDamProtocolTest {
     }
 
     @Test
-    void rejectsMissingAndIncorrectlyTypedHandshakeRequestFields() {
+    void rejectsMissingRequiredAndMalformedExplicitHandshakeRequestFields() {
         String valid = DDRemoteDamProtocol.encodeHandshakeRequest(
-            new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "DBeaver", "26.2.4"));
+            new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4"));
         for (String field : List.of("appDeploymentId", "appInstanceId", "product", "version")) {
             JsonObject missing = JsonParser.parseString(valid).getAsJsonObject();
             missing.getAsJsonObject("payload").remove(field);
             assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeHandshakeRequest(missing.toString()));
-
-            for (String value : List.of("null", "true", "42", "[]", "{}", "\" \"")) {
+        }
+        for (String field : List.of("appDeploymentId", "appInstanceId", "workspaceId", "product", "version")) {
+            for (String value : List.of("null", "true", "42", "[]", "{}", "\"\"", "\" \"", "\"\\t\\n\"")) {
                 JsonObject invalid = JsonParser.parseString(valid).getAsJsonObject();
                 invalid.getAsJsonObject("payload").add(field, JsonParser.parseString(value));
 
