@@ -19,6 +19,7 @@ package com.dbeaver.datadam.dm.api.service;
 
 import com.dbeaver.datadam.dm.api.model.DMAwsMarketplaceInstanceInfo;
 import com.dbeaver.datadam.dm.api.model.DMException;
+import com.dbeaver.datadam.dm.api.model.DMGcpMarketplaceInstanceInfo;
 import org.jkiss.code.NotNull;
 
 /**
@@ -31,4 +32,10 @@ public interface DMExternalInstanceService {
      */
     @NotNull
     String validateMarketplaceAws(@NotNull DMAwsMarketplaceInstanceInfo instanceInfo) throws DMException;
+
+    /**
+     * Controller for validating GCP marketplace product and generating license.
+     */
+    @NotNull
+    String validateMarketplaceGcp(@NotNull DMGcpMarketplaceInstanceInfo instanceInfo) throws DMException;
 }
