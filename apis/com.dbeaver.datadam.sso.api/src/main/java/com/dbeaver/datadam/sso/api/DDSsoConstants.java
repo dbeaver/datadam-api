@@ -23,7 +23,6 @@ public final class DDSsoConstants {
     public static final String AUTHORIZE_PATH = "/authorize";
     public static final String TOKEN_PATH = "/token";
     public static final String REVOKE_PATH = "/revoke";
-    public static final String REFRESH_AUTHORIZATION_PATH = "/api/internal/sso/refresh-authorization";
     public static final String PARAM_TOKEN = "token";
     public static final String HANDOFF_PATH = "/handoff";
     public static final String HANDOFF_START_PATH = "/handoff/start";
