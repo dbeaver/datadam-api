@@ -30,15 +30,16 @@ contracts, clients and transport adapters, together with the messaging implement
   and an optional internal `id_token` for clients configured to receive identity assertions.
 * `DDSsoAccessIdentity`: verified subject, source, client ID, audience and granted scopes.
 * `DDSsoConfigResponse`: SSO issuer, obtained from the application's `/sso/config`.
-* `DDSsoHandoffRequest`: confirmed identity, original authorization request and browser-binding `flow_id`.
-* `DDSsoHandoffResponse`: opaque one-time `handoff` and lifetime in seconds (`expires_in`).
+* `DDSsoLoginApprovalRequest`: pending provider request handle and confirmed identity.
+* `DDSsoLoginApprovalResponse`: opaque one-time browser completion handle.
 
 The module is an OSGi bundle and is also consumed as a Maven dependency by the standalone SSO server.
 Token response JSON field names are declared with Gson `@SerializedName` annotations.
-Handoff creation uses `POST /handoff` with HTTP Basic backend authentication and a JSON body. The nested
-authorization fields use their Java camelCase names; `flow_id` and `expires_in` use explicit Gson mappings.
-The identity's `authTime` uses ISO-8601 (`GsonUtils.InstantIsoAdapter`). Browser completion uses
-`GET /handoff?handoff=...` and requires the proof cookie set by `/handoff/start`.
+All logins begin with `/authorize`. Login approval uses `POST /login/approve` with HTTP Basic backend
+authentication and a JSON body (`requestId`, `identity`). The identity's `authTime` and optional
+`mfaVerifiedAt` use ISO-8601 (`GsonUtils.InstantIsoAdapter`). Browser completion uses
+`GET /login/resume?completion=...` and requires the proof cookie set during authorization.
+Direct local logins use `prompt=login` and reuse the local session at the configured provider.
 
 Token exchange uses `POST /token` with `application/x-www-form-urlencoded` fields `code`, `code_verifier`,
 `client_id`, optional `redirect_uri` and `resource`, and mandatory `grant_type=authorization_code`.

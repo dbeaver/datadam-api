@@ -18,8 +18,6 @@ package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
-import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoHandoffResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
@@ -84,12 +82,6 @@ public class DDSsoClient extends AbstractRestClient {
         }
         return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
-    }
-
-    @NotNull
-    public DDSsoHandoffResponse createHandoff(@NotNull DDSsoHandoffRequest request) throws DDSsoClientException {
-        return postResponse(DDSsoConstants.HANDOFF_PATH, request, MediaType.JSON,
-            DDSsoHandoffResponse.class, "Invalid SSO handoff response");
     }
 
     @NotNull

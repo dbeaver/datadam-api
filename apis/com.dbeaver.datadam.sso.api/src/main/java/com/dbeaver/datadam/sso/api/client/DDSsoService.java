@@ -18,8 +18,6 @@ package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
-import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoHandoffResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
@@ -61,16 +59,6 @@ public class DDSsoService {
             throw new DDSsoClientException("Invalid SSO token response");
         }
         return verifier.verifyIdentity(token.idToken());
-    }
-
-    @NotNull
-    public String createHandoff(@NotNull DDSsoHandoffRequest request) throws DDSsoClientException {
-        DDSsoHandoffResponse handoff = client.createHandoff(request);
-        if (handoff.handoff() == null || !DDSsoConstants.BASE64URL_256_PATTERN.matcher(handoff.handoff()).matches()
-            || handoff.expiresIn() <= 0) {
-            throw new DDSsoClientException("Invalid SSO handoff response");
-        }
-        return endpoint(DDSsoConstants.HANDOFF_PATH) + "?" + DDSsoConstants.PARAM_HANDOFF + "=" + handoff.handoff();
     }
 
     @NotNull
