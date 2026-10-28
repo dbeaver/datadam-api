@@ -20,6 +20,7 @@ import com.dbeaver.datadam.dm.api.model.DMAuthInfo;
 import com.dbeaver.datadam.dm.api.model.DMException;
 import com.dbeaver.datadam.dm.api.model.DMOrganizationInfo;
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 /**
  * Organization service.
@@ -27,7 +28,24 @@ import org.jkiss.code.NotNull;
  */
 public interface DMOrganizationService {
 
-    DMAuthInfo auth(String encoded, String applicationId, String productId, String productVersion);
+    @NotNull
+    default DMAuthInfo auth(
+        @NotNull String encoded,
+        @NotNull String applicationId,
+        @NotNull String productId,
+        @NotNull String productVersion
+    ) {
+        return auth(encoded, applicationId, productId, productVersion, null);
+    }
+
+    @NotNull
+    DMAuthInfo auth(
+        @NotNull String encoded,
+        @NotNull String applicationId,
+        @NotNull String productId,
+        @NotNull String productVersion,
+        @Nullable String identityToken
+    );
 
     /**
      * Displays information about organization.
