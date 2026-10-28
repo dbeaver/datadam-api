@@ -111,6 +111,7 @@ public final class DDSsoConstants {
     public static final String APPLICATION_LOGIN_START_PATH = "/sso/login/start";
     public static final String APPLICATION_CONFIG_PATH = "/sso/config";
     public static final String ACCESS_CONTEXT_PATH = "/api/internal/access-context";
+    public static final String HEADER_RESOURCE = "X-DD-Resource";
     public static final String HEADER_SERVICE_TOKEN = "X-DD-Service-Token";
 
     private DDSsoConstants() {

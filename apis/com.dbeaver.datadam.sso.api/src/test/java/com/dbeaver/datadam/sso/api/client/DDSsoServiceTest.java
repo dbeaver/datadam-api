@@ -70,6 +70,8 @@ class DDSsoServiceTest {
     private final AtomicReference<String> keysJson = new AtomicReference<>();
     private final AtomicReference<String> responseJson = new AtomicReference<>();
     private final AtomicReference<String> posted = new AtomicReference<>();
+    private final AtomicReference<String> resource = new AtomicReference<>();
+    private final AtomicReference<String> backendSecret = new AtomicReference<>();
     private final AtomicReference<String> credentials = new AtomicReference<>();
     private final AtomicReference<String> contentType = new AtomicReference<>();
     private final AtomicReference<String> requestMethod = new AtomicReference<>();
@@ -99,6 +101,8 @@ class DDSsoServiceTest {
         });
         server.createContext("/", exchange -> {
             credentials.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            resource.set(exchange.getRequestHeaders().getFirst(DDSsoConstants.HEADER_RESOURCE));
+            backendSecret.set(exchange.getRequestHeaders().getFirst(DDSsoConstants.HEADER_SERVICE_TOKEN));
             contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
             requestMethod.set(exchange.getRequestMethod());
             requestPath.set(exchange.getRequestURI().getPath());
@@ -390,6 +394,23 @@ class DDSsoServiceTest {
         } finally {
             destination.stop(0);
         }
+    }
+
+    @Test
+    void accountBackchannelPassesExplicitResourceAndKeepsOrdinaryApiExchangeUnchanged() throws Exception {
+        responseJson.set("""
+            {"userId":"22222222-2222-2222-2222-222222222222","accountId":"33333333-3333-3333-3333-333333333333",
+            "accountType":"CORPORATE","subscriptionPlanType":"FREE","permissions":["MCP_INVOKE"]}
+            """);
+        var account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
+        Assertions.assertThat(account.exchange("header.payload.signature", "https://mcp.example.com/mcp").permissions())
+            .containsExactly("MCP_INVOKE");
+        Assertions.assertThat(resource.get()).isEqualTo("https://mcp.example.com/mcp");
+        Assertions.assertThat(backendSecret.get()).isEqualTo("s".repeat(32));
+        Assertions.assertThat(credentials.get()).isEqualTo("Bearer header.payload.signature");
+        Assertions.assertThat(requestPath.get()).isEqualTo(DDSsoConstants.ACCESS_CONTEXT_PATH);
+        account.exchange("header.payload.signature");
+        Assertions.assertThat(resource.get()).isNull();
     }
 
     @Test

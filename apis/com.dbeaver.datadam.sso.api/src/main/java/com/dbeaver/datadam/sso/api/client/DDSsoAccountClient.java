@@ -22,6 +22,7 @@ import com.dbeaver.datadam.sso.api.model.DDSsoAccessContextResponse;
 import com.dbeaver.rest.client.AbstractRestClient;
 import com.dbeaver.rest.client.MediaType;
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.utils.CommonUtils;
 import org.jkiss.utils.HttpConstants;
@@ -54,15 +55,24 @@ public class DDSsoAccountClient extends AbstractRestClient {
 
     @NotNull
     public DDSsoAccessContextResponse exchange(@NotNull String accessToken) throws DDSsoClientException {
+        return exchange(accessToken, null);
+    }
+
+    @NotNull
+    public DDSsoAccessContextResponse exchange(@NotNull String accessToken, @Nullable String resource) throws DDSsoClientException {
         if (accessToken.isBlank() || accessToken.length() > MAX_TOKEN_LENGTH) {
             throw new DDSsoClientException("Invalid Account access token");
         }
         try {
-            HttpRequest.Builder request = HttpRequest.newBuilder(buildUri(CommonUtils.removeLeadingSlash(DDSsoConstants.ACCESS_CONTEXT_PATH), Map.of()))
+            HttpRequest.Builder request = HttpRequest.newBuilder(
+                    buildUri(CommonUtils.removeLeadingSlash(DDSsoConstants.ACCESS_CONTEXT_PATH), Map.of()))
                 .header(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.BEARER_PREFIX + accessToken)
                 .header(DDSsoConstants.HEADER_SERVICE_TOKEN, serviceSecret)
                 .header(HttpConstants.HEADER_CACHE_CONTROL, HttpConstants.CACHE_CONTROL_NO_STORE)
                 .POST(createBodyPublisher(null, MediaType.JSON));
+            if (resource != null) {
+                request.header(DDSsoConstants.HEADER_RESOURCE, resource);
+            }
             DDSsoAccessContextResponse context = execute(request, DDSsoAccessContextResponse.class);
             if (context == null || context.userId() == null || context.accountId() == null
                 || context.accountType() == null || context.subscriptionPlanType() == null || context.permissions() == null
