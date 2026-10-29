@@ -65,7 +65,9 @@ public final class DDRemoteDamProtocol {
         JsonObject payload = new JsonObject();
         payload.addProperty(FIELD_APP_DEPLOYMENT_ID, hello.appDeploymentId());
         payload.addProperty(FIELD_APP_INSTANCE_ID, hello.appInstanceId());
-        payload.addProperty(FIELD_WORKSPACE_ID, hello.workspaceId());
+        if (!DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID.equals(hello.workspaceId())) {
+            payload.addProperty(FIELD_WORKSPACE_ID, hello.workspaceId());
+        }
         payload.addProperty(FIELD_PRODUCT, hello.product());
         payload.addProperty(FIELD_VERSION, hello.version());
         return envelope(TYPE_HANDSHAKE_REQUEST, payload).toString();
@@ -74,11 +76,16 @@ public final class DDRemoteDamProtocol {
     @NotNull
     public static DDRemoteDamHandshakeRequest decodeHandshakeRequest(@NotNull String message) {
         JsonObject payload = readControlPayload(message, TYPE_HANDSHAKE_REQUEST);
+        boolean hasWorkspaceId = payload.has(FIELD_WORKSPACE_ID);
+        String workspaceId = hasWorkspaceId
+            ? readString(payload, FIELD_WORKSPACE_ID) : DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID;
+        if (hasWorkspaceId && DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID.equals(workspaceId)) {
+            throw new IllegalArgumentException("Reserved workspaceId");
+        }
         return new DDRemoteDamHandshakeRequest(
             readString(payload, FIELD_APP_DEPLOYMENT_ID),
             readString(payload, FIELD_APP_INSTANCE_ID),
-            payload.has(FIELD_WORKSPACE_ID)
-                ? readString(payload, FIELD_WORKSPACE_ID) : DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID,
+            workspaceId,
             readString(payload, FIELD_PRODUCT),
             readString(payload, FIELD_VERSION)
         );

@@ -62,12 +62,26 @@ class DDRemoteDamProtocolTest {
     }
 
     @Test
-    void usesAnExplicitWorkspaceSentinelForTheLegacyConstructor() {
+    void legacyConstructorOmitsWorkspaceIdOnTheWireAndRoundTrips() {
         DDRemoteDamHandshakeRequest hello = new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "DBeaver", "26.2.4");
+        String encoded = DDRemoteDamProtocol.encodeHandshakeRequest(hello);
 
         assertEquals(DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID, hello.workspaceId());
         assertNotEquals(hello.appDeploymentId(), hello.workspaceId());
-        assertEquals(hello, DDRemoteDamProtocol.decodeHandshakeRequest(DDRemoteDamProtocol.encodeHandshakeRequest(hello)));
+        assertFalse(JsonParser.parseString(encoded).getAsJsonObject().getAsJsonObject("payload").has("workspaceId"));
+        assertEquals(hello, DDRemoteDamProtocol.decodeHandshakeRequest(encoded));
+    }
+
+    @Test
+    void rejectsExplicitLegacyWorkspaceSentinel() {
+        String message = """
+            {"type":"hello","payload":{
+                "appDeploymentId":"DI_remoteDam","appInstanceId":"run-1","workspaceId":"__legacy_workspace__",
+                "product":"DBeaver","version":"26.2.4"
+            }}
+            """;
+
+        assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeHandshakeRequest(message));
     }
 
     @Test
