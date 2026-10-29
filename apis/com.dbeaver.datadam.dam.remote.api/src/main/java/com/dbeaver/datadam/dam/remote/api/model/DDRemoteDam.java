@@ -42,6 +42,9 @@ public record DDRemoteDam(
         DDRemoteDamMessage.requireText(workspaceId, "workspaceId");
         DDRemoteDamMessage.requireText(product, "product");
         DDRemoteDamMessage.requireText(version, "version");
+        if (online != (damSessionId != null)) {
+            throw new IllegalArgumentException("Online status must match DAM session ID presence");
+        }
         if (damSessionId != null) {
             DDRemoteDamMessage.requireText(damSessionId, "damSessionId");
         }

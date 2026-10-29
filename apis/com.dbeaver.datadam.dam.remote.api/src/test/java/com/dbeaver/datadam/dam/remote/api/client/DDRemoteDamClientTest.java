@@ -169,6 +169,17 @@ class DDRemoteDamClientTest {
     }
 
     @Test
+    void rejectsContradictoryDamOnlineAndSessionStates() {
+        JsonObject onlineWithoutSession = dam(true);
+        onlineWithoutSession.add("damSessionId", JsonNull.INSTANCE);
+        assertInvalidDam(onlineWithoutSession);
+
+        JsonObject offlineWithSession = dam(false);
+        offlineWithSession.addProperty("damSessionId", "session-1");
+        assertInvalidDam(offlineWithSession);
+    }
+
+    @Test
     void rejectsTheWholeDamSnapshotWhenRequiredMetadataIsMissingOrIncorrectlyTyped() {
         for (String field : List.of("damId", "appDeploymentId", "appInstanceId", "workspaceId", "product", "version")) {
             JsonObject missing = dam(false);

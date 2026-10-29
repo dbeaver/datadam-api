@@ -190,12 +190,16 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
             if (online == null) {
                 throw invalidResponse();
             }
-            dams.add(new DDRemoteDam(
-                readString(dam, "damId"), readString(dam, "appDeploymentId"), readString(dam, "appInstanceId"),
-                readString(dam, "workspaceId"), readString(dam, "product"), readString(dam, "version"), readBoolean(online),
-                readNullableString(dam, "damSessionId"), readInstant(dam, "firstConnectedAt"), readInstant(dam, "lastConnectedAt"),
-                readNullableInstant(dam, "lastDisconnectedAt")
-            ));
+            try {
+                dams.add(new DDRemoteDam(
+                    readString(dam, "damId"), readString(dam, "appDeploymentId"), readString(dam, "appInstanceId"),
+                    readString(dam, "workspaceId"), readString(dam, "product"), readString(dam, "version"), readBoolean(online),
+                    readNullableString(dam, "damSessionId"), readInstant(dam, "firstConnectedAt"), readInstant(dam, "lastConnectedAt"),
+                    readNullableInstant(dam, "lastDisconnectedAt")
+                ));
+            } catch (IllegalArgumentException e) {
+                throw invalidResponse();
+            }
         }
         return List.copyOf(dams);
     }
