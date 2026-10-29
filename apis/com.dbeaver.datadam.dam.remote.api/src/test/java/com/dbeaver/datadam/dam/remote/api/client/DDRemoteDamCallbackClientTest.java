@@ -298,10 +298,10 @@ class DDRemoteDamCallbackClientTest {
                     return;
                 }
                 byte[] padding = " ".repeat(8192).getBytes(StandardCharsets.UTF_8);
-                for (int i = 0; i < 128; i++) {
+                // Exceed the socket buffers so a cancelled body read is observable on fast CI hosts.
+                for (int i = 0; i < 8192; i++) {
                     exchange.getResponseBody().write(padding);
                     exchange.getResponseBody().flush();
-                    Thread.sleep(10);
                 }
             } catch (IOException e) {
                 bodyFailure.set(e);
