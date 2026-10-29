@@ -27,7 +27,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DDRemoteDamProtocolTest {
@@ -59,42 +58,6 @@ class DDRemoteDamProtocolTest {
         assertFalse(encoded.contains("accountId"));
         assertFalse(encoded.contains("accessToken"));
         assertFalse(encoded.contains("protocolVersion"));
-    }
-
-    @Test
-    void legacyConstructorOmitsWorkspaceIdOnTheWireAndRoundTrips() {
-        DDRemoteDamHandshakeRequest hello = new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "DBeaver", "26.2.4");
-        String encoded = DDRemoteDamProtocol.encodeHandshakeRequest(hello);
-
-        assertEquals(DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID, hello.workspaceId());
-        assertNotEquals(hello.appDeploymentId(), hello.workspaceId());
-        assertFalse(JsonParser.parseString(encoded).getAsJsonObject().getAsJsonObject("payload").has("workspaceId"));
-        assertEquals(hello, DDRemoteDamProtocol.decodeHandshakeRequest(encoded));
-    }
-
-    @Test
-    void rejectsExplicitLegacyWorkspaceSentinel() {
-        String message = """
-            {"type":"hello","payload":{
-                "appDeploymentId":"DI_remoteDam","appInstanceId":"run-1","workspaceId":"__legacy_workspace__",
-                "product":"DBeaver","version":"26.2.4"
-            }}
-            """;
-
-        assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeHandshakeRequest(message));
-    }
-
-    @Test
-    void acceptsLegacyHandshakeWithoutAWorkspaceId() {
-        DDRemoteDamHandshakeRequest hello = DDRemoteDamProtocol.decodeHandshakeRequest("""
-            {"type":"hello","payload":{
-                "appDeploymentId":"DI_remoteDam","appInstanceId":"run-1","product":"DBeaver","version":"26.2.4"
-            }}
-            """);
-
-        assertEquals(new DDRemoteDamHandshakeRequest(
-            "DI_remoteDam", "run-1", DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID, "DBeaver", "26.2.4"), hello);
-        assertNotEquals(hello.appDeploymentId(), hello.workspaceId());
     }
 
     @Test
@@ -130,7 +93,7 @@ class DDRemoteDamProtocolTest {
     @Test
     void keepsControlMessagesSeparateFromTopicMessages() {
         String hello = DDRemoteDamProtocol.encodeHandshakeRequest(
-            new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "DBeaver", "26.2.4"));
+            new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4"));
         String ready = DDRemoteDamProtocol.encodeHandshakeResponse(new DDRemoteDamHandshakeResponse("session-1"));
 
         assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decode(hello));
@@ -147,7 +110,8 @@ class DDRemoteDamProtocolTest {
     @Test
     void rejectsControlMessagesWithAnyTopicField() {
         for (String control : List.of(
-            DDRemoteDamProtocol.encodeHandshakeRequest(new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "DBeaver", "26.2.4")),
+            DDRemoteDamProtocol.encodeHandshakeRequest(
+                new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4")),
             DDRemoteDamProtocol.encodeHandshakeResponse(new DDRemoteDamHandshakeResponse("session-1"))
         )) {
             for (String topic : List.of("\"projects\"", "null", "\"\"", "\" \"", "42", "true", "[]", "{}")) {
@@ -217,10 +181,10 @@ class DDRemoteDamProtocolTest {
     }
 
     @Test
-    void rejectsMissingRequiredAndMalformedExplicitHandshakeRequestFields() {
+    void rejectsMissingAndMalformedHandshakeRequestFields() {
         String valid = DDRemoteDamProtocol.encodeHandshakeRequest(
             new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4"));
-        for (String field : List.of("appDeploymentId", "appInstanceId", "product", "version")) {
+        for (String field : List.of("appDeploymentId", "appInstanceId", "workspaceId", "product", "version")) {
             JsonObject missing = JsonParser.parseString(valid).getAsJsonObject();
             missing.getAsJsonObject("payload").remove(field);
             assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeHandshakeRequest(missing.toString()));

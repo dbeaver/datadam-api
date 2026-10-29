@@ -25,7 +25,6 @@ public record DDRemoteDamHandshakeRequest(
     @NotNull String product,
     @NotNull String version
 ) {
-    public static final String LEGACY_WORKSPACE_ID = "__legacy_workspace__";
     public static final int MAX_WORKSPACE_ID_LENGTH = 256;
 
     public DDRemoteDamHandshakeRequest {
@@ -37,14 +36,5 @@ public record DDRemoteDamHandshakeRequest(
         }
         DDRemoteDamMessage.requireText(product, "product");
         DDRemoteDamMessage.requireText(version, "version");
-    }
-
-    public DDRemoteDamHandshakeRequest(
-        @NotNull String appDeploymentId,
-        @NotNull String appInstanceId,
-        @NotNull String product,
-        @NotNull String version
-    ) {
-        this(appDeploymentId, appInstanceId, LEGACY_WORKSPACE_ID, product, version);
     }
 }

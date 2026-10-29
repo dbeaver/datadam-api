@@ -15,11 +15,8 @@ The WebSocket handshake sends `DDRemoteDamHandshakeRequest` with `appDeploymentI
 application messages additionally have `topic`. Application messages may use any nonblank type, including the control
 type names.
 
-`workspaceId` is a nonblank string of at most 256 UTF-16 units. Legacy peers may omit it; decoding then uses
-`DDRemoteDamHandshakeRequest.LEGACY_WORKSPACE_ID` (`__legacy_workspace__`). This value is reserved for normalized legacy
-state, not a real workspace ID. An explicitly supplied wire value equal to the sentinel is rejected, as are null,
-blank, non-string, and oversized values. The four-argument Java constructor selects legacy state. A request containing
-the sentinel, including one created with the five-argument constructor, is encoded without `workspaceId`.
+`workspaceId` is required and must be a nonblank string of at most 256 UTF-16 units. Missing, null, blank, non-string,
+and oversized values are rejected.
 
 Persistent DAM identity is the authenticated `accountId` together with `appInstanceId` and `workspaceId`.
 Reconnects preserve `damId` but receive a new `damSessionId`, superseding the previous session for that identity.
