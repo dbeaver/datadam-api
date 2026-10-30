@@ -22,15 +22,11 @@ import java.util.regex.Pattern;
 public final class DDSsoConstants {
     public static final String AUTHORIZE_PATH = "/authorize";
     public static final String TOKEN_PATH = "/token";
-    public static final String HANDOFF_PATH = "/handoff";
-    public static final String HANDOFF_START_PATH = "/handoff/start";
     public static final String LOGOUT_PATH = "/logout";
     public static final String JWKS_PATH = "/.well-known/jwks.json";
     public static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
     public static final String HEALTH_PATH = "/health";
 
-    public static final String PARAM_FLOW_ID = "flow_id";
-    public static final String PARAM_HANDOFF = "handoff";
     public static final String PARAM_LOGOUT = "logout";
     public static final String PARAM_LOGOUT_CHALLENGE = "logout_challenge";
     public static final String PARAM_PROMPT = "prompt";
@@ -48,7 +44,6 @@ public final class DDSsoConstants {
     public static final String ERROR_INVALID_TARGET = "invalid_target";
     public static final String ERROR_INVALID_SCOPE = "invalid_scope";
     public static final String ERROR_UNSUPPORTED_RESPONSE_TYPE = "unsupported_response_type";
-    public static final String ERROR_INVALID_HANDOFF = "invalid_handoff";
     public static final String ERROR_INVALID_LOGOUT = "invalid_logout";
     public static final String ERROR_UNSUPPORTED_GRANT_TYPE = "unsupported_grant_type";
     public static final String ERROR_SERVER = "server_error";
