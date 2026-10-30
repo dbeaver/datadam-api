@@ -20,6 +20,7 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 
 public record DDRemoteDam(
@@ -34,7 +35,11 @@ public record DDRemoteDam(
     @Nullable String damSessionId,
     @NotNull Instant firstConnectedAt,
     @NotNull Instant lastConnectedAt,
-    @Nullable Instant lastDisconnectedAt
+    @Nullable Instant lastDisconnectedAt,
+    @Nullable String clientDamId,
+    int sessionCount,
+    @NotNull List<Application> applications,
+    @NotNull List<String> remoteAddresses
 ) {
     public DDRemoteDam {
         DDRemoteDamMessage.requireText(damId, "damId");
@@ -54,5 +59,21 @@ public record DDRemoteDam(
         }
         Objects.requireNonNull(firstConnectedAt, "firstConnectedAt");
         Objects.requireNonNull(lastConnectedAt, "lastConnectedAt");
+        if (clientDamId != null) {
+            DDRemoteDamMessage.requireText(clientDamId, "clientDamId");
+        }
+        if (sessionCount < 0 || online != (sessionCount > 0)) {
+            throw new IllegalArgumentException("Online status must match active session count");
+        }
+        applications = List.copyOf(applications);
+        remoteAddresses = List.copyOf(remoteAddresses);
+        remoteAddresses.forEach(address -> DDRemoteDamMessage.requireText(address, "remoteAddress"));
+    }
+
+    public record Application(@NotNull String product, @NotNull String version) {
+        public Application {
+            DDRemoteDamMessage.requireText(product, "product");
+            DDRemoteDamMessage.requireText(version, "version");
+        }
     }
 }

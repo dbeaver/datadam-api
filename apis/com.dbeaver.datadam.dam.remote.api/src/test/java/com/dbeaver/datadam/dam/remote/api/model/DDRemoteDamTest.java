@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 
 class DDRemoteDamTest {
     @Test
@@ -27,7 +28,7 @@ class DDRemoteDamTest {
         for (boolean online : new boolean[] {true, false}) {
             Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDam(
                 "dam", "deployment", "instance", "workspace", "DBeaver", "26.3", null, online, online ? null : "session",
-                Instant.EPOCH, Instant.EPOCH, null
+                Instant.EPOCH, Instant.EPOCH, null, "client-dam", online ? 1 : 0, List.of(), List.of()
             ));
         }
     }
