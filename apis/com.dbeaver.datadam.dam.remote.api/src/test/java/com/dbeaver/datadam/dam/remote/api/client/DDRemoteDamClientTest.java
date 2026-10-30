@@ -18,6 +18,7 @@ package com.dbeaver.datadam.dam.remote.api.client;
 
 import com.dbeaver.datadam.dam.remote.api.DDRemoteDamApi;
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDam;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSession;
 import com.google.gson.JsonArray;
@@ -41,6 +42,7 @@ import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,9 +74,13 @@ class DDRemoteDamClientTest {
     private static final String CALLBACK_URL = "https://callback.example.com";
     private static final String CALLBACK_SECRET = "remote-dam-callback-secret-2026-test";
     private static final String UPSTREAM_MARKER = "private-upstream-response-marker";
+    private static final String DAMS_FIELD = "remoteDams";
     private static final String SESSIONS_FIELD = "remoteDamSessions";
     private static final String SESSION_ACCOUNT_FIELD = "remoteDamSessionAccount";
     private static final String SEND_FIELD = "sendRemoteDamMessage";
+    private static final Instant FIRST_CONNECTED_AT = Instant.parse("2026-10-01T09:00:00Z");
+    private static final Instant LAST_CONNECTED_AT = Instant.parse("2026-10-28T08:00:00.123456789Z");
+    private static final Instant LAST_DISCONNECTED_AT = Instant.parse("2026-10-28T09:00:00Z");
     private final AtomicReference<String> responseJson = new AtomicReference<>("{}");
     private final AtomicInteger responseStatus = new AtomicInteger(200);
     private final AtomicReference<String> redirect = new AtomicReference<>();
@@ -101,6 +107,136 @@ class DDRemoteDamClientTest {
             server.stop(0);
         }
         assertNull(handlerFailure.get());
+    }
+
+    @Test
+    void queriesTrackedDamsByAccountAndReturnsOnlineAndOfflineMetadata() throws Exception {
+        JsonArray dams = new JsonArray();
+        dams.add(dam(true));
+        dams.add(dam(false));
+        respond(DAMS_FIELD, dams);
+        List<DDRemoteDam> expected = List.of(
+            new DDRemoteDam("dam-online", "DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4", "192.0.2.10",
+                true, "session-1", FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null),
+            new DDRemoteDam("dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", "2001:db8::20",
+                false, null, FIRST_CONNECTED_AT, LAST_CONNECTED_AT, LAST_DISCONNECTED_AT)
+        );
+        for (UUID accountId : List.of(ACCOUNT_ID, OTHER_ACCOUNT_ID)) {
+            List<DDRemoteDam> result = client.getDams(accountId);
+
+            assertEquals(expected, result);
+            assertThrows(UnsupportedOperationException.class, () -> result.add(result.get(0)));
+            JsonObject body = posted();
+            assertEquals(Set.of("operationName", "query", "variables"), body.keySet());
+            assertEquals("RemoteDams", body.get("operationName").getAsString());
+            String query = body.get("query").getAsString().replaceAll("\\s+", " ");
+            assertTrue(query.contains("query RemoteDams($accountId: ID!)"));
+            assertTrue(query.contains("remoteDams(accountId: $accountId)"));
+            for (String field : List.of("damId", "appDeploymentId", "appInstanceId", "workspaceId", "product", "version",
+                "remoteAddress", "online", "damSessionId", "firstConnectedAt", "lastConnectedAt", "lastDisconnectedAt")) {
+                assertTrue(query.contains(field), field);
+            }
+            assertEquals(Set.of("accountId"), body.getAsJsonObject("variables").keySet());
+            assertEquals(accountId.toString(), body.getAsJsonObject("variables").get("accountId").getAsString());
+            assertFalse(query.contains(accountId.toString()));
+        }
+        List<DDRemoteDam> async = awaitDelayedResponse(() -> client.getDamsAsync(ACCOUNT_ID));
+
+        assertEquals(expected, async);
+        assertThrows(UnsupportedOperationException.class, () -> async.add(async.get(0)));
+        assertEquals("RemoteDams", posted().get("operationName").getAsString());
+        assertEquals(ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
+        assertEquals(3, requestCount.get());
+    }
+
+    @Test
+    void acceptsOmittedNullableDamFieldsAndEmptySnapshots() throws Exception {
+        JsonObject value = dam(false);
+        value.remove("remoteAddress");
+        value.remove("damSessionId");
+        value.remove("lastDisconnectedAt");
+        JsonArray dams = new JsonArray();
+        dams.add(value);
+        respond(DAMS_FIELD, dams);
+        List<DDRemoteDam> expected = List.of(new DDRemoteDam(
+            "dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", null, false, null,
+            FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null));
+
+        assertEquals(expected, client.getDams(ACCOUNT_ID));
+        assertEquals(expected, client.getDamsAsync(ACCOUNT_ID).toCompletableFuture().get(5, TimeUnit.SECONDS));
+        respond(DAMS_FIELD, new JsonArray());
+        assertEquals(List.of(), client.getDams(ACCOUNT_ID));
+        assertEquals(List.of(), client.getDamsAsync(ACCOUNT_ID).toCompletableFuture().get(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void rejectsContradictoryDamOnlineAndSessionStates() {
+        JsonObject onlineWithoutSession = dam(true);
+        onlineWithoutSession.add("damSessionId", JsonNull.INSTANCE);
+        assertInvalidDam(onlineWithoutSession);
+
+        JsonObject offlineWithSession = dam(false);
+        offlineWithSession.addProperty("damSessionId", "session-1");
+        assertInvalidDam(offlineWithSession);
+    }
+
+    @Test
+    void rejectsTheWholeDamSnapshotWhenRequiredMetadataIsMissingOrIncorrectlyTyped() {
+        for (String field : List.of("damId", "appDeploymentId", "appInstanceId", "workspaceId", "product", "version")) {
+            JsonObject missing = dam(false);
+            missing.remove(field);
+            assertInvalidDam(missing);
+            for (String value : List.of("null", "true", "42", "[]", "{}", "\"\"", "\" \\t\\n\"")) {
+                JsonObject invalid = dam(false);
+                invalid.add(field, JsonParser.parseString(value));
+                assertInvalidDam(invalid);
+            }
+        }
+        JsonObject missingOnline = dam(false);
+        missingOnline.remove("online");
+        assertInvalidDam(missingOnline);
+        for (String value : List.of("null", "\"true\"", "\"false\"", "0", "1", "{}", "[]")) {
+            JsonObject invalid = dam(false);
+            invalid.add("online", JsonParser.parseString(value));
+            assertInvalidDam(invalid);
+        }
+        for (String value : List.of("true", "42", "[]", "{}", "\"\"", "\" \\t\\n\"")) {
+            JsonObject invalid = dam(false);
+            invalid.add("damSessionId", JsonParser.parseString(value));
+            assertInvalidDam(invalid);
+        }
+    }
+
+    @Test
+    void rejectsMissingRequiredTimestampsAndInvalidIsoInstants() {
+        for (String field : List.of("firstConnectedAt", "lastConnectedAt")) {
+            JsonObject missing = dam(false);
+            missing.remove(field);
+            assertInvalidDam(missing);
+            JsonObject nullValue = dam(false);
+            nullValue.add(field, JsonNull.INSTANCE);
+            assertInvalidDam(nullValue);
+        }
+        for (String field : List.of("firstConnectedAt", "lastConnectedAt", "lastDisconnectedAt")) {
+            for (String value : List.of("true", "42", "[]", "{}", "\"\"", "\" \"", "\"not-an-instant\"",
+                "\"2026-10-28\"", "\"2026-10-28T08:00:00\"", "\"" + UPSTREAM_MARKER + SERVICE_SECRET + "\"")) {
+                JsonObject invalid = dam(false);
+                invalid.add(field, JsonParser.parseString(value));
+                assertInvalidDam(invalid);
+            }
+        }
+    }
+
+    @Test
+    void rejectsNonArrayDamResultsAndNonObjectEntries() {
+        for (String value : List.of(
+            "null", "true", "42", "\"dams\"", "{}", "[null]", "[true]", "[42]", "[\"dam\"]", "[[]]"
+        )) {
+            respond(DAMS_FIELD, JsonParser.parseString(value));
+
+            assertRequestFails(() -> client.getDams(ACCOUNT_ID));
+            assertAsyncRequestFails(() -> client.getDamsAsync(ACCOUNT_ID));
+        }
     }
 
     @Test
@@ -821,6 +957,8 @@ class DDRemoteDamClientTest {
             assertThrows(IllegalArgumentException.class, () -> client.sendMessageAsync(ACCOUNT_ID, damSessionId, message()));
         }
         assertThrows(NullPointerException.class, () -> client.getSessionsAsync(null));
+        assertThrows(NullPointerException.class, () -> client.getDams(null));
+        assertThrows(NullPointerException.class, () -> client.getDamsAsync(null));
         assertThrows(NullPointerException.class, () -> client.getSessionAccountAsync(null));
         assertThrows(NullPointerException.class, () -> client.sendMessageAsync(null, "session-1", message()));
         assertThrows(NullPointerException.class, () -> client.sendMessageAsync(ACCOUNT_ID, "session-1", null));
@@ -934,6 +1072,16 @@ class DDRemoteDamClientTest {
         responseJson.set(envelope.toString());
     }
 
+    private void assertInvalidDam(@NotNull JsonObject invalid) {
+        JsonArray dams = new JsonArray();
+        dams.add(dam(true));
+        dams.add(invalid);
+        respond(DAMS_FIELD, dams);
+        assertRequestFails(() -> client.getDams(ACCOUNT_ID));
+        DDRemoteDamException failure = assertAsyncRequestFails(() -> client.getDamsAsync(ACCOUNT_ID));
+        assertEquals("Invalid Remote DAM response", failure.getMessage());
+    }
+
     private void assertInvalidSession(@NotNull JsonObject invalid) {
         JsonArray sessions = new JsonArray();
         sessions.add(session("session-1"));
@@ -968,6 +1116,25 @@ class DDRemoteDamClientTest {
         assertFalse(trace.toString().contains(SERVICE_SECRET));
         assertFalse(trace.toString().contains(CALLBACK_SECRET));
         assertFalse(trace.toString().contains(UPSTREAM_MARKER));
+    }
+
+    @NotNull
+    private static JsonObject dam(boolean online) {
+        JsonObject dam = session("session-1");
+        dam.addProperty("damId", online ? "dam-online" : "dam-offline");
+        dam.addProperty("appInstanceId", online ? "run-1" : "run-2");
+        dam.addProperty("workspaceId", online ? "workspace-1" : "workspace-2");
+        dam.addProperty("remoteAddress", online ? "192.0.2.10" : "2001:db8::20");
+        dam.addProperty("online", online);
+        dam.addProperty("firstConnectedAt", FIRST_CONNECTED_AT.toString());
+        dam.addProperty("lastConnectedAt", LAST_CONNECTED_AT.toString());
+        if (online) {
+            dam.add("lastDisconnectedAt", JsonNull.INSTANCE);
+        } else {
+            dam.add("damSessionId", JsonNull.INSTANCE);
+            dam.addProperty("lastDisconnectedAt", LAST_DISCONNECTED_AT.toString());
+        }
+        return dam;
     }
 
     @NotNull

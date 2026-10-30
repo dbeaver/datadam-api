@@ -18,6 +18,7 @@ package com.dbeaver.datadam.dam.remote.api.client;
 
 import com.dbeaver.datadam.dam.remote.api.DDRemoteDamApi;
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDam;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSession;
 import com.google.gson.JsonElement;
@@ -25,6 +26,8 @@ import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,12 +38,22 @@ import java.util.concurrent.CompletionStage;
 
 public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
+    private static final String DAMS_FIELD = "remoteDams";
     private static final String SESSIONS_FIELD = "remoteDamSessions";
     private static final String SESSION_ACCOUNT_FIELD = "remoteDamSessionAccount";
     private static final String SEND_FIELD = "sendRemoteDamMessage";
+    private static final String DAMS_OPERATION = "RemoteDams";
     private static final String SESSIONS_OPERATION = "RemoteDamSessions";
     private static final String SESSION_ACCOUNT_OPERATION = "RemoteDamSessionAccount";
     private static final String SEND_OPERATION = "SendRemoteDamMessage";
+    private static final String DAMS_QUERY = """
+        query RemoteDams($accountId: ID!) {
+            remoteDams(accountId: $accountId) {
+                damId appDeploymentId appInstanceId workspaceId product version remoteAddress online damSessionId
+                firstConnectedAt lastConnectedAt lastDisconnectedAt
+            }
+        }
+        """;
     private static final String SESSIONS_QUERY = """
         query RemoteDamSessions($accountId: ID!) {
             remoteDamSessions(accountId: $accountId) {
@@ -71,6 +84,18 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
 
     public DDRemoteDamClient(@NotNull String serviceUrl, @NotNull String serviceSecret) {
         super(serviceUrl, serviceSecret, DDRemoteDamApi.GRAPHQL_PATH, READ_TIMEOUT_MILLIS);
+    }
+
+    @NotNull
+    public List<DDRemoteDam> getDams(@NotNull UUID accountId) throws DDRemoteDamException {
+        return readDams(request(DAMS_OPERATION, DAMS_QUERY,
+            Map.of("accountId", Objects.requireNonNull(accountId).toString()), DAMS_FIELD));
+    }
+
+    @NotNull
+    public CompletionStage<List<DDRemoteDam>> getDamsAsync(@NotNull UUID accountId) {
+        return requestAsync(DAMS_OPERATION, DAMS_QUERY,
+            Map.of("accountId", Objects.requireNonNull(accountId).toString()), DAMS_FIELD, DDRemoteDamClient::readDams);
     }
 
     @NotNull
@@ -151,6 +176,33 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
         return requestAsync("UnregisterRemoteDamSubscription", UNREGISTER_MUTATION,
             unsubscriptionVariables(subscriberId, subscriptionId), "unregisterRemoteDamSubscription",
             DDRemoteDamGraphQlClient::readBoolean);
+    }
+
+    @NotNull
+    private static List<DDRemoteDam> readDams(@NotNull JsonElement result) throws DDRemoteDamException {
+        if (!result.isJsonArray()) {
+            throw invalidResponse();
+        }
+        List<DDRemoteDam> dams = new ArrayList<>();
+        for (JsonElement value : result.getAsJsonArray()) {
+            JsonObject dam = readObject(value);
+            JsonElement online = dam.get("online");
+            if (online == null) {
+                throw invalidResponse();
+            }
+            try {
+                dams.add(new DDRemoteDam(
+                    readString(dam, "damId"), readString(dam, "appDeploymentId"), readString(dam, "appInstanceId"),
+                    readString(dam, "workspaceId"), readString(dam, "product"), readString(dam, "version"),
+                    readNullableString(dam, "remoteAddress"), readBoolean(online),
+                    readNullableString(dam, "damSessionId"), readInstant(dam, "firstConnectedAt"), readInstant(dam, "lastConnectedAt"),
+                    readNullableInstant(dam, "lastDisconnectedAt")
+                ));
+            } catch (IllegalArgumentException e) {
+                throw invalidResponse();
+            }
+        }
+        return List.copyOf(dams);
     }
 
     @NotNull
@@ -270,6 +322,27 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
             throw invalidResponse();
         }
         return value.getAsString();
+    }
+
+    @Nullable
+    private static String readNullableString(@NotNull JsonObject object, @NotNull String field) throws DDRemoteDamException {
+        JsonElement value = object.get(field);
+        return value == null || value.isJsonNull() ? null : readString(object, field);
+    }
+
+    @NotNull
+    private static Instant readInstant(@NotNull JsonObject object, @NotNull String field) throws DDRemoteDamException {
+        try {
+            return Instant.parse(readString(object, field));
+        } catch (DateTimeParseException e) {
+            throw invalidResponse();
+        }
+    }
+
+    @Nullable
+    private static Instant readNullableInstant(@NotNull JsonObject object, @NotNull String field) throws DDRemoteDamException {
+        JsonElement value = object.get(field);
+        return value == null || value.isJsonNull() ? null : readInstant(object, field);
     }
 
     private static void requireSubscriberId(@Nullable String subscriberId) {
