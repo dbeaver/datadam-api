@@ -56,6 +56,7 @@ type RemoteDam {
     workspaceId: String!
     product: String!
     version: String!
+    remoteAddress: String
     online: Boolean!
     damSessionId: ID
     firstConnectedAt: String!
@@ -96,6 +97,9 @@ input RemoteDamSubscriptionInput {
 - `remoteDams` / `getDams(accountId)` returns an immutable snapshot of persistent DAM identities, including offline DAMs,
   as `DDRemoteDam` records. It reads from the DB rather than the live session registry. Persistence is asynchronous, so
   the snapshot can lag transport changes; it is not a full session-history API.
+- `product`, `version`, and `remoteAddress` describe the most recent session, including when the DAM is offline.
+  `remoteAddress` is the numeric IP address observed by the server's WebSocket session and is null when unavailable.
+  It is not supplied by the peer handshake. The wire field names remain `product` and `version`.
 - A persistent DAM is `online` only while its current session is neither disconnected nor superseded and its confirmed
   activity deadline has not expired. The deadline is also bounded by authentication expiry. `damSessionId` identifies
   that session while online and is null otherwise. This status does not guarantee that a send will succeed.

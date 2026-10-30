@@ -49,7 +49,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     private static final String DAMS_QUERY = """
         query RemoteDams($accountId: ID!) {
             remoteDams(accountId: $accountId) {
-                damId appDeploymentId appInstanceId workspaceId product version online damSessionId
+                damId appDeploymentId appInstanceId workspaceId product version remoteAddress online damSessionId
                 firstConnectedAt lastConnectedAt lastDisconnectedAt
             }
         }
@@ -193,7 +193,8 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
             try {
                 dams.add(new DDRemoteDam(
                     readString(dam, "damId"), readString(dam, "appDeploymentId"), readString(dam, "appInstanceId"),
-                    readString(dam, "workspaceId"), readString(dam, "product"), readString(dam, "version"), readBoolean(online),
+                    readString(dam, "workspaceId"), readString(dam, "product"), readString(dam, "version"),
+                    readNullableString(dam, "remoteAddress"), readBoolean(online),
                     readNullableString(dam, "damSessionId"), readInstant(dam, "firstConnectedAt"), readInstant(dam, "lastConnectedAt"),
                     readNullableInstant(dam, "lastDisconnectedAt")
                 ));

@@ -29,6 +29,7 @@ public record DDRemoteDam(
     @NotNull String workspaceId,
     @NotNull String product,
     @NotNull String version,
+    @Nullable String remoteAddress,
     boolean online,
     @Nullable String damSessionId,
     @NotNull Instant firstConnectedAt,
@@ -42,6 +43,9 @@ public record DDRemoteDam(
         DDRemoteDamMessage.requireText(workspaceId, "workspaceId");
         DDRemoteDamMessage.requireText(product, "product");
         DDRemoteDamMessage.requireText(version, "version");
+        if (remoteAddress != null) {
+            DDRemoteDamMessage.requireText(remoteAddress, "remoteAddress");
+        }
         if (online != (damSessionId != null)) {
             throw new IllegalArgumentException("Online status must match DAM session ID presence");
         }

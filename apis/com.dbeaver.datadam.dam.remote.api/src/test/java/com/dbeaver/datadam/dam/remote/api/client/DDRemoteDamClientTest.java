@@ -116,10 +116,10 @@ class DDRemoteDamClientTest {
         dams.add(dam(false));
         respond(DAMS_FIELD, dams);
         List<DDRemoteDam> expected = List.of(
-            new DDRemoteDam("dam-online", "DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4", true, "session-1",
-                FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null),
-            new DDRemoteDam("dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", false, null,
-                FIRST_CONNECTED_AT, LAST_CONNECTED_AT, LAST_DISCONNECTED_AT)
+            new DDRemoteDam("dam-online", "DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4", "192.0.2.10",
+                true, "session-1", FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null),
+            new DDRemoteDam("dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", "2001:db8::20",
+                false, null, FIRST_CONNECTED_AT, LAST_CONNECTED_AT, LAST_DISCONNECTED_AT)
         );
         for (UUID accountId : List.of(ACCOUNT_ID, OTHER_ACCOUNT_ID)) {
             List<DDRemoteDam> result = client.getDams(accountId);
@@ -133,7 +133,7 @@ class DDRemoteDamClientTest {
             assertTrue(query.contains("query RemoteDams($accountId: ID!)"));
             assertTrue(query.contains("remoteDams(accountId: $accountId)"));
             for (String field : List.of("damId", "appDeploymentId", "appInstanceId", "workspaceId", "product", "version",
-                "online", "damSessionId", "firstConnectedAt", "lastConnectedAt", "lastDisconnectedAt")) {
+                "remoteAddress", "online", "damSessionId", "firstConnectedAt", "lastConnectedAt", "lastDisconnectedAt")) {
                 assertTrue(query.contains(field), field);
             }
             assertEquals(Set.of("accountId"), body.getAsJsonObject("variables").keySet());
@@ -152,13 +152,14 @@ class DDRemoteDamClientTest {
     @Test
     void acceptsOmittedNullableDamFieldsAndEmptySnapshots() throws Exception {
         JsonObject value = dam(false);
+        value.remove("remoteAddress");
         value.remove("damSessionId");
         value.remove("lastDisconnectedAt");
         JsonArray dams = new JsonArray();
         dams.add(value);
         respond(DAMS_FIELD, dams);
         List<DDRemoteDam> expected = List.of(new DDRemoteDam(
-            "dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", false, null,
+            "dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", null, false, null,
             FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null));
 
         assertEquals(expected, client.getDams(ACCOUNT_ID));
@@ -1123,6 +1124,7 @@ class DDRemoteDamClientTest {
         dam.addProperty("damId", online ? "dam-online" : "dam-offline");
         dam.addProperty("appInstanceId", online ? "run-1" : "run-2");
         dam.addProperty("workspaceId", online ? "workspace-1" : "workspace-2");
+        dam.addProperty("remoteAddress", online ? "192.0.2.10" : "2001:db8::20");
         dam.addProperty("online", online);
         dam.addProperty("firstConnectedAt", FIRST_CONNECTED_AT.toString());
         dam.addProperty("lastConnectedAt", LAST_CONNECTED_AT.toString());

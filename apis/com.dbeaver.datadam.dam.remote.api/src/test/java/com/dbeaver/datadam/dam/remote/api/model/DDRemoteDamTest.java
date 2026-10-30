@@ -26,7 +26,7 @@ class DDRemoteDamTest {
     void rejectsContradictoryOnlineAndSessionStates() {
         for (boolean online : new boolean[] {true, false}) {
             Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDam(
-                "dam", "deployment", "instance", "workspace", "DBeaver", "26.3", online, online ? null : "session",
+                "dam", "deployment", "instance", "workspace", "DBeaver", "26.3", null, online, online ? null : "session",
                 Instant.EPOCH, Instant.EPOCH, null
             ));
         }
