@@ -22,6 +22,8 @@ import java.util.regex.Pattern;
 public final class DDSsoConstants {
     public static final String AUTHORIZE_PATH = "/authorize";
     public static final String TOKEN_PATH = "/token";
+    public static final String REVOKE_PATH = "/revoke";
+    public static final String PARAM_TOKEN = "token";
     public static final String LOGOUT_PATH = "/logout";
     public static final String JWKS_PATH = "/.well-known/jwks.json";
     public static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
@@ -58,7 +60,7 @@ public final class DDSsoConstants {
     public static final String CLAIM_EMAIL = "email";
     public static final String CLAIM_SOURCE = "source";
     public static final String CLAIM_AUTH_TIME = "auth_time";
-    /** ISO-8601 instant string; full precision is needed to distinguish MFA enrollment changes within one second. */
+    /** ISO-8601 instant string with microsecond precision, matching PostgreSQL TIMESTAMP enrollment times. */
     public static final String CLAIM_MFA_VERIFIED_AT = "mfa_verified_at";
     public static final String CLAIM_TOKEN_USE = "token_use";
     public static final String TOKEN_USE_IDENTITY = "identity";
