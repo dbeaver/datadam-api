@@ -22,10 +22,12 @@ public record DDRemoteDamHandshakeRequest(
     @NotNull String appDeploymentId,
     @NotNull String appInstanceId,
     @NotNull String workspaceId,
+    @NotNull String clientDamId,
     @NotNull String product,
     @NotNull String version
 ) {
     public static final int MAX_WORKSPACE_ID_LENGTH = 256;
+    public static final int MAX_CLIENT_DAM_ID_LENGTH = 2048;
 
     public DDRemoteDamHandshakeRequest {
         DDRemoteDamMessage.requireText(appDeploymentId, "appDeploymentId");
@@ -33,6 +35,10 @@ public record DDRemoteDamHandshakeRequest(
         DDRemoteDamMessage.requireText(workspaceId, "workspaceId");
         if (workspaceId.length() > MAX_WORKSPACE_ID_LENGTH) {
             throw new IllegalArgumentException("Invalid workspaceId");
+        }
+        DDRemoteDamMessage.requireText(clientDamId, "clientDamId");
+        if (clientDamId.length() > MAX_CLIENT_DAM_ID_LENGTH || !clientDamId.matches("[A-Za-z0-9_-]+")) {
+            throw new IllegalArgumentException("Invalid clientDamId");
         }
         DDRemoteDamMessage.requireText(product, "product");
         DDRemoteDamMessage.requireText(version, "version");
