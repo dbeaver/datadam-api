@@ -35,6 +35,7 @@ public final class DDRemoteDamProtocol {
     private static final String FIELD_PAYLOAD = "payload";
     private static final String FIELD_APP_DEPLOYMENT_ID = "appDeploymentId";
     private static final String FIELD_APP_INSTANCE_ID = "appInstanceId";
+    private static final String FIELD_WORKSPACE_ID = "workspaceId";
     private static final String FIELD_PRODUCT = "product";
     private static final String FIELD_VERSION = "version";
     private static final String FIELD_DAM_SESSION_ID = "damSessionId";
@@ -64,6 +65,7 @@ public final class DDRemoteDamProtocol {
         JsonObject payload = new JsonObject();
         payload.addProperty(FIELD_APP_DEPLOYMENT_ID, hello.appDeploymentId());
         payload.addProperty(FIELD_APP_INSTANCE_ID, hello.appInstanceId());
+        payload.addProperty(FIELD_WORKSPACE_ID, hello.workspaceId());
         payload.addProperty(FIELD_PRODUCT, hello.product());
         payload.addProperty(FIELD_VERSION, hello.version());
         return envelope(TYPE_HANDSHAKE_REQUEST, payload).toString();
@@ -75,6 +77,7 @@ public final class DDRemoteDamProtocol {
         return new DDRemoteDamHandshakeRequest(
             readString(payload, FIELD_APP_DEPLOYMENT_ID),
             readString(payload, FIELD_APP_INSTANCE_ID),
+            readString(payload, FIELD_WORKSPACE_ID),
             readString(payload, FIELD_PRODUCT),
             readString(payload, FIELD_VERSION)
         );

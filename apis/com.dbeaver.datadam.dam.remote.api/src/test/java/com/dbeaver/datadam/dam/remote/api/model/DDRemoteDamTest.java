@@ -14,13 +14,21 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.share.api.tracking;
+package com.dbeaver.datadam.dam.remote.api.model;
 
-import org.jkiss.dbeaver.DBException;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-public class DDTrackingNotFoundException extends DBException {
+import java.time.Instant;
 
-    public DDTrackingNotFoundException() {
-        super("Tracking session not found");
+class DDRemoteDamTest {
+    @Test
+    void rejectsContradictoryOnlineAndSessionStates() {
+        for (boolean online : new boolean[] {true, false}) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDam(
+                "dam", "deployment", "instance", "workspace", "DBeaver", "26.3", null, online, online ? null : "session",
+                Instant.EPOCH, Instant.EPOCH, null
+            ));
+        }
     }
 }

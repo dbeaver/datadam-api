@@ -19,8 +19,6 @@ package com.dbeaver.datadam.sso.api.client;
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
-import com.dbeaver.datadam.sso.api.model.DDSsoAuthorizeRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoHandoffRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
@@ -148,12 +146,11 @@ class DDSsoServiceTest {
             "http://127.0.0.1:" + server.getAddress().getPort() + path, "account", "test-secret",
             "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access");
         var configured = new DDSsoService(config, new DDSsoClient(config), verifier);
-        responseJson.set(gson.toJson(Map.of("handoff", "A".repeat(43), "expires_in", 60)));
-        var request = new DDSsoHandoffRequest(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW),
-            new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256",
-                null, "account:access"), "B".repeat(43));
-        Assertions.assertThat(configured.createHandoff(request)).isEqualTo("https://sso.example.com/issuer/handoff?handoff=" + "A".repeat(43));
-        Assertions.assertThat(requestPath).hasValue("/internal/handoff");
+        responseJson.set(gson.toJson(Map.of("completion", "A".repeat(43))));
+        var request = new DDSsoLoginApprovalRequest("B".repeat(43),
+            new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW));
+        Assertions.assertThat(configured.approveLogin(request)).isEqualTo("https://sso.example.com/issuer/login/resume?completion=" + "A".repeat(43));
+        Assertions.assertThat(requestPath).hasValue("/internal/login/approve");
     }
 
     @Test
@@ -485,22 +482,6 @@ class DDSsoServiceTest {
         Assertions.assertThat(identity.source()).isEqualTo("dbeaver-com");
         Assertions.assertThat(identity.subject()).isEqualTo("wordpress-user-id");
         Assertions.assertThat(identity.email()).isEqualTo("user@example.com");
-    }
-
-    @Test
-    void postsHandoffAndUsesPublicIssuerForBrowserRedirect() throws Exception {
-        responseJson.set(gson.toJson(Map.of("handoff", "A".repeat(43), "expires_in", 60)));
-        var request = new DDSsoHandoffRequest(new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW),
-            new DDSsoAuthorizeRequest("account", "https://account.example.com/sso/callback", "state", "A".repeat(43), "S256",
-                null, "account:access"), "B".repeat(43));
-        Assertions.assertThat(service.createHandoff(request)).isEqualTo("https://sso.example.com/handoff?handoff=" + "A".repeat(43));
-        Assertions.assertThat(requestMethod).hasValue("POST");
-        Assertions.assertThat(requestPath).hasValue("/handoff");
-        Assertions.assertThat(contentType).hasValue("application/json");
-        var body = JsonParser.parseString(posted.get()).getAsJsonObject();
-        Assertions.assertThat(body.keySet()).containsExactlyInAnyOrder("identity", "authorization", "flow_id");
-        Assertions.assertThat(body.get("flow_id").getAsString()).isEqualTo("B".repeat(43));
-        Assertions.assertThat(body.getAsJsonObject("identity").get("authTime").getAsString()).isEqualTo(NOW.toString());
     }
 
     @ParameterizedTest
