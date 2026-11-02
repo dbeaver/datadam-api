@@ -88,17 +88,26 @@ public class DDSsoTokenVerifier {
 
     @NotNull
     public DDSsoAccessIdentity verifyAccessToken(@NotNull String encoded, @NotNull String expectedAudience) throws DDSsoClientException {
+        DDSsoAccessIdentity identity = verifyAccessToken(encoded);
+        if (!expectedAudience.equals(identity.audience())) {
+            throw new DDSsoClientException("Invalid SSO access token");
+        }
+        return identity;
+    }
+
+    /** The consuming resource must check the returned audience. */
+    @NotNull
+    public DDSsoAccessIdentity verifyAccessToken(@NotNull String encoded) throws DDSsoClientException {
         try {
             JsonObject claims = verifiedClaims(encoded);
-            if (expectedAudience.isBlank() || !matchesAudience(claims.get(DDSsoConstants.CLAIM_AUDIENCE), expectedAudience)
-                || !DDSsoConstants.TOKEN_USE_ACCESS.equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_TOKEN_USE)))) {
+            if (!DDSsoConstants.TOKEN_USE_ACCESS.equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_TOKEN_USE)))) {
                 throw new IllegalArgumentException();
             }
             return new DDSsoAccessIdentity(
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SUBJECT)),
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_EMAIL)),
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SOURCE)), DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_CLIENT_ID)),
-                date(claims.get(DDSsoConstants.CLAIM_AUTH_TIME)), expectedAudience,
+                date(claims.get(DDSsoConstants.CLAIM_AUTH_TIME)), audience(claims.get(DDSsoConstants.CLAIM_AUDIENCE)),
                 DDSsoScopes.parse(DDSsoJson.text(claims.get(DDSsoConstants.PARAM_SCOPE)))
             );
         } catch (Exception e) {
@@ -106,8 +115,18 @@ public class DDSsoTokenVerifier {
         }
     }
 
+    /** Verifies signature, issuer and dates; callers must validate token purpose and audience. */
     @NotNull
-    private JsonObject verifiedClaims(@NotNull String encoded) throws Exception {
+    public JsonObject verifiedClaims(@NotNull String encoded) throws DDSsoClientException {
+        try {
+            return readVerifiedClaims(encoded);
+        } catch (Exception e) {
+            throw new DDSsoClientException("Invalid SSO token");
+        }
+    }
+
+    @NotNull
+    private JsonObject readVerifiedClaims(@NotNull String encoded) throws Exception {
         if (encoded.length() > MAX_TOKEN_LENGTH) {
             throw new IllegalArgumentException();
         }
@@ -164,9 +183,17 @@ public class DDSsoTokenVerifier {
     }
 
     private static boolean matchesAudience(@Nullable JsonElement value, @NotNull String expected) {
+        return expected.equals(audience(value));
+    }
+
+    @NotNull
+    private static String audience(@Nullable JsonElement value) {
         if (value instanceof JsonArray array) {
-            return array.size() == 1 && expected.equals(DDSsoJson.text(array.get(0)));
+            if (array.size() != 1) {
+                throw new IllegalArgumentException();
+            }
+            return DDSsoJson.text(array.get(0));
         }
-        return expected.equals(DDSsoJson.text(value));
+        return DDSsoJson.text(value);
     }
 }
