@@ -201,13 +201,6 @@ class DDRemoteDamCallbackClientTest {
     }
 
     @Test
-    void boundsDeliveryTimeAndDoesNotRetryTimedOutMessages() {
-        responseDelay.set(1000);
-        client = new DDRemoteDamCallbackClient(url(), SECRET, Duration.ofMillis(250));
-        assertFailureOnce();
-    }
-
-    @Test
     void preservesTheExplicitAsyncDeliveryTimeoutAndItsNetworkCause() {
         responseDelay.set(1000);
         client = new DDRemoteDamCallbackClient(url(), SECRET, Duration.ofMillis(250));
