@@ -210,6 +210,40 @@ class DDSsoServiceTest {
         Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(mcpToken, DDSsoConstants.API_AUDIENCE))
             .isInstanceOf(DDSsoClientException.class);
         Assertions.assertThat(verifier.verifyAccessToken(mcpToken, "https://mcp.example.com").scopes()).containsExactly("mcp:invoke");
+        Assertions.assertThat(verifier.verifyAccessToken(mcpToken).audience()).isEqualTo("https://mcp.example.com");
+        mcpClaims.put("aud", List.of("https://mcp.example.com"));
+        Assertions.assertThat(verifier.verifyAccessToken(signed(mcpClaims, header("key1"))).audience())
+            .isEqualTo("https://mcp.example.com");
+        for (Object audience : List.of("", 42, List.of(), List.of("one", "two"))) {
+            mcpClaims.put("aud", audience);
+            Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(signed(mcpClaims, header("key1"))))
+                .isInstanceOf(DDSsoClientException.class);
+        }
+        mcpClaims.remove("aud");
+        Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(signed(mcpClaims, header("key1"))))
+            .isInstanceOf(DDSsoClientException.class);
+        Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(signed(claims(), header("key1"))))
+            .isInstanceOf(DDSsoClientException.class);
+    }
+
+    @Test
+    void verifiedClaimsLeavesAudienceAndPurposeToTheCaller() throws Exception {
+        var claims = claims();
+        claims.put("aud", "https://mcp.example.com");
+        claims.put("token_use", "access");
+        Assertions.assertThat(verifier.verifiedClaims(signed(claims, header("key1"))).get("aud").getAsString())
+            .isEqualTo("https://mcp.example.com");
+        for (var override : Map.<String, Object>of("iss", "https://other.example.com", "exp", NOW.minusSeconds(1).getEpochSecond())
+            .entrySet()) {
+            var invalid = new HashMap<>(claims);
+            invalid.put(override.getKey(), override.getValue());
+            Assertions.assertThatThrownBy(() -> verifier.verifiedClaims(signed(invalid, header("key1"))))
+                .isInstanceOf(DDSsoClientException.class);
+        }
+        String token = signed(claims, header("key1"));
+        String tampered = token.substring(0, token.lastIndexOf('.') + 1)
+            + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[64]);
+        Assertions.assertThatThrownBy(() -> verifier.verifiedClaims(tampered)).isInstanceOf(DDSsoClientException.class);
     }
 
     @Test
