@@ -31,6 +31,18 @@ public record DDSsoTokenResponse(
     @SerializedName("token_type") @NotNull String tokenType,
     @SerializedName(DDSsoConstants.RESPONSE_EXPIRES_IN) long expiresIn,
     @NotNull String scope,
-    @SerializedName(OAuthConstants.RESULT_PROP_TOKEN_ID) @Nullable String idToken
+    @SerializedName(OAuthConstants.RESULT_PROP_TOKEN_ID) @Nullable String idToken,
+    @SerializedName(OAuthConstants.RESPONSE_PARAM_REFRESH_TOKEN) @Nullable String refreshToken
 ) {
+    public DDSsoTokenResponse(
+        @NotNull String accessToken, @NotNull String tokenType, long expiresIn, @NotNull String scope, @Nullable String idToken
+    ) {
+        this(accessToken, tokenType, expiresIn, scope, idToken, null);
+    }
+
+    @Override
+    @NotNull
+    public String toString() {
+        return "DDSsoTokenResponse[expiresIn=" + expiresIn + "]";
+    }
 }
