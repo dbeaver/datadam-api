@@ -102,6 +102,7 @@ public final class DDSsoConstants {
     public static final String SCOPE_MCP_INVOKE = "mcp:invoke";
     public static final String TOKEN_USE_ACCESS = "access";
     public static final String CLAIM_CLIENT_ID = "client_id";
+    public static final String CLAIM_ACCOUNT_ID = "account_id";
     public static final String TOKEN_TYPE_BEARER = "Bearer";
     public static final String LOGIN_APPROVE_PATH = "/login/approve";
     public static final String LOGIN_RESUME_PATH = "/login/resume";

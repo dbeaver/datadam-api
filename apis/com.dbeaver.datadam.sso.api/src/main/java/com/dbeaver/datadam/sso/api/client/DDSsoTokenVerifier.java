@@ -35,6 +35,7 @@ import java.security.Signature;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /** Verifies the signature and purpose-specific claims of DataDam JWTs. */
@@ -103,12 +104,14 @@ public class DDSsoTokenVerifier {
             if (!DDSsoConstants.TOKEN_USE_ACCESS.equals(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_TOKEN_USE)))) {
                 throw new IllegalArgumentException();
             }
+            String accountId = claims.has(DDSsoConstants.CLAIM_ACCOUNT_ID)
+                ? UUID.fromString(DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_ACCOUNT_ID))).toString() : null;
             return new DDSsoAccessIdentity(
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SUBJECT)),
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_EMAIL)),
                 DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_SOURCE)), DDSsoJson.text(claims.get(DDSsoConstants.CLAIM_CLIENT_ID)),
                 date(claims.get(DDSsoConstants.CLAIM_AUTH_TIME)), audience(claims.get(DDSsoConstants.CLAIM_AUDIENCE)),
-                DDSsoScopes.parse(DDSsoJson.text(claims.get(DDSsoConstants.PARAM_SCOPE)))
+                DDSsoScopes.parse(DDSsoJson.text(claims.get(DDSsoConstants.PARAM_SCOPE))), accountId
             );
         } catch (Exception e) {
             throw new DDSsoClientException("Invalid SSO access token");
