@@ -19,9 +19,12 @@ package com.dbeaver.datadam.dam.remote.api.client;
 import com.dbeaver.datadam.dam.remote.api.DDRemoteDamApi;
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDam;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamAccountTraffic;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHistorySession;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSession;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamTraffic;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamTrafficDetails;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
@@ -73,6 +76,22 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
         query RemoteDamHistory($accountId: ID!, $damId: ID!) {
             remoteDamHistory(accountId: $accountId, damId: $damId) {
                 damSessionId appDeploymentId appInstanceId product version remoteAddress online connectedAt endedAt durationSeconds
+            }
+        }
+        """;
+    private static final String ACCOUNT_TRAFFIC_QUERY = """
+        query RemoteDamAccountTraffic($accountId: ID!) {
+            remoteDamAccountTraffic(accountId: $accountId) {
+                total { inboundBytes outboundBytes }
+                dams { damId traffic { inboundBytes outboundBytes } }
+            }
+        }
+        """;
+    private static final String DAM_TRAFFIC_QUERY = """
+        query RemoteDamTraffic($accountId: ID!, $damId: ID!) {
+            remoteDamTraffic(accountId: $accountId, damId: $damId) {
+                total { inboundBytes outboundBytes }
+                sessions { damSessionId traffic { inboundBytes outboundBytes } }
             }
         }
         """;
@@ -129,6 +148,41 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     @NotNull
     public List<DDRemoteDamHistorySession> getDamHistory(@NotNull UUID accountId, @NotNull UUID damId) throws DDRemoteDamException {
         return readDamHistory(request(DAM_HISTORY_OPERATION, DAM_HISTORY_QUERY, damVariables(accountId, damId), DAM_HISTORY_FIELD));
+    }
+
+    @NotNull
+    public DDRemoteDamAccountTraffic getAccountTraffic(@NotNull UUID accountId) throws DDRemoteDamException {
+        JsonObject result = readObject(request("RemoteDamAccountTraffic", ACCOUNT_TRAFFIC_QUERY,
+            Map.of("accountId", Objects.requireNonNull(accountId).toString()), "remoteDamAccountTraffic"));
+        JsonElement values = result.get("dams");
+        if (values == null || !values.isJsonArray()) {
+            throw invalidResponse();
+        }
+        List<DDRemoteDamAccountTraffic.Dam> dams = new ArrayList<>();
+        for (JsonElement value : values.getAsJsonArray()) {
+            JsonObject dam = readObject(value);
+            dams.add(new DDRemoteDamAccountTraffic.Dam(readString(dam, "damId"), readTraffic(dam, "traffic")));
+        }
+        return new DDRemoteDamAccountTraffic(readTraffic(result, "total"), dams);
+    }
+
+    @Nullable
+    public DDRemoteDamTrafficDetails getDamTraffic(@NotNull UUID accountId, @NotNull UUID damId) throws DDRemoteDamException {
+        JsonElement value = request("RemoteDamTraffic", DAM_TRAFFIC_QUERY, damVariables(accountId, damId), "remoteDamTraffic");
+        if (value.isJsonNull()) {
+            return null;
+        }
+        JsonObject result = readObject(value);
+        JsonElement values = result.get("sessions");
+        if (values == null || !values.isJsonArray()) {
+            throw invalidResponse();
+        }
+        List<DDRemoteDamTrafficDetails.Session> sessions = new ArrayList<>();
+        for (JsonElement entry : values.getAsJsonArray()) {
+            JsonObject session = readObject(entry);
+            sessions.add(new DDRemoteDamTrafficDetails.Session(readString(session, "damSessionId"), readTraffic(session, "traffic")));
+        }
+        return new DDRemoteDamTrafficDetails(readTraffic(result, "total"), sessions);
     }
 
     @NotNull
@@ -309,6 +363,16 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
             ));
         }
         return List.copyOf(sessions);
+    }
+
+    @NotNull
+    private static DDRemoteDamTraffic readTraffic(@NotNull JsonObject object, @NotNull String field) throws DDRemoteDamException {
+        JsonElement value = object.get(field);
+        if (value == null) {
+            throw invalidResponse();
+        }
+        JsonObject traffic = readObject(value);
+        return new DDRemoteDamTraffic(readNonNegativeLong(traffic, "inboundBytes"), readNonNegativeLong(traffic, "outboundBytes"));
     }
 
     @NotNull
