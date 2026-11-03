@@ -181,7 +181,7 @@ abstract class DDRemoteDamGraphQlClient extends AbstractRestClient {
             throw new DDRemoteDamException("Remote DAM GraphQL request failed");
         }
         JsonElement result = readObject(envelope.get("data")).get(field);
-        if (result == null || result.isJsonNull()) {
+        if (result == null) {
             throw invalidResponse();
         }
         return result;

@@ -10,7 +10,8 @@ See [Messaging](MESSAGING.md) for the neutral request/reply and typed RPC contra
 ## Session identity and handshake
 
 The WebSocket handshake sends `DDRemoteDamHandshakeRequest` with `appDeploymentId`, `appInstanceId`, `workspaceId`,
-`product`, and `version`. `DDRemoteDamHandshakeResponse` returns the assigned `damSessionId`. Wire control types remain
+`clientDamId`, `product`, and `version`, in that constructor order. All six fields are mandatory.
+`DDRemoteDamHandshakeResponse` returns the assigned `damSessionId`. Wire control types remain
 `hello` and `ready`, and the WebSocket path remains `/ws`. Control messages have `type` and an object `payload`;
 application messages additionally have `topic`. Application messages may use any nonblank type, including the control
 type names.
@@ -18,15 +19,23 @@ type names.
 `workspaceId` is required and must be a nonblank string of at most 256 UTF-16 units. Missing, null, blank, non-string,
 and oversized values are rejected.
 
-Persistent DAM identity is the authenticated `accountId` together with `appInstanceId` and `workspaceId`.
-Reconnects preserve `damId` but receive a new `damSessionId`, superseding the previous session for that identity.
-Different processes sharing a workspace must use different instance IDs. Desktop keeps its instance ID for the process
-lifetime, so restarting Desktop creates a new DAM identity even when the workspace is unchanged.
+`clientDamId` is a required nonblank string of at most 2048 characters, using only the URL-safe Base64 alphabet
+`[A-Za-z0-9_-]+`, without padding. The shared bound is `DDRemoteDamHandshakeRequest.MAX_CLIENT_DAM_ID_LENGTH`.
+Missing, null, blank, non-string, oversized, and non-alphabet values are rejected; there is no default or legacy hello
+variant. Desktop generates this value as unpadded URL-safe Base64 of the UTF-8 bytes of
+`workspaceId + ':' + lowercase hexadecimal MAC address`. Generation belongs to Desktop; the API and server treat the
+encoded identifier as opaque and do not decode or interpret it.
+
+Stable DAM identity is the authenticated `accountId` together with `clientDamId`. Desktop reconnects and process restarts
+preserve that identity while the workspace and MAC address remain the same. `appInstanceId` identifies a process lifetime
+and changes when Desktop restarts. `damSessionId` identifies one WebSocket transport session and changes on reconnect.
+Reconnects supersede the previous connection for the same account, client DAM identity and application instance.
+Different application instances can have independent connections to the same DAM.
 
 `DDRemoteDamSessionInfo` contains `appDeploymentId`, `appInstanceId`, and `damSessionId`.
 `DDRemoteDamSession` adds `product` and `version` for registry presentation. All fields are nonblank strings.
-Concurrent sessions may share deployment and instance IDs when their account or workspace differs; consumers must use
-`damSessionId` to distinguish transport sessions. Deployment ID, product, and version are peer-supplied metadata, not
+Concurrent sessions may share deployment and instance IDs when their account or client DAM identity differs; consumers
+must use `damSessionId` to distinguish transport sessions. Deployment ID, product, and version are peer-supplied metadata, not
 authenticated identity or authorization claims; changing them does not create a new persistent DAM identity.
 
 ## Internal GraphQL contract
@@ -36,9 +45,12 @@ The service implementation must expose this contract; adding a client alone does
 
 ```graphql
 scalar JSON
+scalar Long
 
 type Query {
     remoteDams(accountId: ID!): [RemoteDam!]!
+    remoteDam(accountId: ID!, damId: ID!): RemoteDam
+    remoteDamHistory(accountId: ID!, damId: ID!): [RemoteDamHistorySession!]!
     remoteDamSessions(accountId: ID!): [RemoteDamSession!]!
     remoteDamSessionAccount(damSessionId: ID!): ID
 }
@@ -62,6 +74,28 @@ type RemoteDam {
     firstConnectedAt: String!
     lastConnectedAt: String!
     lastDisconnectedAt: String
+    clientDamId: String
+    sessionCount: Int!
+    applications: [RemoteDamApplication!]!
+    remoteAddresses: [String!]!
+}
+
+type RemoteDamApplication {
+    product: String!
+    version: String!
+}
+
+type RemoteDamHistorySession {
+    damSessionId: ID!
+    appDeploymentId: String
+    appInstanceId: String
+    product: String!
+    version: String!
+    remoteAddress: String
+    online: Boolean!
+    connectedAt: String!
+    endedAt: String
+    durationSeconds: Long!
 }
 
 type RemoteDamSession {
@@ -89,24 +123,36 @@ input RemoteDamSubscriptionInput {
 }
 ```
 
-- `accountId` is a UUID, mandatory for DAM and session lists, sends, and subscription registration. Sends use the
-  account and DAM session ID together.
+- `accountId` is a UUID, mandatory for DAM lists, details, history, live session lists, sends, and subscription registration.
+  Details and history also require the technical `damId` UUID. Sends use the account and DAM session ID together.
 - `remoteDamSessionAccount` resolves a unique session ID to the account from its verified identity. It returns null
   for a missing or not-ready session; the client reports this as checked `DDRemoteDamException`. This backend-only lookup
   does not authorize end-user access to that account.
 - `remoteDams` / `getDams(accountId)` returns an immutable snapshot of persistent DAM identities, including offline DAMs,
   as `DDRemoteDam` records. It reads from the DB rather than the live session registry. Persistence is asynchronous, so
-  the snapshot can lag transport changes; it is not a full session-history API.
-- `product`, `version`, and `remoteAddress` describe the most recent session, including when the DAM is offline.
+  the snapshot can lag transport changes. `damId` is the database record's technical UUID, not `clientDamId`.
+  `clientDamId` is null only for old stored rows without that value; no replacement identity is generated for them.
+- `remoteDam` / `getDam(accountId, damId)` returns the same persistent DAM metadata, or null when no DAM belongs to that
+  account with that technical ID.
+- `product`, `version`, and `remoteAddress` describe the latest active session, or the latest session when all are offline.
   `remoteAddress` is the numeric IP address observed by the server's WebSocket session and is null when unavailable.
   It is not supplied by the peer handshake. The wire field names remain `product` and `version`.
-- A persistent DAM is `online` only while its current session is neither disconnected nor superseded and its confirmed
+- A persistent DAM is `online` while any of its sessions is neither disconnected nor superseded and its confirmed
   activity deadline has not expired. The deadline is also bounded by authentication expiry. `damSessionId` identifies
-  that session while online and is null otherwise. This status does not guarantee that a send will succeed.
+  the latest active session while online and is null otherwise. This status does not guarantee that a send will succeed.
+- `sessionCount` is the number of active persisted sessions; `online` is exactly `sessionCount > 0`.
+  `applications` contains unique product/version pairs as immutable `DDRemoteDam.Application` records, and `remoteAddresses`
+  contains unique known IP addresses. Both immutable lists cover all stored sessions, including offline sessions.
 - `firstConnectedAt` and `lastConnectedAt` describe the first and latest connection of the DAM identity.
   `lastDisconnectedAt` is nullable and includes known disconnects, supersession, or expired activity deadlines; it can
   describe a previous session while the DAM is online again. Timestamps are ISO-8601 instant strings on GraphQL and
   `Instant` values in Java.
+- `remoteDamHistory` / `getDamHistory(accountId, damId)` returns an immutable list of `DDRemoteDamHistorySession` records
+  for the account-scoped DAM. Each record describes one persisted session. Deployment and instance IDs may be null for
+  old rows; no legacy values are fabricated. `connectedAt` is the connection instant. `endedAt` is null while online and
+  otherwise is the earliest close, supersession, or activity-expiry instant. `durationSeconds` is a nonnegative whole-second
+  duration from connection to the effective end, or to the snapshot time while online. History timestamps use ISO-8601
+  instant strings on GraphQL and `Instant` values in Java.
 - `remoteDamSessions` / `getSessions(accountId)` returns an immutable snapshot of currently ready transport sessions,
   not persistent DAM identities or session history. Use the live session APIs for messaging and RPC.
 - Message payloads are JSON objects passed through GraphQL variables, never interpolated into query text or encoded as
@@ -143,6 +189,8 @@ it is separate from the Account backchannel secret used to verify peer JWTs.
 ```java
 var client = new DDRemoteDamClient(serviceUrl, serviceSecret);
 var dams = client.getDams(accountId);
+var dam = client.getDam(accountId, damId);
+var history = client.getDamHistory(accountId, damId);
 var sessions = client.getSessions(accountId);
 boolean written = client.sendMessage(accountId, damSessionId, message);
 ```
