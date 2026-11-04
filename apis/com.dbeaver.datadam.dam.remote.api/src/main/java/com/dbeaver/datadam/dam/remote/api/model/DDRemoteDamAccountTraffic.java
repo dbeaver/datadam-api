@@ -19,12 +19,18 @@ package com.dbeaver.datadam.dam.remote.api.model;
 import org.jkiss.code.NotNull;
 
 import java.util.List;
+import java.util.Objects;
 
 public record DDRemoteDamAccountTraffic(@NotNull DDRemoteDamTraffic total, @NotNull List<Dam> dams) {
     public DDRemoteDamAccountTraffic {
+        Objects.requireNonNull(total, "total");
         dams = List.copyOf(dams);
     }
 
     public record Dam(@NotNull String damId, @NotNull DDRemoteDamTraffic traffic) {
+        public Dam {
+            DDRemoteDamMessage.requireText(damId, "damId");
+            Objects.requireNonNull(traffic, "traffic");
+        }
     }
 }

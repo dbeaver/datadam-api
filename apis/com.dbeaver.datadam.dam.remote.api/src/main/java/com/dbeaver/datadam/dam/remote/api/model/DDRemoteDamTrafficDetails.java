@@ -19,12 +19,18 @@ package com.dbeaver.datadam.dam.remote.api.model;
 import org.jkiss.code.NotNull;
 
 import java.util.List;
+import java.util.Objects;
 
 public record DDRemoteDamTrafficDetails(@NotNull DDRemoteDamTraffic total, @NotNull List<Session> sessions) {
     public DDRemoteDamTrafficDetails {
+        Objects.requireNonNull(total, "total");
         sessions = List.copyOf(sessions);
     }
 
     public record Session(@NotNull String damSessionId, @NotNull DDRemoteDamTraffic traffic) {
+        public Session {
+            DDRemoteDamMessage.requireText(damSessionId, "damSessionId");
+            Objects.requireNonNull(traffic, "traffic");
+        }
     }
 }
