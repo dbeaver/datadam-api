@@ -19,8 +19,6 @@ package com.dbeaver.datadam.sso.api.client;
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
-import com.dbeaver.datadam.sso.api.model.DDSsoConsentApprovalRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoConsentRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
@@ -179,28 +177,6 @@ class DDSsoServiceTest {
         Assertions.assertThatThrownBy(() -> service.approveLogin(new DDSsoLoginApprovalRequest("B".repeat(43),
             new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW))))
             .isInstanceOf(DDSsoClientException.class);
-    }
-
-    @Test
-    void consentDecisionUsesAuthenticatedBackchannelAndFixedPublicResumeEndpoint() throws Exception {
-        responseJson.set(gson.toJson(Map.of("completion", "C".repeat(43))));
-        var request = new DDSsoConsentRequest("request-id", "account-id", "user-id");
-        Assertions.assertThat(service.approveConsent(new DDSsoConsentApprovalRequest(request, "approve")))
-            .isEqualTo("https://sso.example.com/consent/resume?completion=" + "C".repeat(43));
-        Assertions.assertThat(requestPath).hasValue(DDSsoConstants.CONSENT_APPROVE_PATH);
-        Assertions.assertThat(credentials).hasValue("Basic " + Base64.getEncoder()
-            .encodeToString("account:test-secret".getBytes(StandardCharsets.UTF_8)));
-        var body = JsonParser.parseString(posted.get()).getAsJsonObject();
-        Assertions.assertThat(body.getAsJsonObject("request").get("userId").getAsString()).isEqualTo("user-id");
-        Assertions.assertThat(body.get("decision").getAsString()).isEqualTo("approve");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"{}", "{\"completion\":null}", "{\"completion\":\"unsafe&state=other\"}"})
-    void rejectsInvalidConsentCompletions(@NotNull String json) {
-        responseJson.set(json);
-        Assertions.assertThatThrownBy(() -> service.approveConsent(new DDSsoConsentApprovalRequest(
-            new DDSsoConsentRequest("request", "account", "user"), "approve"))).isInstanceOf(DDSsoClientException.class);
     }
 
     @ParameterizedTest

@@ -18,9 +18,6 @@ package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
-import com.dbeaver.datadam.sso.api.model.DDSsoConsentApprovalRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoConsentDetails;
-import com.dbeaver.datadam.sso.api.model.DDSsoConsentRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoRefreshRequest;
@@ -107,18 +104,6 @@ public class DDSsoClient extends AbstractRestClient {
     public DDSsoLoginApprovalResponse approveLogin(@NotNull DDSsoLoginApprovalRequest request) throws DDSsoClientException {
         return postResponse(DDSsoConstants.LOGIN_APPROVE_PATH, request, MediaType.JSON,
             DDSsoLoginApprovalResponse.class, "Invalid SSO login approval response");
-    }
-
-    @NotNull
-    public DDSsoConsentDetails consentDetails(@NotNull DDSsoConsentRequest request) throws DDSsoClientException {
-        return postResponse(DDSsoConstants.CONSENT_REQUEST_PATH, request, MediaType.JSON,
-            DDSsoConsentDetails.class, "Invalid SSO consent response");
-    }
-
-    @NotNull
-    public DDSsoLoginApprovalResponse approveConsent(@NotNull DDSsoConsentApprovalRequest request) throws DDSsoClientException {
-        return postResponse(DDSsoConstants.CONSENT_APPROVE_PATH, request, MediaType.JSON,
-            DDSsoLoginApprovalResponse.class, "Invalid SSO consent approval response");
     }
 
     @NotNull
