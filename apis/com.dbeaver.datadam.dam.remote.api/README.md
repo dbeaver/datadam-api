@@ -51,6 +51,8 @@ type Query {
     remoteDams(accountId: ID!): [RemoteDam!]!
     remoteDam(accountId: ID!, damId: ID!): RemoteDam
     remoteDamHistory(accountId: ID!, damId: ID!): [RemoteDamHistorySession!]!
+    remoteDamAccountTraffic(accountId: ID!): RemoteDamAccountTraffic!
+    remoteDamTraffic(accountId: ID!, damId: ID!): RemoteDamTrafficDetails
     remoteDamSessions(accountId: ID!): [RemoteDamSession!]!
     remoteDamSessionAccount(damSessionId: ID!): ID
 }
@@ -98,6 +100,31 @@ type RemoteDamHistorySession {
     durationSeconds: Long!
 }
 
+type RemoteDamTraffic {
+    inboundBytes: Long!
+    outboundBytes: Long!
+}
+
+type RemoteDamAccountTraffic {
+    total: RemoteDamTraffic!
+    dams: [RemoteDamTrafficEntry!]!
+}
+
+type RemoteDamTrafficEntry {
+    damId: ID!
+    traffic: RemoteDamTraffic!
+}
+
+type RemoteDamTrafficDetails {
+    total: RemoteDamTraffic!
+    sessions: [RemoteDamSessionTraffic!]!
+}
+
+type RemoteDamSessionTraffic {
+    damSessionId: ID!
+    traffic: RemoteDamTraffic!
+}
+
 type RemoteDamSession {
     appDeploymentId: String!
     appInstanceId: String!
@@ -123,8 +150,9 @@ input RemoteDamSubscriptionInput {
 }
 ```
 
-- `accountId` is a UUID, mandatory for DAM lists, details, history, live session lists, sends, and subscription registration.
-  Details and history also require the technical `damId` UUID. Sends use the account and DAM session ID together.
+- `accountId` is a UUID, mandatory for DAM lists, details, history, traffic queries, live session lists, sends, and
+  subscription registration. Details, history, and per-DAM traffic also require the technical `damId` UUID.
+  Sends use the account and DAM session ID together.
 - `remoteDamSessionAccount` resolves a unique session ID to the account from its verified identity. It returns null
   for a missing or not-ready session; the client reports this as checked `DDRemoteDamException`. This backend-only lookup
   does not authorize end-user access to that account.
@@ -155,6 +183,15 @@ input RemoteDamSubscriptionInput {
   instant strings on GraphQL and `Instant` values in Java.
 - `remoteDamSessions` / `getSessions(accountId)` returns an immutable snapshot of currently ready transport sessions,
   not persistent DAM identities or session history. Use the live session APIs for messaging and RPC.
+- `remoteDamAccountTraffic` / `getAccountTraffic(accountId)` returns cumulative account traffic and per-DAM totals as an
+  immutable `DDRemoteDamAccountTraffic` snapshot. Account totals also include authenticated connections that did not
+  register a persistent DAM.
+- `remoteDamTraffic` / `getDamTraffic(accountId, damId)` returns the DAM total and per-session counters as an immutable
+  `DDRemoteDamTrafficDetails` snapshot, or null when no DAM belongs to that account with that technical ID.
+- Traffic counters are nonnegative 64-bit byte counts, cumulative for the returned account, DAM, or session scope.
+  They count WebSocket frame bytes, including control frames and frame headers, but exclude HTTP upgrade, TLS, and
+  lower-layer overhead. Persistence is asynchronous, so snapshots can lag live traffic; these statistics are for
+  monitoring, not billing.
 - Message payloads are JSON objects passed through GraphQL variables, never interpolated into query text or encoded as
   JSON strings. `DDRemoteDamMessage` takes defensive payload snapshots.
 - A send result of `true` confirms completion of the server's WebSocket write, not peer receipt or processing.
@@ -191,6 +228,8 @@ var client = new DDRemoteDamClient(serviceUrl, serviceSecret);
 var dams = client.getDams(accountId);
 var dam = client.getDam(accountId, damId);
 var history = client.getDamHistory(accountId, damId);
+var accountTraffic = client.getAccountTraffic(accountId);
+var damTraffic = client.getDamTraffic(accountId, damId);
 var sessions = client.getSessions(accountId);
 boolean written = client.sendMessage(accountId, damSessionId, message);
 ```

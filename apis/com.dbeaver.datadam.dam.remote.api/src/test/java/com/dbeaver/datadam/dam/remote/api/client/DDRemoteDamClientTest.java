@@ -19,9 +19,12 @@ package com.dbeaver.datadam.dam.remote.api.client;
 import com.dbeaver.datadam.dam.remote.api.DDRemoteDamApi;
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDam;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamAccountTraffic;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHistorySession;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSession;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamTraffic;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamTrafficDetails;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -231,6 +234,67 @@ class DDRemoteDamClientTest {
 
         respond("remoteDam", JsonNull.INSTANCE);
         assertNull(client.getDam(ACCOUNT_ID, damId));
+    }
+
+    @Test
+    void queriesAccountAndDamTrafficWithoutLosingLongPrecision() throws DDRemoteDamException {
+        UUID damId = UUID.fromString("ef023ec7-f47f-43cc-bc22-a9f5895f113a");
+        DDRemoteDamTraffic traffic = new DDRemoteDamTraffic(9007199254740993L, Long.MAX_VALUE);
+        respond("remoteDamAccountTraffic", JsonParser.parseString("""
+            {"total":{"inboundBytes":9007199254740993,"outboundBytes":9223372036854775807},
+             "dams":[{"damId":"%s","traffic":{"inboundBytes":9007199254740993,"outboundBytes":9223372036854775807}}]}
+            """.formatted(damId)));
+
+        DDRemoteDamAccountTraffic account = client.getAccountTraffic(ACCOUNT_ID);
+
+        assertEquals(new DDRemoteDamAccountTraffic(traffic, List.of(new DDRemoteDamAccountTraffic.Dam(damId.toString(), traffic))),
+            account);
+        assertThrows(UnsupportedOperationException.class, account.dams()::clear);
+        assertEquals("RemoteDamAccountTraffic", posted().get("operationName").getAsString());
+        assertEquals(JsonParser.parseString("{\"accountId\":\"" + ACCOUNT_ID + "\"}"), posted().get("variables"));
+        respond("remoteDamTraffic", JsonParser.parseString("""
+            {"total":{"inboundBytes":9007199254740993,"outboundBytes":9223372036854775807},
+             "sessions":[{"damSessionId":"session-one","traffic":{"inboundBytes":9007199254740993,"outboundBytes":9223372036854775807}},
+                         {"damSessionId":"legacy-session","traffic":{"inboundBytes":0,"outboundBytes":0}}]}
+            """));
+
+        assertEquals(new DDRemoteDamTrafficDetails(traffic, List.of(
+            new DDRemoteDamTrafficDetails.Session("session-one", traffic),
+            new DDRemoteDamTrafficDetails.Session("legacy-session", new DDRemoteDamTraffic(0, 0)))),
+            client.getDamTraffic(ACCOUNT_ID, damId));
+        assertEquals("RemoteDamTraffic", posted().get("operationName").getAsString());
+        assertEquals(ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
+        assertEquals(damId.toString(), posted().getAsJsonObject("variables").get("damId").getAsString());
+        respond("remoteDamTraffic", JsonNull.INSTANCE);
+        assertNull(client.getDamTraffic(ACCOUNT_ID, damId));
+        respond("remoteDamAccountTraffic", JsonParser.parseString("""
+            {"total":{"inboundBytes":0,"outboundBytes":0},"dams":[]}
+            """));
+        assertEquals(new DDRemoteDamAccountTraffic(new DDRemoteDamTraffic(0, 0), List.of()), client.getAccountTraffic(ACCOUNT_ID));
+    }
+
+    @Test
+    void rejectsInvalidTrafficCountersAndMissingNestedSnapshots() {
+        UUID damId = UUID.randomUUID();
+        for (String field : List.of("inboundBytes", "outboundBytes")) {
+            for (String value : List.of("null", "-1", "0.5", "9223372036854775808", "\"10\"", "true")) {
+                JsonObject traffic = JsonParser.parseString("{\"inboundBytes\":0,\"outboundBytes\":0}").getAsJsonObject();
+                traffic.add(field, JsonParser.parseString(value));
+                respond("remoteDamAccountTraffic", JsonParser.parseString("{\"total\":" + traffic + ",\"dams\":[]}"));
+                assertRequestFails(() -> client.getAccountTraffic(ACCOUNT_ID));
+                respond("remoteDamTraffic", JsonParser.parseString("{\"total\":" + traffic + ",\"sessions\":[]}"));
+                assertRequestFails(() -> client.getDamTraffic(ACCOUNT_ID, damId));
+            }
+        }
+        for (String value : List.of("null", "{}", "{\"total\":{},\"dams\":[]}",
+            "{\"total\":{\"inboundBytes\":0,\"outboundBytes\":0},\"dams\":[{\"damId\":\"dam\"}]}")) {
+            respond("remoteDamAccountTraffic", JsonParser.parseString(value));
+            assertRequestFails(() -> client.getAccountTraffic(ACCOUNT_ID));
+        }
+        respond("remoteDamTraffic", JsonParser.parseString("""
+            {"total":{"inboundBytes":0,"outboundBytes":0},"sessions":[{"damSessionId":"session"}]}
+            """));
+        assertRequestFails(() -> client.getDamTraffic(ACCOUNT_ID, damId));
     }
 
     @Test
