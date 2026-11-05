@@ -14,7 +14,7 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.mcp.api.service;
+package com.dbeaver.datadam.mcp.api.service.desktop;
 
 import com.dbeaver.datadam.mcp.api.exception.DDMcpFunctionException;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionCall;
