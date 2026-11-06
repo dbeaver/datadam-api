@@ -17,6 +17,7 @@
 package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
+import com.dbeaver.datadam.sso.api.DDSsoLoginApi;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
@@ -46,7 +47,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Uses the public issuer for tokens/keys and the backchannel for approvals. Returned tokens and keys are unverified. */
-public class DDSsoClient extends AbstractRestClient {
+public class DDSsoClient extends AbstractRestClient implements DDSsoLoginApi {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
     private final DDSsoClientConfig properties;
 
@@ -100,6 +101,7 @@ public class DDSsoClient extends AbstractRestClient {
             DDSsoTokenResponse.class, "Invalid SSO token response");
     }
 
+    @Override
     @NotNull
     public DDSsoLoginApprovalResponse approveLogin(@NotNull DDSsoLoginApprovalRequest request) throws DDSsoClientException {
         try {

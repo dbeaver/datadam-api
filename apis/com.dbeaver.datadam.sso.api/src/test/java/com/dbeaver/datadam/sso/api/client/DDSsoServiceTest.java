@@ -18,6 +18,7 @@ package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoAccountApi;
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
+import com.dbeaver.datadam.sso.api.DDSsoLoginApi;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessContextResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
@@ -208,7 +209,8 @@ class DDSsoServiceTest {
             Assertions.assertThat(requestPath).hasValue("/token");
             Assertions.assertThat(privateRequests).hasValue(0);
             var identity = new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW);
-            Assertions.assertThat(client.approveLogin(new DDSsoLoginApprovalRequest("request", identity)).completion()).isEqualTo("approved");
+            DDSsoLoginApi login = client;
+            Assertions.assertThat(login.approveLogin(new DDSsoLoginApprovalRequest("request", identity)).completion()).isEqualTo("approved");
             Assertions.assertThat(privateRequests).hasValue(1);
             Assertions.assertThat(privatePath).hasValue("/internal/login/approve");
             Assertions.assertThat(privateCredentials).hasValue("Basic " + Base64.getEncoder()
