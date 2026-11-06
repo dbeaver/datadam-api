@@ -261,6 +261,25 @@ class DDSsoServiceTest {
     }
 
     @Test
+    void accessIdentityPreservesAccountBindingAndRejectsMalformedAccountClaims() throws Exception {
+        var claims = claims();
+        claims.put("aud", DDSsoConstants.API_AUDIENCE);
+        claims.put("token_use", DDSsoConstants.TOKEN_USE_ACCESS);
+        claims.put("client_id", "registered-client");
+        claims.put("scope", "account:read");
+        String accountId = java.util.UUID.randomUUID().toString();
+        claims.put(DDSsoConstants.CLAIM_ACCOUNT_ID, accountId);
+        Assertions.assertThat(verifier.verifyAccessToken(signed(claims, header("key1")), DDSsoConstants.API_AUDIENCE).accountId())
+            .isEqualTo(accountId);
+        for (Object invalid : java.util.Arrays.asList(null, "", "not-an-account", 42, List.of(accountId))) {
+            claims.put(DDSsoConstants.CLAIM_ACCOUNT_ID, invalid);
+            String token = signed(new com.google.gson.GsonBuilder().serializeNulls().create().toJson(claims), gson.toJson(header("key1")));
+            Assertions.assertThatThrownBy(() -> verifier.verifyAccessToken(token, DDSsoConstants.API_AUDIENCE))
+                .isInstanceOf(DDSsoClientException.class);
+        }
+    }
+
+    @Test
     void validatesTokenAndCachesTrustedJwks() throws Exception {
         String token = signed(claims(), header("key1"));
         var first = verifier.verifyIdentity(token);

@@ -17,6 +17,7 @@
 package com.dbeaver.datadam.sso.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 import java.time.Instant;
 import java.util.Set;
@@ -25,8 +26,15 @@ import java.util.Set;
 public record DDSsoAccessIdentity(
     @NotNull String subject, @NotNull String email, @NotNull String source,
     @NotNull String clientId, @NotNull Instant authTime,
-    @NotNull String audience, @NotNull Set<String> scopes
+    @NotNull String audience, @NotNull Set<String> scopes, @Nullable String accountId
 ) {
+    public DDSsoAccessIdentity(
+        @NotNull String subject, @NotNull String email, @NotNull String source, @NotNull String clientId,
+        @NotNull Instant authTime, @NotNull String audience, @NotNull Set<String> scopes
+    ) {
+        this(subject, email, source, clientId, authTime, audience, scopes, null);
+    }
+
     public DDSsoAccessIdentity {
         scopes = Set.copyOf(scopes);
     }
