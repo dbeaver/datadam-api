@@ -16,6 +16,7 @@
  */
 package com.dbeaver.datadam.sso.api.client;
 
+import com.dbeaver.datadam.sso.api.DDSsoAccountApi;
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessContextResponse;
@@ -34,7 +35,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /** Backend-only client; a desktop never receives the service credential. */
-public class DDSsoAccountClient extends AbstractRestClient {
+public class DDSsoAccountClient extends AbstractRestClient implements DDSsoAccountApi {
     private static final int MAX_TOKEN_LENGTH = 16_384;
     @NotNull
     private final String serviceSecret;
@@ -52,6 +53,7 @@ public class DDSsoAccountClient extends AbstractRestClient {
         this.serviceSecret = serviceSecret;
     }
 
+    @Override
     @NotNull
     public DDSsoAccessContextResponse exchange(@NotNull String accessToken) throws DDSsoClientException {
         if (accessToken.isBlank() || accessToken.length() > MAX_TOKEN_LENGTH) {

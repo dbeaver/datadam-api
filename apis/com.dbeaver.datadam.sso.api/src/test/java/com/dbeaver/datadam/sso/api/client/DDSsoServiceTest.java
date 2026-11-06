@@ -16,8 +16,10 @@
  */
 package com.dbeaver.datadam.sso.api.client;
 
+import com.dbeaver.datadam.sso.api.DDSsoAccountApi;
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
+import com.dbeaver.datadam.sso.api.model.DDSsoAccessContextResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
@@ -55,6 +57,8 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -69,6 +73,7 @@ class DDSsoServiceTest {
     private final AtomicReference<String> responseJson = new AtomicReference<>();
     private final AtomicReference<String> posted = new AtomicReference<>();
     private final AtomicReference<String> credentials = new AtomicReference<>();
+    private final AtomicReference<String> serviceCredential = new AtomicReference<>();
     private final AtomicReference<String> contentType = new AtomicReference<>();
     private final AtomicReference<String> requestMethod = new AtomicReference<>();
     private final AtomicReference<String> requestPath = new AtomicReference<>();
@@ -97,6 +102,7 @@ class DDSsoServiceTest {
         });
         server.createContext("/", exchange -> {
             credentials.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            serviceCredential.set(exchange.getRequestHeaders().getFirst(DDSsoConstants.HEADER_SERVICE_TOKEN));
             contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
             requestMethod.set(exchange.getRequestMethod());
             requestPath.set(exchange.getRequestURI().getPath());
@@ -449,6 +455,21 @@ class DDSsoServiceTest {
         var account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
         Assertions.assertThatThrownBy(() -> account.exchange("header.payload.signature"))
             .isInstanceOf(DDSsoClientException.class);
+    }
+
+    @Test
+    void accountApiExchangesBearerTokenForTypedContextUsingServiceCredentials() throws Exception {
+        var expected = new DDSsoAccessContextResponse(UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+            "PERSONAL", "free-personal-v1", "FREE", "ACTIVE", NOW.plusSeconds(3600).getEpochSecond(), Set.of("account:read"));
+        responseJson.set(gson.toJson(expected));
+        DDSsoAccountApi account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
+
+        Assertions.assertThat(account.exchange("header.payload.signature")).isEqualTo(expected);
+        Assertions.assertThat(requestMethod).hasValue("POST");
+        Assertions.assertThat(requestPath).hasValue(DDSsoConstants.ACCESS_CONTEXT_PATH);
+        Assertions.assertThat(credentials).hasValue("Bearer header.payload.signature");
+        Assertions.assertThat(serviceCredential).hasValue("s".repeat(32));
+        Assertions.assertThat(posted.get()).doesNotContain("header.payload.signature", "s".repeat(32));
     }
 
     @Test
