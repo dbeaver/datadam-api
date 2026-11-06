@@ -17,10 +17,16 @@
 package com.dbeaver.datadam.share.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
+
+import java.util.UUID;
 
 public record DDUpdateConfigurationPartRequest(
     @NotNull String key,
-    long expectedVersion,
+    @NotNull DDConfigurationPartKind kind,
+    @Nullable UUID projectId,
+    @Nullable String lastKnownFingerprint,
+    @NotNull String fingerprint,
     @NotNull String encryptedValue
 ) {
 }

@@ -25,6 +25,7 @@ public record DDCreateConfigurationPartRequest(
     @NotNull String key,
     @NotNull DDConfigurationPartKind kind,
     @Nullable UUID projectId,
+    @NotNull String fingerprint,
     @NotNull String encryptedValue
 ) {
 }
