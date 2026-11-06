@@ -25,6 +25,7 @@ import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoPublicJwk;
+import com.dbeaver.datadam.sso.api.model.DDSsoRefreshRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
@@ -116,7 +117,7 @@ class DDSsoServiceTest {
             exchange.close();
         });
         server.start();
-        DDSsoClientConfig config = new DDSsoClientConfig("https://sso.example.com",
+        DDSsoClientConfig config = new DDSsoClientConfig("http://127.0.0.1:" + server.getAddress().getPort(),
             "http://127.0.0.1:" + server.getAddress().getPort(), "account", "test-secret",
             "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access");
         Clock clock = clock(ZoneOffset.UTC);
@@ -164,7 +165,7 @@ class DDSsoServiceTest {
         responseJson.set(gson.toJson(Map.of("completion", "A".repeat(43))));
         var identity = new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW);
         Assertions.assertThat(service.approveLogin(new DDSsoLoginApprovalRequest("B".repeat(43), identity)))
-            .isEqualTo("https://sso.example.com/login/resume?completion=" + "A".repeat(43));
+            .isEqualTo("http://127.0.0.1:" + server.getAddress().getPort() + "/login/resume?completion=" + "A".repeat(43));
         Assertions.assertThat(requestMethod).hasValue("POST");
         Assertions.assertThat(requestPath).hasValue("/login/approve");
         Assertions.assertThat(credentials).hasValue("Basic " + Base64.getEncoder()
@@ -174,6 +175,47 @@ class DDSsoServiceTest {
         Assertions.assertThat(body.getAsJsonObject("identity").get("subject").getAsString()).isEqualTo(identity.subject());
         Assertions.assertThat(body.getAsJsonObject("identity").get("authTime").getAsString()).isEqualTo(NOW.toString());
         Assertions.assertThat(jwksRequests).hasValue(0);
+    }
+
+    @Test
+    void routesTokensAndKeysToPublicIssuerAndApprovalToBackchannel() throws Exception {
+        var privateRequests = new AtomicInteger();
+        var privatePath = new AtomicReference<String>();
+        var privateCredentials = new AtomicReference<String>();
+        HttpServer backchannel = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        backchannel.createContext("/", exchange -> {
+            privateRequests.incrementAndGet();
+            privatePath.set(exchange.getRequestURI().getPath());
+            privateCredentials.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] bytes = "{\"completion\":\"approved\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        backchannel.start();
+        try {
+            var config = new DDSsoClientConfig("http://127.0.0.1:" + server.getAddress().getPort(),
+                "http://127.0.0.1:" + backchannel.getAddress().getPort() + "/internal", "account", "test-secret",
+                "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access");
+            var client = new DDSsoClient(config);
+            Assertions.assertThat(client.getJwks()).isEqualTo(keysJson.get());
+            Assertions.assertThat(jwksRequests).hasValue(1);
+            responseJson.set("{\"access_token\":\"access\",\"expires_in\":300}");
+            Assertions.assertThat(client.exchangeCodeForTokens(new DDSsoTokenRequest("code", "verifier", "account", null, null))
+                .accessToken()).isEqualTo("access");
+            Assertions.assertThat(client.refresh(new DDSsoRefreshRequest("refresh", "account", null, null)).accessToken())
+                .isEqualTo("access");
+            Assertions.assertThat(requestPath).hasValue("/token");
+            Assertions.assertThat(privateRequests).hasValue(0);
+            var identity = new DDSsoIdentity("user-id", "user@example.com", "datadam-account", NOW);
+            Assertions.assertThat(client.approveLogin(new DDSsoLoginApprovalRequest("request", identity)).completion()).isEqualTo("approved");
+            Assertions.assertThat(privateRequests).hasValue(1);
+            Assertions.assertThat(privatePath).hasValue("/internal/login/approve");
+            Assertions.assertThat(privateCredentials).hasValue("Basic " + Base64.getEncoder()
+                .encodeToString("account:test-secret".getBytes(StandardCharsets.UTF_8)));
+        } finally {
+            backchannel.stop(0);
+        }
     }
 
     @ParameterizedTest
@@ -535,7 +577,7 @@ class DDSsoServiceTest {
 
     @Test
     void httpClientFormEncodesEachBasicCredentialBeforeBase64() throws Exception {
-        var config = new DDSsoClientConfig("https://sso.example.com", "http://127.0.0.1:" + server.getAddress().getPort(),
+        var config = new DDSsoClientConfig("http://127.0.0.1:" + server.getAddress().getPort(), "",
             "client:+ %é", "secret:+ %ß", "https://account.example.com/sso/callback", "account",
             Duration.ofMinutes(5), null, "account:access");
         responseJson.set(gson.toJson(Map.of("access_token", "access", "expires_in", 300)));
@@ -808,8 +850,8 @@ class DDSsoServiceTest {
     }
 
     @NotNull
-    private static Map<String, Object> claims() {
-        return new HashMap<>(Map.of("iss", "https://sso.example.com", "aud", "account", "sub", "user-id",
+    private Map<String, Object> claims() {
+        return new HashMap<>(Map.of("iss", "http://127.0.0.1:" + server.getAddress().getPort(), "aud", "account", "sub", "user-id",
             "email", "user@example.com", "source", "datadam-account", "token_use", "identity",
             "iat", NOW.getEpochSecond(), "exp", NOW.plusSeconds(300).getEpochSecond(), "auth_time", NOW.minusSeconds(60).getEpochSecond()));
     }

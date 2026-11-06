@@ -45,7 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** HTTP transport for SSO endpoints. Returned tokens and keys are unverified. */
+/** Uses the public issuer for tokens/keys and the backchannel for approvals. Returned tokens and keys are unverified. */
 public class DDSsoClient extends AbstractRestClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
     private final DDSsoClientConfig properties;
@@ -81,7 +81,7 @@ public class DDSsoClient extends AbstractRestClient {
         if (request.resource() != null) {
             parameters.put(DDSsoConstants.PARAM_RESOURCE, request.resource());
         }
-        return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
+        return postResponse(endpoint(DDSsoConstants.TOKEN_PATH), parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
     }
 
@@ -96,20 +96,24 @@ public class DDSsoClient extends AbstractRestClient {
         if (request.scope() != null) {
             parameters.put(DDSsoConstants.PARAM_SCOPE, request.scope());
         }
-        return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
+        return postResponse(endpoint(DDSsoConstants.TOKEN_PATH), parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
     }
 
     @NotNull
     public DDSsoLoginApprovalResponse approveLogin(@NotNull DDSsoLoginApprovalRequest request) throws DDSsoClientException {
-        return postResponse(DDSsoConstants.LOGIN_APPROVE_PATH, request, MediaType.JSON,
-            DDSsoLoginApprovalResponse.class, "Invalid SSO login approval response");
+        try {
+            return postResponse(buildUri(CommonUtils.removeLeadingSlash(DDSsoConstants.LOGIN_APPROVE_PATH), Map.of()), request,
+                MediaType.JSON, DDSsoLoginApprovalResponse.class, "Invalid SSO login approval response");
+        } catch (DBException e) {
+            throw new DDSsoClientException("SSO request failed");
+        }
     }
 
     @NotNull
     public String getJwks() throws DDSsoClientException {
         try {
-            byte[] bytes = executeGetRequest(CommonUtils.removeLeadingSlash(DDSsoConstants.JWKS_PATH), byte[].class);
+            byte[] bytes = execute(HttpRequest.newBuilder(endpoint(DDSsoConstants.JWKS_PATH)).GET(), byte[].class);
             return DDSsoJson.utf8(bytes);
         } catch (DBException | IOException e) {
             throw new DDSsoClientException("SSO request failed");
@@ -117,10 +121,12 @@ public class DDSsoClient extends AbstractRestClient {
     }
 
     @NotNull
-    private <T> T postResponse(@NotNull String path, @NotNull Object body, @NotNull MediaType mediaType,
+    private <T> T postResponse(@NotNull URI uri, @NotNull Object body, @NotNull MediaType mediaType,
         @NotNull Class<T> type, @NotNull String message) throws DDSsoClientException {
         try {
-            T response = executePostRequest(CommonUtils.removeLeadingSlash(path), Map.of(), body, mediaType, type);
+            T response = execute(HttpRequest.newBuilder(uri)
+                .header(HttpConstants.HEADER_CONTENT_TYPE, mediaType.toString())
+                .POST(createBodyPublisher(body, mediaType)), type);
             if (response == null) {
                 throw new DDSsoClientException(message);
             }
