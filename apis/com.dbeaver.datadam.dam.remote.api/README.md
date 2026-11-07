@@ -59,7 +59,6 @@ type Query {
 }
 
 type Mutation {
-    renameRemoteDam(accountId: ID!, damId: ID!, damName: String!): RemoteDam
     renameRemoteDamByClientId(accountId: ID!, clientDamId: String!, damName: String!): RemoteDam
     sendRemoteDamMessage(accountId: ID!, damSessionId: ID!, message: RemoteDamMessageInput!): Boolean!
     registerRemoteDamSubscription(input: RemoteDamSubscriptionInput!): Int!
@@ -168,16 +167,14 @@ input RemoteDamSubscriptionInput {
   account with that technical ID.
 - `remoteDamByClientId` / `getDamByClientId(accountId, clientDamId)` resolves the stable client identity within the account.
   It returns null when no accessible stored DAM matches, including before asynchronous registration has been persisted.
-- `renameRemoteDam` / `renameDam(accountId, damId, damName)` and
-  `renameRemoteDamByClientId` / `renameDamByClientId(accountId, clientDamId, damName)` update only the display name.
-  Both return the updated metadata or null for a missing or foreign DAM; neither creates a record.
-  The client-ID operation makes one request without first looking up the server UUID. Update and readback share a transaction.
+- `renameRemoteDamByClientId` / `renameDamByClientId(accountId, clientDamId, damName)` updates only the display name.
+  It returns the updated metadata or null for a missing or foreign DAM and never creates a record.
+  The operation makes one request without first looking up the server UUID. Update and readback share a transaction.
   Names are normalized, limited to 256 Unicode code points, and do not need to be unique.
-- For Desktop clients, the authenticated Account GraphQL API exposes
+- For web and Desktop clients, the authenticated Account GraphQL API exposes
   `renameConnectedRemoteDamByClientId(clientDamId: String!, damName: String!): ConnectedRemoteDam`, not the internal service
   endpoint. The Account API derives the account from the authenticated user and requires `REMOTE_DAM_MANAGE`.
-  `renameConnectedRemoteDam(damId: ID!, damName: String!)` remains available for UUID-based callers and legacy DAMs without
-  a client ID.
+  Stored DAMs without a client ID cannot be renamed.
 - `product`, `version`, and `remoteAddress` describe the latest active session, or the latest session when all are offline.
   `remoteAddress` is the numeric IP address observed by the server's WebSocket session and is null when unavailable.
   It is not supplied by the peer handshake. The wire field names remain `product` and `version`.
