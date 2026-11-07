@@ -20,6 +20,7 @@ import com.dbeaver.datadam.dam.remote.api.DDRemoteDamApi;
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDam;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamAccountTraffic;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHistorySession;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSession;
@@ -42,14 +43,22 @@ import java.util.concurrent.CompletionStage;
 
 public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
+    private static final String ACCOUNT_ID = "accountId";
+    private static final String DAM_ID = "damId";
+    private static final String CLIENT_DAM_ID = "clientDamId";
+    private static final String DAM_NAME = "damName";
     private static final String DAMS_FIELD = "remoteDams";
     private static final String DAM_FIELD = "remoteDam";
+    private static final String DAM_BY_CLIENT_ID_FIELD = "remoteDamByClientId";
+    private static final String RENAME_FIELD = "renameRemoteDam";
     private static final String DAM_HISTORY_FIELD = "remoteDamHistory";
     private static final String SESSIONS_FIELD = "remoteDamSessions";
     private static final String SESSION_ACCOUNT_FIELD = "remoteDamSessionAccount";
     private static final String SEND_FIELD = "sendRemoteDamMessage";
     private static final String DAMS_OPERATION = "RemoteDams";
     private static final String DAM_OPERATION = "RemoteDam";
+    private static final String DAM_BY_CLIENT_ID_OPERATION = "RemoteDamByClientId";
+    private static final String RENAME_OPERATION = "RenameRemoteDam";
     private static final String DAM_HISTORY_OPERATION = "RemoteDamHistory";
     private static final String SESSIONS_OPERATION = "RemoteDamSessions";
     private static final String SESSION_ACCOUNT_OPERATION = "RemoteDamSessionAccount";
@@ -59,7 +68,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
             remoteDams(accountId: $accountId) {
                 damId appDeploymentId appInstanceId workspaceId product version remoteAddress online damSessionId
                 firstConnectedAt lastConnectedAt lastDisconnectedAt
-                clientDamId sessionCount applications { product version } remoteAddresses
+                clientDamId sessionCount applications { product version } remoteAddresses damName
             }
         }
         """;
@@ -68,7 +77,25 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
             remoteDam(accountId: $accountId, damId: $damId) {
                 damId appDeploymentId appInstanceId workspaceId product version remoteAddress online damSessionId
                 firstConnectedAt lastConnectedAt lastDisconnectedAt
-                clientDamId sessionCount applications { product version } remoteAddresses
+                clientDamId sessionCount applications { product version } remoteAddresses damName
+            }
+        }
+        """;
+    private static final String DAM_BY_CLIENT_ID_QUERY = """
+        query RemoteDamByClientId($accountId: ID!, $clientDamId: String!) {
+            remoteDamByClientId(accountId: $accountId, clientDamId: $clientDamId) {
+                damId appDeploymentId appInstanceId workspaceId product version remoteAddress online damSessionId
+                firstConnectedAt lastConnectedAt lastDisconnectedAt
+                clientDamId sessionCount applications { product version } remoteAddresses damName
+            }
+        }
+        """;
+    private static final String RENAME_MUTATION = """
+        mutation RenameRemoteDam($accountId: ID!, $damId: ID!, $damName: String!) {
+            renameRemoteDam(accountId: $accountId, damId: $damId, damName: $damName) {
+                damId appDeploymentId appInstanceId workspaceId product version remoteAddress online damSessionId
+                firstConnectedAt lastConnectedAt lastDisconnectedAt
+                clientDamId sessionCount applications { product version } remoteAddresses damName
             }
         }
         """;
@@ -130,18 +157,36 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     @NotNull
     public List<DDRemoteDam> getDams(@NotNull UUID accountId) throws DDRemoteDamException {
         return readDams(request(DAMS_OPERATION, DAMS_QUERY,
-            Map.of("accountId", Objects.requireNonNull(accountId).toString()), DAMS_FIELD));
+            Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString()), DAMS_FIELD));
     }
 
     @NotNull
     public CompletionStage<List<DDRemoteDam>> getDamsAsync(@NotNull UUID accountId) {
         return requestAsync(DAMS_OPERATION, DAMS_QUERY,
-            Map.of("accountId", Objects.requireNonNull(accountId).toString()), DAMS_FIELD, DDRemoteDamClient::readDams);
+            Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString()), DAMS_FIELD, DDRemoteDamClient::readDams);
     }
 
     @Nullable
     public DDRemoteDam getDam(@NotNull UUID accountId, @NotNull UUID damId) throws DDRemoteDamException {
         JsonElement result = request(DAM_OPERATION, DAM_QUERY, damVariables(accountId, damId), DAM_FIELD);
+        return result.isJsonNull() ? null : readDam(result);
+    }
+
+    @Nullable
+    public DDRemoteDam getDamByClientId(@NotNull UUID accountId, @NotNull String clientDamId) throws DDRemoteDamException {
+        if (clientDamId.isBlank() || clientDamId.length() > DDRemoteDamHandshakeRequest.MAX_CLIENT_DAM_ID_LENGTH) {
+            throw new IllegalArgumentException("Invalid client Dam ID");
+        }
+        JsonElement result = request(DAM_BY_CLIENT_ID_OPERATION, DAM_BY_CLIENT_ID_QUERY,
+            Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString(), CLIENT_DAM_ID, clientDamId), DAM_BY_CLIENT_ID_FIELD);
+        return result.isJsonNull() ? null : readDam(result);
+    }
+
+    @Nullable
+    public DDRemoteDam renameDam(@NotNull UUID accountId, @NotNull UUID damId, @NotNull String damName) throws DDRemoteDamException {
+        JsonElement result = request(RENAME_OPERATION, RENAME_MUTATION,
+            Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString(), DAM_ID, Objects.requireNonNull(damId).toString(),
+                DAM_NAME, DDRemoteDam.normalizeName(damName)), RENAME_FIELD);
         return result.isJsonNull() ? null : readDam(result);
     }
 
@@ -153,7 +198,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     @NotNull
     public DDRemoteDamAccountTraffic getAccountTraffic(@NotNull UUID accountId) throws DDRemoteDamException {
         JsonObject result = readObject(request("RemoteDamAccountTraffic", ACCOUNT_TRAFFIC_QUERY,
-            Map.of("accountId", Objects.requireNonNull(accountId).toString()), "remoteDamAccountTraffic"));
+            Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString()), "remoteDamAccountTraffic"));
         JsonElement values = result.get("dams");
         if (values == null || !values.isJsonArray()) {
             throw invalidResponse();
@@ -161,7 +206,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
         List<DDRemoteDamAccountTraffic.Dam> dams = new ArrayList<>();
         for (JsonElement value : values.getAsJsonArray()) {
             JsonObject dam = readObject(value);
-            dams.add(new DDRemoteDamAccountTraffic.Dam(readString(dam, "damId"), readTraffic(dam, "traffic")));
+            dams.add(new DDRemoteDamAccountTraffic.Dam(readString(dam, DAM_ID), readTraffic(dam, "traffic")));
         }
         return new DDRemoteDamAccountTraffic(readTraffic(result, "total"), dams);
     }
@@ -188,13 +233,13 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     @NotNull
     public List<DDRemoteDamSession> getSessions(@NotNull UUID accountId) throws DDRemoteDamException {
         return readSessions(request(SESSIONS_OPERATION, SESSIONS_QUERY,
-            Map.of("accountId", Objects.requireNonNull(accountId).toString()), SESSIONS_FIELD));
+            Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString()), SESSIONS_FIELD));
     }
 
     @NotNull
     public CompletionStage<List<DDRemoteDamSession>> getSessionsAsync(@NotNull UUID accountId) {
         return requestAsync(SESSIONS_OPERATION, SESSIONS_QUERY,
-            Map.of("accountId", Objects.requireNonNull(accountId).toString()), SESSIONS_FIELD, DDRemoteDamClient::readSessions);
+            Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString()), SESSIONS_FIELD, DDRemoteDamClient::readSessions);
     }
 
     @NotNull
@@ -286,12 +331,13 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
         }
         try {
             return new DDRemoteDam(
-                readString(dam, "damId"), readString(dam, "appDeploymentId"), readString(dam, "appInstanceId"),
+                readString(dam, DAM_ID), readString(dam, "appDeploymentId"), readString(dam, "appInstanceId"),
                 readString(dam, "workspaceId"), readString(dam, "product"), readString(dam, "version"),
                 readNullableString(dam, "remoteAddress"), readBooleanField(dam, "online"),
                 readNullableString(dam, "damSessionId"), readInstant(dam, "firstConnectedAt"), readInstant(dam, "lastConnectedAt"),
-                readNullableInstant(dam, "lastDisconnectedAt"), readNullableString(dam, "clientDamId"), (int) sessionCount,
-                readApplications(dam.get("applications")), readRemoteAddresses(dam.get("remoteAddresses"))
+                readNullableInstant(dam, "lastDisconnectedAt"), readNullableString(dam, CLIENT_DAM_ID), (int) sessionCount,
+                readApplications(dam.get("applications")), readRemoteAddresses(dam.get("remoteAddresses")),
+                readNullableString(dam, DAM_NAME)
             );
         } catch (IllegalArgumentException e) {
             throw invalidResponse();
@@ -410,7 +456,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
 
     @NotNull
     private static Map<String, ?> damVariables(@NotNull UUID accountId, @NotNull UUID damId) {
-        return Map.of("accountId", Objects.requireNonNull(accountId).toString(), "damId", Objects.requireNonNull(damId).toString());
+        return Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString(), DAM_ID, Objects.requireNonNull(damId).toString());
     }
 
     @NotNull
@@ -431,7 +477,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
             throw new IllegalArgumentException("A session ID is required");
         }
         return Map.of(
-            "accountId", Objects.requireNonNull(accountId).toString(), "damSessionId", damSessionId,
+            ACCOUNT_ID, Objects.requireNonNull(accountId).toString(), "damSessionId", damSessionId,
             "message", Objects.requireNonNull(message)
         );
     }
@@ -460,7 +506,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
         Map<String, Object> input = new HashMap<>();
         input.put("subscriberId", subscriberId);
         input.put("subscriptionId", Objects.requireNonNull(subscriptionId).toString());
-        input.put("accountId", Objects.requireNonNull(accountId).toString());
+        input.put(ACCOUNT_ID, Objects.requireNonNull(accountId).toString());
         input.put("damSessionId", damSessionId);
         input.put("topic", topic);
         input.put("callbackUrl", callbackUrl);

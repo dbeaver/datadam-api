@@ -39,8 +39,11 @@ public record DDRemoteDam(
     @Nullable String clientDamId,
     int sessionCount,
     @NotNull List<Application> applications,
-    @NotNull List<String> remoteAddresses
+    @NotNull List<String> remoteAddresses,
+    @Nullable String damName
 ) {
+    public static final int MAX_DAM_NAME_LENGTH = 256;
+
     public DDRemoteDam {
         DDRemoteDamMessage.requireText(damId, "damId");
         DDRemoteDamMessage.requireText(appDeploymentId, "appDeploymentId");
@@ -68,6 +71,43 @@ public record DDRemoteDam(
         applications = List.copyOf(applications);
         remoteAddresses = List.copyOf(remoteAddresses);
         remoteAddresses.forEach(address -> DDRemoteDamMessage.requireText(address, "remoteAddress"));
+        if (damName != null) {
+            damName = normalizeName(damName);
+        }
+    }
+
+    public DDRemoteDam(
+        @NotNull String damId,
+        @NotNull String appDeploymentId,
+        @NotNull String appInstanceId,
+        @NotNull String workspaceId,
+        @NotNull String product,
+        @NotNull String version,
+        @Nullable String remoteAddress,
+        boolean online,
+        @Nullable String damSessionId,
+        @NotNull Instant firstConnectedAt,
+        @NotNull Instant lastConnectedAt,
+        @Nullable Instant lastDisconnectedAt,
+        @Nullable String clientDamId,
+        int sessionCount,
+        @NotNull List<Application> applications,
+        @NotNull List<String> remoteAddresses
+    ) {
+        this(damId, appDeploymentId, appInstanceId, workspaceId, product, version, remoteAddress, online, damSessionId,
+            firstConnectedAt, lastConnectedAt, lastDisconnectedAt, clientDamId, sessionCount, applications, remoteAddresses, null);
+    }
+
+    @NotNull
+    public static String normalizeName(@NotNull String damName) {
+        String name = Objects.requireNonNull(damName, "damName").strip();
+        if (name.isBlank()) {
+            throw new IllegalArgumentException("A Dam name is required");
+        }
+        if (name.codePointCount(0, name.length()) > MAX_DAM_NAME_LENGTH) {
+            throw new IllegalArgumentException("Dam name must not exceed " + MAX_DAM_NAME_LENGTH + " Unicode code points");
+        }
+        return name;
     }
 
     public record Application(@NotNull String product, @NotNull String version) {

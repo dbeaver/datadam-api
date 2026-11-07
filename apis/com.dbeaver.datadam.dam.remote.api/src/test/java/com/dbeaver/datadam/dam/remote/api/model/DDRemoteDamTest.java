@@ -16,6 +16,8 @@
  */
 package com.dbeaver.datadam.dam.remote.api.model;
 
+import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +26,36 @@ import java.util.List;
 
 class DDRemoteDamTest {
     @Test
+    void normalizesNamesWithoutChangingInternalWhitespace() {
+        String name = "Development  workstation";
+        String padded = "\u2003\t" + name + "\n ";
+
+        Assertions.assertEquals(name, DDRemoteDam.normalizeName(padded));
+        Assertions.assertEquals(name, dam(padded).damName());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> DDRemoteDam.normalizeName(" \t\u2003\n"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> dam(""));
+    }
+
+    @Test
+    void limitsNamesByUnicodeCodePointsAfterStrippingWhitespace() {
+        String name = "\uD83D\uDE80".repeat(DDRemoteDam.MAX_DAM_NAME_LENGTH);
+
+        Assertions.assertEquals(name, dam(" " + name + " ").damName());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> DDRemoteDam.normalizeName(name + "x"));
+    }
+
+    @Test
+    void retainsUnnamedDamsThroughBothConstructors() {
+        DDRemoteDam legacy = new DDRemoteDam(
+            "dam", "deployment", "instance", "workspace", "DBeaver", "26.3", null, false, null,
+            Instant.EPOCH, Instant.EPOCH, null, "client-dam", 0, List.of(), List.of()
+        );
+
+        Assertions.assertNull(legacy.damName());
+        Assertions.assertEquals(legacy, dam(null));
+    }
+
+    @Test
     void rejectsContradictoryOnlineAndSessionStates() {
         for (boolean online : new boolean[] {true, false}) {
             Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDam(
@@ -31,5 +63,13 @@ class DDRemoteDamTest {
                 Instant.EPOCH, Instant.EPOCH, null, "client-dam", online ? 1 : 0, List.of(), List.of()
             ));
         }
+    }
+
+    @NotNull
+    private static DDRemoteDam dam(@Nullable String damName) {
+        return new DDRemoteDam(
+            "dam", "deployment", "instance", "workspace", "DBeaver", "26.3", null, false, null,
+            Instant.EPOCH, Instant.EPOCH, null, "client-dam", 0, List.of(), List.of(), damName
+        );
     }
 }
