@@ -19,10 +19,8 @@ package com.dbeaver.datadam.share.api.model;
 import org.jkiss.code.NotNull;
 
 import java.util.List;
-import java.util.UUID;
 
 public record DDCreateConfigurationRequest(
-    @NotNull UUID configurationId,
     @NotNull String name,
     @NotNull List<DDCreateConfigurationPartRequest> parts
 ) {
