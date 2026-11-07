@@ -122,7 +122,7 @@ class DDRemoteDamClientTest {
         List<DDRemoteDam> expected = List.of(
             new DDRemoteDam("dam-online", "DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4", "192.0.2.10",
                 true, "session-1", FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null, "client-dam-1", 1,
-                List.of(new DDRemoteDam.Application("DBeaver", "26.2.4")), List.of("192.0.2.10")),
+                List.of(new DDRemoteDam.Application("DBeaver", "26.2.4")), List.of("192.0.2.10"), "Development workstation"),
             new DDRemoteDam("dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", "2001:db8::20",
                 false, null, FIRST_CONNECTED_AT, LAST_CONNECTED_AT, LAST_DISCONNECTED_AT, null, 0,
                 List.of(new DDRemoteDam.Application("DBeaver", "26.2.4")), List.of("2001:db8::20"))
@@ -140,7 +140,7 @@ class DDRemoteDamClientTest {
             assertTrue(query.contains("remoteDams(accountId: $accountId)"));
             for (String field : List.of("damId", "appDeploymentId", "appInstanceId", "workspaceId", "product", "version",
                 "remoteAddress", "online", "damSessionId", "firstConnectedAt", "lastConnectedAt", "lastDisconnectedAt",
-                "clientDamId", "sessionCount", "applications { product version }", "remoteAddresses")) {
+                "clientDamId", "sessionCount", "applications { product version }", "remoteAddresses", "damName")) {
                 assertTrue(query.contains(field), field);
             }
             assertEquals(Set.of("accountId"), body.getAsJsonObject("variables").keySet());
@@ -163,6 +163,7 @@ class DDRemoteDamClientTest {
         value.remove("damSessionId");
         value.remove("lastDisconnectedAt");
         value.remove("clientDamId");
+        value.remove("damName");
         JsonArray dams = new JsonArray();
         dams.add(value);
         respond(DAMS_FIELD, dams);
@@ -197,7 +198,7 @@ class DDRemoteDamClientTest {
             damId.toString(), "DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4", "192.0.2.10", true, "session-1",
             FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null, "client-dam-1", 2,
             List.of(new DDRemoteDam.Application("DBeaver", "26.2.4"), new DDRemoteDam.Application("DBeaver", "26.2.3")),
-            List.of("192.0.2.10", "2001:db8::20")
+            List.of("192.0.2.10", "2001:db8::20"), "Development workstation"
         ), client.getDam(ACCOUNT_ID, damId));
         JsonObject body = posted();
         assertEquals("RemoteDam", body.get("operationName").getAsString());
@@ -234,6 +235,38 @@ class DDRemoteDamClientTest {
 
         respond("remoteDam", JsonNull.INSTANCE);
         assertNull(client.getDam(ACCOUNT_ID, damId));
+    }
+
+    @Test
+    void renamesByClientIdWithOneRequestAndAcceptsAMissingDam() throws DDRemoteDamException {
+        String clientDamId = "client-dam-1";
+        JsonObject renamed = dam(true);
+        renamed.addProperty("damName", "Office");
+        respond("renameRemoteDamByClientId", renamed);
+
+        DDRemoteDam result = client.renameDamByClientId(ACCOUNT_ID, clientDamId, "  Office  ");
+
+        assertNotNull(result);
+        assertEquals("dam-online", result.damId());
+        assertEquals(clientDamId, result.clientDamId());
+        assertEquals("Office", result.damName());
+        assertEquals(1, requestCount.get());
+        JsonObject body = posted();
+        assertEquals("RenameRemoteDamByClientId", body.get("operationName").getAsString());
+        JsonObject variables = body.getAsJsonObject("variables");
+        assertEquals(Set.of("accountId", "clientDamId", "damName"), variables.keySet());
+        assertEquals(ACCOUNT_ID.toString(), variables.get("accountId").getAsString());
+        assertEquals(clientDamId, variables.get("clientDamId").getAsString());
+        assertEquals("Office", variables.get("damName").getAsString());
+        assertTrue(body.get("query").getAsString()
+            .contains("renameRemoteDamByClientId(accountId: $accountId, clientDamId: $clientDamId, damName: $damName)"));
+
+        respond("renameRemoteDamByClientId", JsonNull.INSTANCE);
+        assertNull(client.renameDamByClientId(OTHER_ACCOUNT_ID, clientDamId, "Office"));
+        assertEquals(OTHER_ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
+        assertThrows(IllegalArgumentException.class, () -> client.renameDamByClientId(ACCOUNT_ID, " ", "Office"));
+        assertThrows(IllegalArgumentException.class, () -> client.renameDamByClientId(ACCOUNT_ID, clientDamId, "a\u0000b"));
+        assertEquals(2, requestCount.get());
     }
 
     @Test
@@ -1258,6 +1291,7 @@ class DDRemoteDamClientTest {
         dam.addProperty("lastConnectedAt", LAST_CONNECTED_AT.toString());
         dam.addProperty("clientDamId", online ? "client-dam-1" : null);
         dam.addProperty("sessionCount", online ? 1 : 0);
+        dam.addProperty("damName", online ? "Development workstation" : null);
         JsonObject application = new JsonObject();
         application.addProperty("product", "DBeaver");
         application.addProperty("version", "26.2.4");
