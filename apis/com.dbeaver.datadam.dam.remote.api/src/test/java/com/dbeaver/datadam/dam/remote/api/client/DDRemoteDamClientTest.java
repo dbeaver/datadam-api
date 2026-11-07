@@ -238,6 +238,38 @@ class DDRemoteDamClientTest {
     }
 
     @Test
+    void renamesByClientIdWithOneRequestAndAcceptsAMissingDam() throws DDRemoteDamException {
+        String clientDamId = "client-dam-1";
+        JsonObject renamed = dam(true);
+        renamed.addProperty("damName", "Office");
+        respond("renameRemoteDamByClientId", renamed);
+
+        DDRemoteDam result = client.renameDamByClientId(ACCOUNT_ID, clientDamId, "  Office  ");
+
+        assertNotNull(result);
+        assertEquals("dam-online", result.damId());
+        assertEquals(clientDamId, result.clientDamId());
+        assertEquals("Office", result.damName());
+        assertEquals(1, requestCount.get());
+        JsonObject body = posted();
+        assertEquals("RenameRemoteDamByClientId", body.get("operationName").getAsString());
+        JsonObject variables = body.getAsJsonObject("variables");
+        assertEquals(Set.of("accountId", "clientDamId", "damName"), variables.keySet());
+        assertEquals(ACCOUNT_ID.toString(), variables.get("accountId").getAsString());
+        assertEquals(clientDamId, variables.get("clientDamId").getAsString());
+        assertEquals("Office", variables.get("damName").getAsString());
+        assertTrue(body.get("query").getAsString()
+            .contains("renameRemoteDamByClientId(accountId: $accountId, clientDamId: $clientDamId, damName: $damName)"));
+
+        respond("renameRemoteDamByClientId", JsonNull.INSTANCE);
+        assertNull(client.renameDamByClientId(OTHER_ACCOUNT_ID, clientDamId, "Office"));
+        assertEquals(OTHER_ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
+        assertThrows(IllegalArgumentException.class, () -> client.renameDamByClientId(ACCOUNT_ID, " ", "Office"));
+        assertThrows(IllegalArgumentException.class, () -> client.renameDamByClientId(ACCOUNT_ID, clientDamId, "a\u0000b"));
+        assertEquals(2, requestCount.get());
+    }
+
+    @Test
     void queriesAccountAndDamTrafficWithoutLosingLongPrecision() throws DDRemoteDamException {
         UUID damId = UUID.fromString("ef023ec7-f47f-43cc-bc22-a9f5895f113a");
         DDRemoteDamTraffic traffic = new DDRemoteDamTraffic(9007199254740993L, Long.MAX_VALUE);

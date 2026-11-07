@@ -51,6 +51,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     private static final String DAM_FIELD = "remoteDam";
     private static final String DAM_BY_CLIENT_ID_FIELD = "remoteDamByClientId";
     private static final String RENAME_FIELD = "renameRemoteDam";
+    private static final String RENAME_BY_CLIENT_ID_FIELD = "renameRemoteDamByClientId";
     private static final String DAM_HISTORY_FIELD = "remoteDamHistory";
     private static final String SESSIONS_FIELD = "remoteDamSessions";
     private static final String SESSION_ACCOUNT_FIELD = "remoteDamSessionAccount";
@@ -59,6 +60,7 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     private static final String DAM_OPERATION = "RemoteDam";
     private static final String DAM_BY_CLIENT_ID_OPERATION = "RemoteDamByClientId";
     private static final String RENAME_OPERATION = "RenameRemoteDam";
+    private static final String RENAME_BY_CLIENT_ID_OPERATION = "RenameRemoteDamByClientId";
     private static final String DAM_HISTORY_OPERATION = "RemoteDamHistory";
     private static final String SESSIONS_OPERATION = "RemoteDamSessions";
     private static final String SESSION_ACCOUNT_OPERATION = "RemoteDamSessionAccount";
@@ -93,6 +95,15 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
     private static final String RENAME_MUTATION = """
         mutation RenameRemoteDam($accountId: ID!, $damId: ID!, $damName: String!) {
             renameRemoteDam(accountId: $accountId, damId: $damId, damName: $damName) {
+                damId appDeploymentId appInstanceId workspaceId product version remoteAddress online damSessionId
+                firstConnectedAt lastConnectedAt lastDisconnectedAt
+                clientDamId sessionCount applications { product version } remoteAddresses damName
+            }
+        }
+        """;
+    private static final String RENAME_BY_CLIENT_ID_MUTATION = """
+        mutation RenameRemoteDamByClientId($accountId: ID!, $clientDamId: String!, $damName: String!) {
+            renameRemoteDamByClientId(accountId: $accountId, clientDamId: $clientDamId, damName: $damName) {
                 damId appDeploymentId appInstanceId workspaceId product version remoteAddress online damSessionId
                 firstConnectedAt lastConnectedAt lastDisconnectedAt
                 clientDamId sessionCount applications { product version } remoteAddresses damName
@@ -187,6 +198,21 @@ public final class DDRemoteDamClient extends DDRemoteDamGraphQlClient {
         JsonElement result = request(RENAME_OPERATION, RENAME_MUTATION,
             Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString(), DAM_ID, Objects.requireNonNull(damId).toString(),
                 DAM_NAME, DDRemoteDam.normalizeName(damName)), RENAME_FIELD);
+        return result.isJsonNull() ? null : readDam(result);
+    }
+
+    @Nullable
+    public DDRemoteDam renameDamByClientId(
+        @NotNull UUID accountId,
+        @NotNull String clientDamId,
+        @NotNull String damName
+    ) throws DDRemoteDamException {
+        if (clientDamId.isBlank() || clientDamId.length() > DDRemoteDamHandshakeRequest.MAX_CLIENT_DAM_ID_LENGTH) {
+            throw new IllegalArgumentException("Invalid client Dam ID");
+        }
+        JsonElement result = request(RENAME_BY_CLIENT_ID_OPERATION, RENAME_BY_CLIENT_ID_MUTATION,
+            Map.of(ACCOUNT_ID, Objects.requireNonNull(accountId).toString(), CLIENT_DAM_ID, clientDamId,
+                DAM_NAME, DDRemoteDam.normalizeName(damName)), RENAME_BY_CLIENT_ID_FIELD);
         return result.isJsonNull() ? null : readDam(result);
     }
 
