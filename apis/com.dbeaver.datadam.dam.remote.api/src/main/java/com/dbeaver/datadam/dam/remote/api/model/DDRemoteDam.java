@@ -22,6 +22,7 @@ import org.jkiss.code.Nullable;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 public record DDRemoteDam(
     @NotNull String damId,
@@ -43,6 +44,7 @@ public record DDRemoteDam(
     @Nullable String damName
 ) {
     public static final int MAX_DAM_NAME_LENGTH = 256;
+    private static final Pattern NAME_EDGE_WHITESPACE = Pattern.compile("\\A[\\s\\p{Z}\\x{FEFF}]+|[\\s\\p{Z}\\x{FEFF}]+\\z");
 
     public DDRemoteDam {
         DDRemoteDamMessage.requireText(damId, "damId");
@@ -72,7 +74,7 @@ public record DDRemoteDam(
         remoteAddresses = List.copyOf(remoteAddresses);
         remoteAddresses.forEach(address -> DDRemoteDamMessage.requireText(address, "remoteAddress"));
         if (damName != null) {
-            damName = normalizeName(damName);
+            damName = normalizeStoredName(damName);
         }
     }
 
@@ -100,7 +102,20 @@ public record DDRemoteDam(
 
     @NotNull
     public static String normalizeName(@NotNull String damName) {
-        String name = Objects.requireNonNull(damName, "damName").strip();
+        String name = NAME_EDGE_WHITESPACE.matcher(Objects.requireNonNull(damName, "damName")).replaceAll("");
+        if (name.codePoints().allMatch(codePoint ->
+            Character.isSpaceChar(codePoint) || Character.getType(codePoint) == Character.FORMAT)) {
+            throw new IllegalArgumentException("A Dam name is required");
+        }
+        if (name.codePoints().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("Dam name must not contain control characters");
+        }
+        return normalizeStoredName(name);
+    }
+
+    @NotNull
+    private static String normalizeStoredName(@NotNull String damName) {
+        String name = damName.strip();
         if (name.isBlank()) {
             throw new IllegalArgumentException("A Dam name is required");
         }

@@ -37,6 +37,31 @@ class DDRemoteDamTest {
     }
 
     @Test
+    void rejectsInvisibleOnlyNamesAndControlCharacters() {
+        for (String name : List.of(
+            "\u00A0", "\u2007", "\u202F", "\u200B", " \u00A0\u200B\u200C\u200D ",
+            "a\u0000b", "a\nb", "a\u0085b", "\u001CName"
+        )) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> DDRemoteDam.normalizeName(name));
+        }
+    }
+
+    @Test
+    void preservesNameContentAndTrimsUnicodeEdgeWhitespace() {
+        for (String name : List.of("Office\u00A0West", "Data\u200CDam", "\uD83D\uDC69\u200D\uD83D\uDCBB")) {
+            String padded = "\u00A0\u2007\u202F\uFEFF" + name + "\uFEFF\u202F\u2007\u00A0";
+            Assertions.assertEquals(name, DDRemoteDam.normalizeName(padded));
+        }
+    }
+
+    @Test
+    void keepsPreviouslyStoredNamesReadable() {
+        for (String name : List.of("\u00A0", "\u200B", "a\tb")) {
+            Assertions.assertEquals(name, dam(name).damName());
+        }
+    }
+
+    @Test
     void limitsNamesByUnicodeCodePointsAfterStrippingWhitespace() {
         String name = "\uD83D\uDE80".repeat(DDRemoteDam.MAX_DAM_NAME_LENGTH);
 
