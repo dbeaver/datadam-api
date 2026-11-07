@@ -25,7 +25,8 @@ public record DDConfigurationPart(
     @NotNull String key,
     @NotNull DDConfigurationPartKind kind,
     @Nullable UUID projectId,
-    long version,
+    @NotNull String fingerprint,
     @NotNull String encryptedValue
 ) {
+    public static final String LEGACY_FINGERPRINT_PREFIX = "legacy-version:";
 }

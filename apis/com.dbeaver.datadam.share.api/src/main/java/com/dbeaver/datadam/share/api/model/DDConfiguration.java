@@ -26,7 +26,6 @@ import java.util.UUID;
 public record DDConfiguration(
     @NotNull UUID configurationId,
     @NotNull String name,
-    long version,
     @NotNull LocalDateTime createTime,
     @Nullable LocalDateTime lastSyncTime,
     @NotNull List<DDConfigurationPart> parts
