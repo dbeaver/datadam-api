@@ -14,16 +14,14 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.mcp.api.exception;
+package com.dbeaver.datadam.dam.remote.api.rpc;
 
+import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSettings;
 import org.jkiss.code.NotNull;
 
-public class DDMcpStatusException extends Exception {
-    public DDMcpStatusException(@NotNull String message) {
-        super(message);
-    }
+public interface DDRemoteDamSettingsService {
+    String SERVICE_ID = "dbeaver.dam.settings";
 
-    public DDMcpStatusException(@NotNull String message, @NotNull Throwable cause) {
-        super(message, cause);
-    }
+    void updateSettings(@NotNull DDRemoteDamSettings settings) throws DDRemoteDamException;
 }

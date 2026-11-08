@@ -11,7 +11,12 @@ See [Messaging](MESSAGING.md) for the neutral request/reply and typed RPC contra
 
 The WebSocket handshake sends `DDRemoteDamHandshakeRequest` with `appDeploymentId`, `appInstanceId`, `workspaceId`,
 `clientDamId`, `product`, and `version`, in that constructor order. All six fields are mandatory.
-`DDRemoteDamHandshakeResponse` returns the assigned `damSessionId`. Wire control types remain
+`DDRemoteDamHandshakeResponse` returns the assigned `damSessionId` and `DDRemoteDamSettings`, containing immutable
+`account` and `dam` string maps. The desktop applies this snapshot before registering settings-dependent services
+and registers `DDRemoteDamSettingsService` (`dbeaver.dam.settings`) for subsequent complete snapshots. A missing
+settings field from an older broker produces empty maps; MCP remains disabled until explicitly enabled for the DAM.
+Setting keys are declared in `DDRemoteDamSettingKeys`. Settings reads and writes use Account GraphQL.
+Wire control types remain
 `hello` and `ready`, and the WebSocket path remains `/ws`. Control messages have `type` and an object `payload`;
 application messages additionally have `topic`. Application messages may use any nonblank type, including the control
 type names.
