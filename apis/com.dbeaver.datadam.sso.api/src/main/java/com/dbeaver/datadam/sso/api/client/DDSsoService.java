@@ -16,11 +16,8 @@
  */
 package com.dbeaver.datadam.sso.api.client;
 
-import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
-import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenResponse;
 import org.jkiss.code.NotNull;
@@ -59,14 +56,5 @@ public class DDSsoService {
             throw new DDSsoClientException("Invalid SSO token response");
         }
         return verifier.verifyIdentity(token.idToken());
-    }
-
-    @NotNull
-    public String approveLogin(@NotNull DDSsoLoginApprovalRequest request) throws DDSsoClientException {
-        DDSsoLoginApprovalResponse approval = client.approveLogin(request);
-        if (approval.completion() == null || !DDSsoConstants.BASE64URL_256_PATTERN.matcher(approval.completion()).matches()) {
-            throw new DDSsoClientException("Invalid SSO login approval response");
-        }
-        return endpoint(DDSsoConstants.LOGIN_RESUME_PATH) + "?completion=" + approval.completion();
     }
 }

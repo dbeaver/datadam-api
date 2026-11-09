@@ -17,10 +17,7 @@
 package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
-import com.dbeaver.datadam.sso.api.DDSsoLoginApi;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
-import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoRefreshRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenResponse;
@@ -46,14 +43,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Uses the public issuer for tokens/keys and the backchannel for approvals. Returned tokens and keys are unverified. */
-public class DDSsoClient extends AbstractRestClient implements DDSsoLoginApi {
+/** HTTP transport for public SSO endpoints. Returned tokens and keys are unverified. */
+public class DDSsoClient extends AbstractRestClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
     private final DDSsoClientConfig properties;
 
     public DDSsoClient(@NotNull DDSsoClientConfig properties) {
-        super(CommonUtils.removeTrailingSlash(properties.backchannelUrl() != null && !properties.backchannelUrl().isBlank()
-                ? properties.backchannelUrl() : properties.issuer()),
+        super(CommonUtils.removeTrailingSlash(properties.issuer()),
             DEFAULT_CONNECT_TIMEOUT, READ_TIMEOUT_MILLIS, List.of(), HttpClient.Redirect.NEVER);
         this.properties = properties;
         gson = GsonUtils.gsonBuilder().registerTypeAdapter(Instant.class, new GsonUtils.InstantIsoAdapter()).create();
@@ -99,17 +95,6 @@ public class DDSsoClient extends AbstractRestClient implements DDSsoLoginApi {
         }
         return postResponse(endpoint(DDSsoConstants.TOKEN_PATH), parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
-    }
-
-    @Override
-    @NotNull
-    public DDSsoLoginApprovalResponse approveLogin(@NotNull DDSsoLoginApprovalRequest request) throws DDSsoClientException {
-        try {
-            return postResponse(buildUri(CommonUtils.removeLeadingSlash(DDSsoConstants.LOGIN_APPROVE_PATH), Map.of()), request,
-                MediaType.JSON, DDSsoLoginApprovalResponse.class, "Invalid SSO login approval response");
-        } catch (DBException e) {
-            throw new DDSsoClientException("SSO request failed");
-        }
     }
 
     @NotNull
