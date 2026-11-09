@@ -30,6 +30,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DDRemoteDamProtocolTest {
     @Test
@@ -88,6 +89,7 @@ class DDRemoteDamProtocolTest {
         for (String clientDamId : List.of(
             "A", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", "a".repeat(2048)
         )) {
+            assertTrue(DDRemoteDamHandshakeRequest.isValidClientDamId(clientDamId));
             DDRemoteDamHandshakeRequest hello = new DDRemoteDamHandshakeRequest(
                 "DI_remoteDam", "run-1", "workspace-1", clientDamId, "DBeaver", "26.2.4");
 
@@ -102,6 +104,7 @@ class DDRemoteDamProtocolTest {
         for (String clientDamId : new String[] {
             null, "", " ", "\t\n", "a".repeat(2049), "a+b", "a/b", "YQ=", "YQ==", "a b", "a\nb", "a:b", "a.b", "é"
         }) {
+            assertFalse(DDRemoteDamHandshakeRequest.isValidClientDamId(clientDamId));
             assertThrows(IllegalArgumentException.class, () ->
                 new DDRemoteDamHandshakeRequest("DI_remoteDam", "run-1", "workspace-1", clientDamId, "DBeaver", "26.2.4"));
             JsonObject invalid = JsonParser.parseString(valid).getAsJsonObject();
