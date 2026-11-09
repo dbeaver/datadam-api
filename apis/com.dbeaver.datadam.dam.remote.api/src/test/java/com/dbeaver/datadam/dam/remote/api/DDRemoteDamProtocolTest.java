@@ -19,11 +19,13 @@ package com.dbeaver.datadam.dam.remote.api;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeResponse;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSettings;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -110,14 +112,31 @@ class DDRemoteDamProtocolTest {
     }
 
     @Test
-    void roundTripsHandshakeResponseWithOnlyTheAssignedSessionId() {
-        DDRemoteDamHandshakeResponse ready = new DDRemoteDamHandshakeResponse("session-1");
+    void roundTripsHandshakeResponseWithAllSettings() {
+        DDRemoteDamHandshakeResponse ready = new DDRemoteDamHandshakeResponse("session-1",
+            new DDRemoteDamSettings(Map.of("feature", "false"), Map.of("label", "Desktop")));
         String encoded = DDRemoteDamProtocol.encodeHandshakeResponse(ready);
         JsonObject envelope = JsonParser.parseString(encoded).getAsJsonObject();
 
         assertEquals(ready, DDRemoteDamProtocol.decodeHandshakeResponse(encoded));
         assertEquals("ready", envelope.get("type").getAsString());
-        assertEquals(1, envelope.getAsJsonObject("payload").size());
+        assertEquals(2, envelope.getAsJsonObject("payload").size());
+    }
+
+    @Test
+    void missingSettingsFromOlderBrokerDefaultToEmpty() {
+        assertEquals(DDRemoteDamSettings.EMPTY, DDRemoteDamProtocol.decodeHandshakeResponse(
+            "{\"type\":\"ready\",\"payload\":{\"damSessionId\":\"session\"}}").settings());
+        assertFalse(DDRemoteDamSettings.EMPTY.isEnabled(DDRemoteDamSettingKeys.MCP_ENABLED, true, false));
+    }
+
+    @Test
+    void rejectsMalformedInitialSettings() {
+        for (String settings : List.of("null", "[]", "{}", "{\"account\":{},\"dam\":null}",
+            "{\"account\":{},\"dam\":{\"feature\":true}}")) {
+            String message = "{\"type\":\"ready\",\"payload\":{\"damSessionId\":\"session\",\"settings\":" + settings + "}}";
+            assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeHandshakeResponse(message));
+        }
     }
 
     @Test

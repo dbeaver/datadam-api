@@ -14,10 +14,9 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.mcp.api.model;
+package com.dbeaver.datadam.dam.remote.api.model;
 
-public enum DDMcpStatus {
-    ENABLED,
-    DISABLED,
-    GLOBALLY_DISABLED
+import org.jkiss.code.NotNull;
+
+public record DDRemoteDamSessionSettings(@NotNull String damSessionId, @NotNull DDRemoteDamSettings settings) {
 }

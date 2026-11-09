@@ -80,7 +80,8 @@ public final class DDRemoteDamCallbackClient extends DDRemoteDamGraphQlClient {
         return Map.of(
             "subscriptionId", Objects.requireNonNull(subscriptionId).toString(),
             "accountId", Objects.requireNonNull(accountId).toString(),
-            "session", Objects.requireNonNull(session), "message", Objects.requireNonNull(message)
+            "session", Map.of("appDeploymentId", session.appDeploymentId(), "appInstanceId", session.appInstanceId(),
+                "damSessionId", session.damSessionId()), "message", Objects.requireNonNull(message)
         );
     }
 

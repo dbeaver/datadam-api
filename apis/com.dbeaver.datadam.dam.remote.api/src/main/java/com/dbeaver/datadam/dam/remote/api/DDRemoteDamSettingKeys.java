@@ -14,17 +14,11 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.mcp.api.service.desktop;
+package com.dbeaver.datadam.dam.remote.api;
 
-import com.dbeaver.datadam.mcp.api.exception.DDMcpStatusException;
-import com.dbeaver.datadam.mcp.api.model.DDMcpStatus;
-import org.jkiss.code.NotNull;
+public final class DDRemoteDamSettingKeys {
+    public static final String MCP_ENABLED = "mcp.enabled";
 
-/**
- * Implemented by desktop; DataDam calls it to apply a changed MCP status.
- */
-public interface DDMcpDesktopStatusService {
-    String SERVICE_ID = "dbeaver.mcp.status";
-
-    void setStatus(@NotNull DDMcpStatus status) throws DDMcpStatusException;
+    private DDRemoteDamSettingKeys() {
+    }
 }

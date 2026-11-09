@@ -21,9 +21,15 @@ import org.jkiss.code.NotNull;
 public record DDRemoteDamSessionInfo(
     @NotNull String appDeploymentId,
     @NotNull String appInstanceId,
-    @NotNull String damSessionId
+    @NotNull String damSessionId,
+    @NotNull DDRemoteDamSettings settings
 ) {
+    public DDRemoteDamSessionInfo(@NotNull String appDeploymentId, @NotNull String appInstanceId, @NotNull String damSessionId) {
+        this(appDeploymentId, appInstanceId, damSessionId, DDRemoteDamSettings.EMPTY);
+    }
+
     public DDRemoteDamSessionInfo {
+        java.util.Objects.requireNonNull(settings);
         DDRemoteDamMessage.requireText(appDeploymentId, "appDeploymentId");
         DDRemoteDamMessage.requireText(appInstanceId, "appInstanceId");
         DDRemoteDamMessage.requireText(damSessionId, "damSessionId");

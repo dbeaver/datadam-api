@@ -18,8 +18,16 @@ package com.dbeaver.datadam.dam.remote.api.model;
 
 import org.jkiss.code.NotNull;
 
-public record DDRemoteDamHandshakeResponse(@NotNull String damSessionId) {
+public record DDRemoteDamHandshakeResponse(
+    @NotNull String damSessionId,
+    @NotNull DDRemoteDamSettings settings
+) {
+    public DDRemoteDamHandshakeResponse(@NotNull String damSessionId) {
+        this(damSessionId, DDRemoteDamSettings.EMPTY);
+    }
+
     public DDRemoteDamHandshakeResponse {
+        java.util.Objects.requireNonNull(settings);
         DDRemoteDamMessage.requireText(damSessionId, "damSessionId");
     }
 }

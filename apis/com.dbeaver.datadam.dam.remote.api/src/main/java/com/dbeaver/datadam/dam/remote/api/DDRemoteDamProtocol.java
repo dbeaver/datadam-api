@@ -19,11 +19,17 @@ package com.dbeaver.datadam.dam.remote.api;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeResponse;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSettings;
+import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public final class DDRemoteDamProtocol {
     public static final String WEBSOCKET_PATH = "/ws";
@@ -90,12 +96,38 @@ public final class DDRemoteDamProtocol {
     public static String encodeHandshakeResponse(@NotNull DDRemoteDamHandshakeResponse ready) {
         JsonObject payload = new JsonObject();
         payload.addProperty(FIELD_DAM_SESSION_ID, ready.damSessionId());
+        payload.add("settings", new Gson().toJsonTree(ready.settings()));
         return envelope(TYPE_HANDSHAKE_RESPONSE, payload).toString();
     }
 
     @NotNull
     public static DDRemoteDamHandshakeResponse decodeHandshakeResponse(@NotNull String message) {
-        return new DDRemoteDamHandshakeResponse(readString(readControlPayload(message, TYPE_HANDSHAKE_RESPONSE), FIELD_DAM_SESSION_ID));
+        JsonObject payload = readControlPayload(message, TYPE_HANDSHAKE_RESPONSE);
+        DDRemoteDamSettings settings = DDRemoteDamSettings.EMPTY;
+        if (payload.has("settings")) {
+            JsonElement value = payload.get("settings");
+            if (!value.isJsonObject()) {
+                throw new IllegalArgumentException("Expected a settings object");
+            }
+            settings = new DDRemoteDamSettings(readSettings(value.getAsJsonObject().get("account")),
+                readSettings(value.getAsJsonObject().get("dam")));
+        }
+        return new DDRemoteDamHandshakeResponse(readString(payload, FIELD_DAM_SESSION_ID), settings);
+    }
+
+    @NotNull
+    private static Map<String, String> readSettings(@Nullable JsonElement value) {
+        if (value == null || !value.isJsonObject()) {
+            throw new IllegalArgumentException("Expected a settings map");
+        }
+        Map<String, String> settings = new HashMap<>();
+        for (var entry : value.getAsJsonObject().entrySet()) {
+            if (!entry.getValue().isJsonPrimitive() || !entry.getValue().getAsJsonPrimitive().isString()) {
+                throw new IllegalArgumentException("Expected a string setting value");
+            }
+            settings.put(entry.getKey(), entry.getValue().getAsString());
+        }
+        return settings;
     }
 
     @NotNull
