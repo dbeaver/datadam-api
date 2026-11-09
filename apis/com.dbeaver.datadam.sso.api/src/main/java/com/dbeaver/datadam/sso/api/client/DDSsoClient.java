@@ -49,7 +49,8 @@ public class DDSsoClient extends AbstractRestClient {
     private final DDSsoClientConfig properties;
 
     public DDSsoClient(@NotNull DDSsoClientConfig properties) {
-        super(CommonUtils.removeTrailingSlash(properties.issuer()),
+        super(CommonUtils.removeTrailingSlash(properties.backchannelUrl() != null && !properties.backchannelUrl().isBlank()
+                ? properties.backchannelUrl() : properties.issuer()),
             DEFAULT_CONNECT_TIMEOUT, READ_TIMEOUT_MILLIS, List.of(), HttpClient.Redirect.NEVER);
         this.properties = properties;
         gson = GsonUtils.gsonBuilder().registerTypeAdapter(Instant.class, new GsonUtils.InstantIsoAdapter()).create();
@@ -78,7 +79,7 @@ public class DDSsoClient extends AbstractRestClient {
         if (request.resource() != null) {
             parameters.put(DDSsoConstants.PARAM_RESOURCE, request.resource());
         }
-        return postResponse(endpoint(DDSsoConstants.TOKEN_PATH), parameters, MediaType.FORM_URLENCODED,
+        return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
     }
 
@@ -93,14 +94,14 @@ public class DDSsoClient extends AbstractRestClient {
         if (request.scope() != null) {
             parameters.put(DDSsoConstants.PARAM_SCOPE, request.scope());
         }
-        return postResponse(endpoint(DDSsoConstants.TOKEN_PATH), parameters, MediaType.FORM_URLENCODED,
+        return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
     }
 
     @NotNull
     public String getJwks() throws DDSsoClientException {
         try {
-            byte[] bytes = execute(HttpRequest.newBuilder(endpoint(DDSsoConstants.JWKS_PATH)).GET(), byte[].class);
+            byte[] bytes = executeGetRequest(CommonUtils.removeLeadingSlash(DDSsoConstants.JWKS_PATH), byte[].class);
             return DDSsoJson.utf8(bytes);
         } catch (DBException | IOException e) {
             throw new DDSsoClientException("SSO request failed");
@@ -108,12 +109,10 @@ public class DDSsoClient extends AbstractRestClient {
     }
 
     @NotNull
-    private <T> T postResponse(@NotNull URI uri, @NotNull Object body, @NotNull MediaType mediaType,
+    private <T> T postResponse(@NotNull String path, @NotNull Object body, @NotNull MediaType mediaType,
         @NotNull Class<T> type, @NotNull String message) throws DDSsoClientException {
         try {
-            T response = execute(HttpRequest.newBuilder(uri)
-                .header(HttpConstants.HEADER_CONTENT_TYPE, mediaType.toString())
-                .POST(createBodyPublisher(body, mediaType)), type);
+            T response = executePostRequest(CommonUtils.removeLeadingSlash(path), Map.of(), body, mediaType, type);
             if (response == null) {
                 throw new DDSsoClientException(message);
             }
