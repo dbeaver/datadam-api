@@ -17,6 +17,7 @@
 package com.dbeaver.datadam.dam.remote.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 public record DDRemoteDamHandshakeRequest(
     @NotNull String appDeploymentId,
@@ -37,10 +38,14 @@ public record DDRemoteDamHandshakeRequest(
             throw new IllegalArgumentException("Invalid workspaceId");
         }
         DDRemoteDamMessage.requireText(clientDamId, "clientDamId");
-        if (clientDamId.length() > MAX_CLIENT_DAM_ID_LENGTH || !clientDamId.matches("[A-Za-z0-9_-]+")) {
+        if (!isValidClientDamId(clientDamId)) {
             throw new IllegalArgumentException("Invalid clientDamId");
         }
         DDRemoteDamMessage.requireText(product, "product");
         DDRemoteDamMessage.requireText(version, "version");
+    }
+
+    public static boolean isValidClientDamId(@Nullable String clientDamId) {
+        return clientDamId != null && clientDamId.length() <= MAX_CLIENT_DAM_ID_LENGTH && clientDamId.matches("[A-Za-z0-9_-]+");
     }
 }

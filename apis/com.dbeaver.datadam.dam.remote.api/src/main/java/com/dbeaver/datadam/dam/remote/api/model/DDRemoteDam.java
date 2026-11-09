@@ -22,6 +22,7 @@ import org.jkiss.code.Nullable;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 public record DDRemoteDam(
     @NotNull String damId,
@@ -39,8 +40,12 @@ public record DDRemoteDam(
     @Nullable String clientDamId,
     int sessionCount,
     @NotNull List<Application> applications,
-    @NotNull List<String> remoteAddresses
+    @NotNull List<String> remoteAddresses,
+    @Nullable String damName
 ) {
+    public static final int MAX_DAM_NAME_LENGTH = 256;
+    private static final Pattern NAME_EDGE_WHITESPACE = Pattern.compile("\\A[\\s\\p{Z}\\x{FEFF}]+|[\\s\\p{Z}\\x{FEFF}]+\\z");
+
     public DDRemoteDam {
         DDRemoteDamMessage.requireText(damId, "damId");
         DDRemoteDamMessage.requireText(appDeploymentId, "appDeploymentId");
@@ -68,6 +73,56 @@ public record DDRemoteDam(
         applications = List.copyOf(applications);
         remoteAddresses = List.copyOf(remoteAddresses);
         remoteAddresses.forEach(address -> DDRemoteDamMessage.requireText(address, "remoteAddress"));
+        if (damName != null) {
+            damName = normalizeStoredName(damName);
+        }
+    }
+
+    public DDRemoteDam(
+        @NotNull String damId,
+        @NotNull String appDeploymentId,
+        @NotNull String appInstanceId,
+        @NotNull String workspaceId,
+        @NotNull String product,
+        @NotNull String version,
+        @Nullable String remoteAddress,
+        boolean online,
+        @Nullable String damSessionId,
+        @NotNull Instant firstConnectedAt,
+        @NotNull Instant lastConnectedAt,
+        @Nullable Instant lastDisconnectedAt,
+        @Nullable String clientDamId,
+        int sessionCount,
+        @NotNull List<Application> applications,
+        @NotNull List<String> remoteAddresses
+    ) {
+        this(damId, appDeploymentId, appInstanceId, workspaceId, product, version, remoteAddress, online, damSessionId,
+            firstConnectedAt, lastConnectedAt, lastDisconnectedAt, clientDamId, sessionCount, applications, remoteAddresses, null);
+    }
+
+    @NotNull
+    public static String normalizeName(@NotNull String damName) {
+        String name = NAME_EDGE_WHITESPACE.matcher(Objects.requireNonNull(damName, "damName")).replaceAll("");
+        if (name.codePoints().allMatch(codePoint ->
+            Character.isSpaceChar(codePoint) || Character.getType(codePoint) == Character.FORMAT)) {
+            throw new IllegalArgumentException("A Dam name is required");
+        }
+        if (name.codePoints().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("Dam name must not contain control characters");
+        }
+        return normalizeStoredName(name);
+    }
+
+    @NotNull
+    private static String normalizeStoredName(@NotNull String damName) {
+        String name = damName.strip();
+        if (name.isBlank()) {
+            throw new IllegalArgumentException("A Dam name is required");
+        }
+        if (name.codePointCount(0, name.length()) > MAX_DAM_NAME_LENGTH) {
+            throw new IllegalArgumentException("Dam name must not exceed " + MAX_DAM_NAME_LENGTH + " Unicode code points");
+        }
+        return name;
     }
 
     public record Application(@NotNull String product, @NotNull String version) {
