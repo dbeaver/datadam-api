@@ -59,9 +59,18 @@ public class DDSsoAccountClient extends AbstractRestClient implements DDSsoAccou
         if (accessToken.isBlank() || accessToken.length() > MAX_TOKEN_LENGTH) {
             throw new DDSsoClientException("Invalid Account access token");
         }
+        return getAccessContext(HttpConstants.BEARER_PREFIX + accessToken);
+    }
+
+    @Override
+    @NotNull
+    public DDSsoAccessContextResponse getAccessContext(@NotNull String authorization) throws DDSsoClientException {
+        if (authorization.isBlank() || authorization.length() > MAX_TOKEN_LENGTH + HttpConstants.BEARER_PREFIX.length()) {
+            throw new DDSsoClientException("Invalid Account authorization header");
+        }
         try {
             HttpRequest.Builder request = HttpRequest.newBuilder(buildUri(CommonUtils.removeLeadingSlash(DDSsoConstants.ACCESS_CONTEXT_PATH), Map.of()))
-                .header(HttpConstants.HEADER_AUTHORIZATION, HttpConstants.BEARER_PREFIX + accessToken)
+                .header(HttpConstants.HEADER_AUTHORIZATION, authorization)
                 .header(DDSsoConstants.HEADER_SERVICE_TOKEN, serviceSecret)
                 .header(HttpConstants.HEADER_CACHE_CONTROL, HttpConstants.CACHE_CONTROL_NO_STORE)
                 .POST(createBodyPublisher(null, MediaType.JSON));

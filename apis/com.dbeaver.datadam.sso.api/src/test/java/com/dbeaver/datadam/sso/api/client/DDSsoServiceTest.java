@@ -501,14 +501,18 @@ class DDSsoServiceTest {
             .isInstanceOf(DDSsoClientException.class);
     }
 
-    @Test
-    void accountApiExchangesBearerTokenForTypedContextUsingServiceCredentials() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void accountApiExchangesBearerTokenForTypedContextUsingServiceCredentials(boolean rawToken) throws Exception {
         var expected = new DDSsoAccessContextResponse(UUID.randomUUID().toString(), UUID.randomUUID().toString(),
             "PERSONAL", "free-personal-v1", "FREE", "ACTIVE", NOW.plusSeconds(3600).getEpochSecond(), Set.of("account:read"));
         responseJson.set(gson.toJson(expected));
         DDSsoAccountApi account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
 
-        Assertions.assertThat(account.exchange("header.payload.signature")).isEqualTo(expected);
+        DDSsoAccessContextResponse response = rawToken
+            ? account.exchange("header.payload.signature")
+            : account.getAccessContext("Bearer header.payload.signature");
+        Assertions.assertThat(response).isEqualTo(expected);
         Assertions.assertThat(requestMethod).hasValue("POST");
         Assertions.assertThat(requestPath).hasValue(DDSsoConstants.ACCESS_CONTEXT_PATH);
         Assertions.assertThat(credentials).hasValue("Bearer header.payload.signature");
