@@ -17,15 +17,27 @@
 package com.dbeaver.datadam.dam.remote.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 public record DDRemoteDamSessionInfo(
     @NotNull String appDeploymentId,
     @NotNull String appInstanceId,
-    @NotNull String damSessionId
+    @NotNull String damSessionId,
+    @NotNull DDRemoteDamSettings settings
 ) {
+    public DDRemoteDamSessionInfo(@NotNull String appDeploymentId, @NotNull String appInstanceId, @NotNull String damSessionId) {
+        this(appDeploymentId, appInstanceId, damSessionId, DDRemoteDamSettings.EMPTY);
+    }
+
     public DDRemoteDamSessionInfo {
+        java.util.Objects.requireNonNull(settings);
         DDRemoteDamMessage.requireText(appDeploymentId, "appDeploymentId");
         DDRemoteDamMessage.requireText(appInstanceId, "appInstanceId");
         DDRemoteDamMessage.requireText(damSessionId, "damSessionId");
+    }
+
+    public boolean isSameSession(@Nullable DDRemoteDamSessionInfo other) {
+        return other != null && appDeploymentId.equals(other.appDeploymentId)
+            && appInstanceId.equals(other.appInstanceId) && damSessionId.equals(other.damSessionId);
     }
 }

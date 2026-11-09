@@ -19,6 +19,7 @@ package com.dbeaver.datadam.dam.remote.api.requestreply;
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSessionInfo;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSettings;
 import com.dbeaver.datadam.dam.remote.api.transport.DDRemoteDamChannel;
 import com.dbeaver.datadam.dam.remote.api.transport.DDRemoteDamChannelState;
 import com.dbeaver.datadam.dam.remote.api.transport.DDRemoteDamChannelStatus;
@@ -41,6 +42,7 @@ import org.junit.jupiter.api.Timeout;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -208,6 +210,25 @@ class DDRemoteDamRequestReplyTransportTest {
         Assertions.assertEquals(2, channel.subscriptions.size());
         Assertions.assertTrue(channel.subscriptions.stream().noneMatch(subscription -> subscription.active));
         Assertions.assertTrue(channel.observers.isEmpty());
+    }
+
+    @Test
+    void settingsChangesPreserveThePhysicalSessionAndAcceptEarlierSnapshotFrames() throws Exception {
+        FakeChannel channel = new FakeChannel();
+        DDRemoteDamRequestReplyTransport adapter = DDRemoteDamRequestReplyTransport.forChannel(channel, TOPIC);
+        UUID endpoint = UUID.randomUUID();
+        Received received = new Received();
+        try (var subscription = adapter.subscribe(endpoint, received)) {
+            adapter.send(request(endpoint)).toCompletableFuture().join();
+            DDRemoteDamMessage wire = channel.sent.getLast();
+            var updated = new DDRemoteDamSessionInfo(SESSION.appDeploymentId(), SESSION.appInstanceId(), SESSION.damSessionId(),
+                new DDRemoteDamSettings(Map.of("mcp.enabled", "false"), Map.of()));
+            channel.setStatus(new DDRemoteDamChannelStatus(DDRemoteDamChannelState.CONNECTED, updated));
+            channel.deliver(SESSION, wire);
+            channel.deliver(updated, wire);
+            Assertions.assertEquals(0, received.disconnects);
+            Assertions.assertEquals(2, received.messages.size());
+        }
     }
 
     @Test

@@ -11,7 +11,12 @@ See [Messaging](MESSAGING.md) for the neutral request/reply and typed RPC contra
 
 The WebSocket handshake sends `DDRemoteDamHandshakeRequest` with `appDeploymentId`, `appInstanceId`, `workspaceId`,
 `clientDamId`, `product`, and `version`, in that constructor order. All six fields are mandatory.
-`DDRemoteDamHandshakeResponse` returns the assigned `damSessionId`. Wire control types remain
+`DDRemoteDamHandshakeResponse` returns the assigned `damSessionId` and `DDRemoteDamSettings`, containing immutable
+`account` and `dam` string maps. The desktop applies this snapshot before registering settings-dependent services
+and registers `service.desktop.DDRemoteDamSettingsService` (`dbeaver.dam.settings`) for subsequent complete snapshots. A missing
+settings field from an older broker produces empty maps; MCP remains disabled until explicitly enabled for the DAM.
+Setting keys are declared in `DDRemoteDamSettingKeys`. Settings reads and writes use Account GraphQL.
+Wire control types remain
 `hello` and `ready`, and the WebSocket path remains `/ws`. Control messages have `type` and an object `payload`;
 application messages additionally have `topic`. Application messages may use any nonblank type, including the control
 type names.
@@ -32,7 +37,8 @@ and changes when Desktop restarts. `damSessionId` identifies one WebSocket trans
 Reconnects supersede the previous connection for the same account, client DAM identity and application instance.
 Different application instances can have independent connections to the same DAM.
 
-`DDRemoteDamSessionInfo` contains `appDeploymentId`, `appInstanceId`, and `damSessionId`.
+`DDRemoteDamSessionInfo` contains `appDeploymentId`, `appInstanceId`, `damSessionId`, and the handshake settings snapshot.
+Transport identity uses only the three session identifiers; updated settings do not replace a physical session.
 `DDRemoteDamSession` adds `product` and `version` for registry presentation. All fields are nonblank strings.
 Concurrent sessions may share deployment and instance IDs when their account or client DAM identity differs; consumers
 must use `damSessionId` to distinguish transport sessions. Deployment ID, product, and version are peer-supplied metadata, not
