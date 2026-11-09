@@ -43,7 +43,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** HTTP transport for public SSO endpoints. Returned tokens and keys are unverified. */
+/** HTTP transport for SSO endpoints. Returned tokens and keys are unverified. */
 public class DDSsoClient extends AbstractRestClient {
     private static final int READ_TIMEOUT_MILLIS = 10_000;
     private final DDSsoClientConfig properties;

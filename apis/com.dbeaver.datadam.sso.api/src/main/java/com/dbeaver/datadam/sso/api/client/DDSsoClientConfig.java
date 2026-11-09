@@ -21,11 +21,7 @@ import org.jkiss.code.Nullable;
 
 import java.time.Duration;
 
-/**
- * Protocol settings shared by SSO clients, independent of application session and flow configuration.
- * For the public SDK, {@code backchannelUrl} is the legacy name of the backend-reachable public API base URL
- * (token/refresh/JWKS), defaulting to {@code issuer}. Browser URLs and JWT issuer validation always use {@code issuer}.
- */
+/** Protocol settings shared by SSO clients, independent of application session and flow configuration. */
 public record DDSsoClientConfig(
     @NotNull String issuer,
     @Nullable String backchannelUrl,

@@ -22,7 +22,6 @@ import com.dbeaver.datadam.sso.api.model.DDSsoAccessIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoPublicJwk;
-import com.dbeaver.datadam.sso.api.model.DDSsoRefreshRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
@@ -38,7 +37,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.InetSocketAddress;
@@ -111,7 +109,7 @@ class DDSsoServiceTest {
             exchange.close();
         });
         server.start();
-        DDSsoClientConfig config = new DDSsoClientConfig("http://127.0.0.1:" + server.getAddress().getPort(),
+        DDSsoClientConfig config = new DDSsoClientConfig("https://sso.example.com",
             "http://127.0.0.1:" + server.getAddress().getPort(), "account", "test-secret",
             "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access");
         Clock clock = clock(ZoneOffset.UTC);
@@ -138,46 +136,6 @@ class DDSsoServiceTest {
             "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access"));
         Assertions.assertThat(configured.endpoint(DDSsoConstants.AUTHORIZE_PATH).toString()).isEqualTo(expected);
         Assertions.assertThat(configured.endpoint("authorize").toString()).isEqualTo(expected);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "/"})
-    void usesBackendPublicApiWithoutChangingBrowserUrlsOrJwtIssuer(@NotNull String trailingSlash) throws Exception {
-        String issuer = "https://browser.example.test/sso";
-        String publicApiBaseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + trailingSlash;
-        var config = new DDSsoClientConfig(issuer, publicApiBaseUrl, "account", "test-secret",
-            "https://account.example.com/sso/callback", "datadam-account", Duration.ofMinutes(5), null, "account:access");
-        var client = new DDSsoClient(config);
-        Clock clock = clock(ZoneOffset.UTC);
-        var tokenVerifier = new DDSsoTokenVerifier(config, new DDSsoJwksCache(client, config.jwksCacheTtl(), clock), clock);
-        var publicService = new DDSsoService(config, client, tokenVerifier);
-        var claims = claims();
-        claims.put("iss", issuer);
-        responseJson.set(gson.toJson(Map.of("access_token", "access", "expires_in", 300,
-            "id_token", signed(claims, header("key1")))));
-
-        Assertions.assertThat(publicService.exchangeCodeForIdentity("code", "verifier").subject()).isEqualTo("user-id");
-        Assertions.assertThat(jwksRequests).hasValue(1);
-        Assertions.assertThat(requestPath).hasValue("/token");
-        Assertions.assertThat(client.refresh(new DDSsoRefreshRequest("refresh", "account", null, null)).accessToken())
-            .isEqualTo("access");
-        Assertions.assertThat(posted.get()).contains("grant_type=refresh_token");
-        Assertions.assertThat(publicService.endpoint(DDSsoConstants.AUTHORIZE_PATH).toString()).isEqualTo(issuer + "/authorize");
-        Assertions.assertThat(publicService.endpoint(DDSsoConstants.LOGOUT_PATH).toString()).isEqualTo(issuer + "/logout");
-        claims.put("iss", publicApiBaseUrl);
-        String wrongIssuer = signed(claims, header("key1"));
-        Assertions.assertThatThrownBy(() -> tokenVerifier.verifyIdentity(wrongIssuer)).isInstanceOf(DDSsoClientException.class);
-    }
-
-    @ParameterizedTest
-    @NullAndEmptySource
-    @ValueSource(strings = " ")
-    void publicApiDefaultsToIssuer(@Nullable String publicApiBaseUrl) throws Exception {
-        var config = new DDSsoClientConfig("http://127.0.0.1:" + server.getAddress().getPort(), publicApiBaseUrl,
-            "account", "test-secret", "https://account.example.com/sso/callback", "datadam-account",
-            Duration.ofMinutes(5), null, "account:access");
-        Assertions.assertThat(new DDSsoClient(config).getJwks()).isEqualTo(keysJson.get());
-        Assertions.assertThat(jwksRequests).hasValue(1);
     }
 
     @ParameterizedTest
@@ -503,7 +461,7 @@ class DDSsoServiceTest {
 
     @Test
     void httpClientFormEncodesEachBasicCredentialBeforeBase64() throws Exception {
-        var config = new DDSsoClientConfig("http://127.0.0.1:" + server.getAddress().getPort(), "",
+        var config = new DDSsoClientConfig("https://sso.example.com", "http://127.0.0.1:" + server.getAddress().getPort(),
             "client:+ %é", "secret:+ %ß", "https://account.example.com/sso/callback", "account",
             Duration.ofMinutes(5), null, "account:access");
         responseJson.set(gson.toJson(Map.of("access_token", "access", "expires_in", 300)));
@@ -776,8 +734,8 @@ class DDSsoServiceTest {
     }
 
     @NotNull
-    private Map<String, Object> claims() {
-        return new HashMap<>(Map.of("iss", "http://127.0.0.1:" + server.getAddress().getPort(), "aud", "account", "sub", "user-id",
+    private static Map<String, Object> claims() {
+        return new HashMap<>(Map.of("iss", "https://sso.example.com", "aud", "account", "sub", "user-id",
             "email", "user@example.com", "source", "datadam-account", "token_use", "identity",
             "iat", NOW.getEpochSecond(), "exp", NOW.plusSeconds(300).getEpochSecond(), "auth_time", NOW.minusSeconds(60).getEpochSecond()));
     }
