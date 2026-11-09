@@ -17,6 +17,7 @@
 package com.dbeaver.datadam.dam.remote.api.model;
 
 import com.google.gson.JsonObject;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,5 +59,13 @@ class DDRemoteDamMessageTest {
         assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSessionInfo(" ", "run-1", "session-1"));
         assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSessionInfo("DI_remoteDam", " ", "session-1"));
         assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSessionInfo("DI_remoteDam", "run-1", " "));
+    }
+
+    @Test
+    void rejectsInvalidSessionSettings() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSessionSettings(null, DDRemoteDamSettings.EMPTY));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSessionSettings(" ", DDRemoteDamSettings.EMPTY));
+        Assertions.assertThrows(NullPointerException.class, () -> new DDRemoteDamSessionSettings("session", null));
+        Assertions.assertEquals(DDRemoteDamSettings.EMPTY, new DDRemoteDamSessionSettings("session", DDRemoteDamSettings.EMPTY).settings());
     }
 }
