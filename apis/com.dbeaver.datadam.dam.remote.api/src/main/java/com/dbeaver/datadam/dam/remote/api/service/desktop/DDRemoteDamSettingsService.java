@@ -14,7 +14,7 @@
  * is strictly forbidden unless prior written permission is obtained
  * from DBeaver Corp.
  */
-package com.dbeaver.datadam.dam.remote.api.rpc;
+package com.dbeaver.datadam.dam.remote.api.service.desktop;
 
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSettings;

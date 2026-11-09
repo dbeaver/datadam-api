@@ -325,7 +325,7 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
                 return false;
             }
             boolean disconnected = !next.isReady() || status != null && status.isReady()
-                && !Objects.equals(status.session(), next.session());
+                && !status.session().isSameSession(next.session());
             status = next;
             openingDisconnected |= opening && disconnected;
             return disconnected && enqueue(null);
@@ -344,7 +344,7 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
                 }
                 if (channel != null) {
                     DDRemoteDamChannelStatus current = channel.getStatus();
-                    if (!current.isReady() || !session.equals(current.session())) {
+                    if (!current.isReady() || !session.isSameSession(current.session())) {
                         return;
                     }
                     drain = updateState(current);
