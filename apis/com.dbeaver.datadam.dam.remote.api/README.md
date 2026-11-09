@@ -1,6 +1,6 @@
 # Remote DAM API
 
-The `com.dbeaver.datadam.dam.remote.api` module contains Remote DAM WebSocket contracts, backend-only GraphQL clients,
+The `com.dbeaver.datadam.dam.remote.api` module contains Remote DAM WebSocket contracts
 and transport-independent messaging packages. A Remote DAM peer can be a Desktop application or a future Managed cluster.
 Its session identifies the authenticated DAM transport scope, independently of any database connection.
 
@@ -20,6 +20,8 @@ Wire control types remain
 `hello` and `ready`, and the WebSocket path remains `/ws`. Control messages have `type` and an object `payload`;
 application messages additionally have `topic`. Application messages may use any nonblank type, including the control
 type names.
+
+`DDRemoteDamMessage` takes defensive payload snapshots.
 
 `workspaceId` is required and must be a nonblank string of at most 256 UTF-16 units. Missing, null, blank, non-string,
 and oversized values are rejected.
@@ -46,9 +48,8 @@ authenticated identity or authorization claims; changing them does not create a 
 
 ## Persisted DAMs and the Account API
 
-Persisted DAM lists, details, history, traffic, and display names belong to the authenticated Account GraphQL API.
-Account reads and renames these records directly through shared PostgreSQL storage, without RPC to the Remote DAM relay.
-`DDRemoteDamClient` is only for live transport operations and does not expose persisted-data queries or renaming.
+DAM lists, details, history, traffic, and display names are available through the authenticated Account GraphQL API.
+These account-scoped snapshots are distinct from live transport sessions used for messaging and RPC.
 
 The public Account operations remain:
 
@@ -56,173 +57,42 @@ The public Account operations remain:
 - `connectedRemoteDam(damId)`: account-scoped details and session history using the technical DAM UUID.
 - `connectedRemoteDamByClientId(clientDamId)`: lookup by stable client identity within the authenticated account.
 - `renameConnectedRemoteDamByClientId(clientDamId, damName)`: update only the display name, returning updated metadata
-  or null for a missing or foreign DAM, without creating a record. Update and readback share a transaction.
+  or null for a missing or foreign DAM, without creating a record.
 - `connectedRemoteDamAccountTraffic`: cumulative account traffic and per-DAM totals.
 - `connectedRemoteDamTraffic(damId)`: DAM total and per-session counters, or null for a missing or foreign DAM.
 
 Account derives the account from the authenticated user and enforces authorization. Renaming requires `REMOTE_DAM_MANAGE`.
-Names are normalized, limited to 256 Unicode code points, and do not need to be unique. Stored DAMs without a client ID
-cannot be renamed. A lookup can return null before asynchronous registration has been persisted.
+Names are normalized, limited to 256 Unicode code points, and do not need to be unique. DAMs without a client ID
+cannot be renamed. A lookup can return null until the DAM appears in the Account snapshot.
 
 The shared models remain in this module: `DDRemoteDam`, `DDRemoteDamHistorySession`, `DDRemoteDamTraffic`,
 `DDRemoteDamAccountTraffic`, and `DDRemoteDamTrafficDetails`. `DDRemoteDam` retains its nullable `damName`, shared name
 validation, and constructor compatibility for unnamed records. These models do not imply a relay RPC contract.
 
-- `damId` is the database record's technical UUID, not `clientDamId`. `clientDamId` is null only for old stored rows
+- `damId` is the DAM's technical UUID, not `clientDamId`. `clientDamId` is null only for older records
   without that value; no replacement identity is generated for them.
 - `product`, `version`, and `remoteAddress` describe the latest active session, or the latest session when all are offline.
   `remoteAddress` is the numeric IP address observed by the server's WebSocket session and is null when unavailable.
   It is not supplied by the peer handshake. The wire field names remain `product` and `version`.
-- A persistent DAM is `online` while any of its sessions is neither disconnected nor superseded and its confirmed
-  activity deadline has not expired. The deadline is also bounded by authentication expiry. `damSessionId` identifies
+- A DAM is `online` while the snapshot reports at least one active session. `damSessionId` identifies
   the latest active session while online and is null otherwise. This status does not guarantee that a send will succeed.
-- `sessionCount` is the number of active persisted sessions; `online` is exactly `sessionCount > 0`.
+- `sessionCount` is the number of active sessions in the snapshot; `online` is exactly `sessionCount > 0`.
   `applications` contains unique product/version pairs as immutable `DDRemoteDam.Application` records, and `remoteAddresses`
   contains unique known IP addresses. Both immutable lists cover all stored sessions, including offline sessions.
 - `firstConnectedAt` and `lastConnectedAt` describe the first and latest connection of the DAM identity.
-  `lastDisconnectedAt` is nullable and includes known disconnects, supersession, or expired activity deadlines; it can
+  `lastDisconnectedAt` is nullable and includes known disconnects, supersession, or session expiry; it can
   describe a previous session while the DAM is online again. Timestamps are ISO-8601 instant strings on GraphQL and
   `Instant` values in Java.
-- `DDRemoteDamHistorySession` describes one persisted session. Deployment and instance IDs may be null for old rows;
+- `DDRemoteDamHistorySession` describes one historical session. Deployment and instance IDs may be null for older records;
   no legacy values are fabricated. `connectedAt` is the connection instant. `endedAt` is null while online and otherwise
-  is the earliest close, supersession, or activity-expiry instant. `durationSeconds` is a nonnegative whole-second duration
+  is the effective close, supersession, or session-expiry instant. `durationSeconds` is a nonnegative whole-second duration
   from connection to the effective end, or to the snapshot time while online.
 - Account traffic totals also include authenticated connections that did not register a persistent DAM.
   Traffic counters are nonnegative 64-bit byte counts, cumulative for the returned account, DAM, or session scope.
   They count WebSocket frame bytes, including control frames and frame headers, but exclude HTTP upgrade, TLS, and
   lower-layer overhead. These statistics are for monitoring, not billing.
-- Persistence is asynchronous, so snapshots can lag transport changes and live traffic. Persisted reads do not depend
-  on the relay's process-local live session registry.
-
-## Internal live GraphQL contract
-
-`DDRemoteDamClient` posts JSON requests to `/internal/graphql` on the configured relay service root URL.
-The service implementation must expose this contract; adding a client alone does not deploy the endpoint.
-
-```graphql
-scalar JSON
-
-type Query {
-    remoteDamSessions(accountId: ID!): [RemoteDamSession!]!
-    remoteDamSessionAccount(damSessionId: ID!): ID
-}
-
-type Mutation {
-    sendRemoteDamMessage(accountId: ID!, damSessionId: ID!, message: RemoteDamMessageInput!): Boolean!
-    registerRemoteDamSubscription(input: RemoteDamSubscriptionInput!): Int!
-    unregisterRemoteDamSubscription(subscriberId: String!, subscriptionId: ID!): Boolean!
-}
-
-type RemoteDamSession {
-    appDeploymentId: String!
-    appInstanceId: String!
-    damSessionId: ID!
-    product: String!
-    version: String!
-}
-
-input RemoteDamMessageInput {
-    topic: String!
-    type: String!
-    payload: JSON!
-}
-
-input RemoteDamSubscriptionInput {
-    subscriberId: String!
-    subscriptionId: ID!
-    accountId: ID!
-    damSessionId: ID
-    topic: String!
-    callbackUrl: String!
-    callbackSecret: String!
-}
-```
-
-- `accountId` is a UUID, mandatory for live session lists, sends, and subscription registration.
-  Sends use the account and DAM session ID together.
-- `remoteDamSessionAccount` resolves a unique session ID to the account from its verified identity. It returns null
-  for a missing or not-ready session; the client reports this as checked `DDRemoteDamException`. This backend-only lookup
-  does not authorize end-user access to that account.
-- `remoteDamSessions` / `getSessions(accountId)` returns an immutable snapshot of currently ready transport sessions,
-  not persistent DAM identities or session history. Use the live session APIs for messaging and RPC.
-- Message payloads are JSON objects passed through GraphQL variables, never interpolated into query text or encoded as
-  JSON strings. `DDRemoteDamMessage` takes defensive payload snapshots.
-- A send result of `true` confirms completion of the server's WebSocket write, not peer receipt or processing.
-  `false` means no ready session exists for that account and session ID, including a session belonging to another account.
-- A session closing after lookup, queue rejection, an invalid message, or a write failure produces a GraphQL error.
-  HTTP errors, GraphQL errors including partial data, and malformed responses become `DDRemoteDamException`.
-- The client never retries mutations or queues messages offline. After timeout or network failure, delivery may be
-  unknown; callers must not blindly replay non-idempotent events.
-- Live transport sessions currently belong to one relay process. Until owner-aware routing exists, messaging and live
-  session lookups must reach that process; a missing result from another replica does not prove global offline status.
-
-## Authentication and configuration
-
-`DDRemoteDamClient` takes a service root URL and the Remote DAM service secret. It never logs in or acquires a peer token.
-The URL must use HTTP or HTTPS, have no credentials, query, fragment, or non-root path, and use a valid port.
-HTTP is supported for trusted private service networks; use HTTPS across untrusted networks.
-
-The service secret contains 32–512 printable, non-space ASCII characters. It authenticates backend requests and callbacks
-through `X-DD-Service-Token`. Subscription registration also carries that same secret in its `callbackSecret` variable;
-protect that backend-only request and never log its body. Secrets must not appear in URLs or GraphQL query text.
-Redirects are disabled. HTTP establishment uses the shared REST client's 5-second connect timeout; responses have a
-10-second deadline. HTTP error bodies, GraphQL error details, and malformed response contents are not copied into client
-exceptions.
-
-The secret authenticates a trusted backend, not an end user. Backends exposing operations to users must derive `accountId`
-from authorized account context. A DAM session ID alone is not end-user authorization; expose only authorized account
-selections. The server validates the secret before internal GraphQL execution and fails closed when it is missing or
-invalid. Browser sessions and peer JWTs must not grant access. Keep the service secret in backend runtime configuration;
-it is separate from the Account backchannel secret used to verify peer JWTs.
-
-```java
-var client = new DDRemoteDamClient(serviceUrl, serviceSecret);
-var sessions = client.getSessions(accountId);
-var sessionAccountId = client.getSessionAccount(damSessionId);
-boolean written = client.sendMessage(accountId, damSessionId, message);
-```
-
-Use one configured client per service endpoint. No deployment-specific URL or secret is packaged here.
-`getSessionsAsync`, `getSessionAccountAsync`, `sendMessageAsync`, `registerSubscriptionAsync`, and
-`unregisterSubscriptionAsync` use the JDK HTTP client's nonblocking API without a wrapper executor. Synchronous methods
-remain available. The deadline includes the response body. Cancelling a stage attempts to stop the HTTP exchange but
-does not promise cancellation of an operation already running remotely.
-
-## Backend callback subscriptions
-
-`registerSubscription(subscriberId, subscriptionId, accountId, damSessionId, topic, callbackUrl, callbackSecret)` returns
-the lease in seconds. The receiving process generates the UUID `subscriptionId`; repeated registration with the same
-scope and callback renews it. A null `damSessionId` subscribes to matching account messages, including future sessions.
-A non-null ID filters one physical session and does not follow a replacement session.
-
-Callback service root URLs and secrets follow the same validation as relay URLs and service secrets. Only authenticated
-trusted backends may register callbacks. Restrict outbound relay network access and use HTTPS outside trusted networks.
-The relay keeps registrations in memory, with no configured subscriber list or separate service-registration step.
-The subscriber ID identifies the receiver and does not determine business topics.
-
-`DDRemoteDamCallbackClient` posts to `/internal/remote-dam/graphql`. Callback variables are `subscriptionId`, `accountId`,
-`session`, and `message`. The session input is `RemoteDamSessionInfoInput` with `appDeploymentId`, `appInstanceId`, and
-`damSessionId`. The mutation is `deliverRemoteDamMessage(subscriptionId: ..., accountId: ..., session: ..., message: ...)`.
-
-The receiver invokes its listener on the HTTP request thread and acknowledges after it returns. Successful acknowledgement
-extends the lease. Concurrent callbacks may invoke a listener concurrently without ordering guarantees; listeners must be
-thread-safe. The RPC reply carries the business result. `unregisterSubscription` handles cancellation and cleanup of
-unknown local registrations. The relay stops starting callbacks on cancellation or expiry; already started callbacks may
-finish. Failed callbacks are not replayed or retried. In-flight callbacks are bounded without a per-subscription executor
-or mailbox. `deliverAsync` is nonblocking, with a default 30-second deadline including listener execution; explicit
-durations are supported. Timeout does not promise remote handler cancellation.
-
-Spring services use the shared `com.dbeaver.datadam.dam.remote.base` server module and its
-`DDRemoteDamClientConfiguration`. It supplies callback reception, local dispatch, subscription cancellation, and idle
-renewal. Configure `datadam.remote-dam-client.service-url`, `datadam.remote-dam-client.service-secret`,
-and `datadam.remote-dam-client.callback-url`. There is no separate callback-secret setting. The configured service secret
-is used for requests, callback authentication, and the registration's `callbackSecret` field.
-
-Select `subscriptions.forSession(accountId, damSessionId)` or `subscriptions.forAccount(accountId)`, then subscribe by
-topic. The protocol retains account and session scope for ownership checks. Handlers do not renew registrations.
-Every callback destination must reach the exact receiving process owning its local registration.
-Peer-side subscriptions remain local: authenticated messages are dispatched to local topic listeners without announcing
-handlers to the relay.
+- Account snapshots can lag transport changes and live traffic; use the ready channel for messaging rather than treating
+  these snapshots as transport readiness checks.
 
 ## Channels and request/reply
 
@@ -241,31 +111,27 @@ try (var requests = MessagingRequestReplyEndpoint.open(transport)) {
 }
 ```
 
-A backend can instead obtain its transport from `subscriptions.forSession(accountId, damSessionId).requestReply("documents")`.
 Open a physical-channel endpoint after readiness. Opening while disconnected or closed fails without retaining
 subscriptions. Endpoints can stay installed across reconnects, but pending calls fail at disconnection and are not replayed.
 The peer installs `requests.handle(payload -> process(payload))`. Use distinct topics for independently handled services.
-Each endpoint installs its private reply route before accepting calls; replies return to the originating backend process.
+Each endpoint installs its private reply route before accepting calls; replies return to the originating endpoint.
 Null responses represent successful completion without a value. This lower layer exposes protocol error codes without
 application exception details; typed RPC adds its own diagnostics.
 
 The bridge message type remains `datadam.requestreply.v1`. Envelopes contain `requestId`, `replyTo`, `type`, and either
-`data` or `error`. `replyTo` is an endpoint UUID, not a backend address. Private topics remain
+`data` or `error`. `replyTo` is an endpoint UUID, not a network address. Private topics remain
 `datadam.reply.v1.<SHA-256(request-topic)>.<endpoint-UUID>` and fit metadata limits for maximum-length topics.
-Closing an endpoint removes both receiving routes and owned work without closing a shared channel or subscription facade.
-Backend request/reply is exposed only for `forSession`, with no implicit selection from account subscriptions.
+Closing an endpoint removes both receiving routes and owned work without closing a shared channel.
 
-`request` blocks a worker or virtual thread. Ordinary sends and HTTP callback acknowledgements have transport-only
-meaning. Backend sends use nonblocking HTTP, limited to 128 in flight without a send pool or waiting queue. Facade closure
-rejects new sends and invalidates later completions; an already started HTTP send can finish. Physical channels notify
-disconnect immediately; backend callbacks have no physical session-state feed, so pending calls expire by deadline.
+`request` blocks a worker or virtual thread. Ordinary sends confirm transport sending, not peer receipt or business
+completion. Physical channels notify disconnection and fail pending calls.
 Timeout or interruption can leave remote outcome unknown; requests and responses are never automatically retried.
 
 The direct-channel adapter orders messages and disconnections through one bounded receiving mailbox. Source validation
 and mailbox insertion share a lifecycle lock; callbacks run outside it. A newly visible source inserts its generation
 boundary before its first message. Delayed observers read current status rather than reverting to an old source.
 The mailbox holds 128 callbacks without an executor. Excess frames are dropped; disconnection takes priority over a full
-batch. Listener failure closes the receiving routes. Backend callbacks invoke listeners directly on concurrent HTTP threads.
+batch. Listener failure closes the receiving routes.
 The neutral endpoint owns no executor. Blocking handlers must stay off a serialized receiver needed for their replies.
 
 ## Typed RPC
@@ -275,6 +141,8 @@ The neutral endpoint owns no executor. Blocking handlers must stay off a seriali
 through a codec, for example `new DDRemoteDamGsonRpcCodec(new Gson())`. The codec retains the application's Gson adapters
 and naming policies, preserves declared generic types, and handles each argument independently. A varargs array is one
 argument; JSON null is a nullable payload. Each proxy and registration can use a different compatible codec.
+Proxy timeout overloads accept `Duration`, without changing other proxies or the shared endpoint; the default is
+30 seconds unless endpoint options specify otherwise.
 
 ```java
 try (var rpc = MessagingRpcEndpoint.open(DDRemoteDamRpcTransport.forChannel(channel), codec);
@@ -284,31 +152,20 @@ try (var rpc = MessagingRpcEndpoint.open(DDRemoteDamRpcTransport.forChannel(chan
 }
 ```
 
-Backend scopes wrap `scope.requestReply(topic)` in `DDRemoteDamRpcTransport` and use the same endpoint API. An optional
-borrowed `requestExecutor` runs admitted incoming requests; otherwise the receiving thread runs them. Responses and
-disconnects never use that executor. Application/platform owners must keep blocking handlers off WebSocket delivery.
+An optional borrowed `requestExecutor` runs admitted incoming requests; otherwise the receiving thread runs them.
+Responses and disconnects never use that executor. Application/platform owners must keep blocking handlers off WebSocket delivery.
 The transport owns no execution service.
 
-The developer's topic is the actual request topic. Routes open lazily and are locally reused, with no automatic Account,
-Storage, or service prefix. Registering locally does not register a remote service. Arrange the intended receiver's
-subscription before calling; duplicate backend receivers are not service discovery. Exact callback-owner routing still
-applies.
+The developer's topic is the actual request topic. Routes open lazily and are locally reused, with no automatic service
+prefix. Registering locally does not register a remote service. Arrange the intended receiver's subscription before
+calling; local registration is not service discovery.
 
-Backend `DDRemoteDamRpc` owners expose `getSessions(accountId)`, `forSession(damSessionId)`, and `closeSession(damSessionId)`.
-Listing returns an immutable snapshot without opening endpoints. Selection is application-owned; opening resolves the
-account through the authenticated relay API and preserves ownership checks. Known session IDs work without listing or
-local discovery caches. Repeated lookup shares an open endpoint; identifiers are not repeated on each business call.
-Session owners provide a default `DDRemoteDamGsonRpcCodec`; explicit codec overloads override it for one binding only.
-Proxy timeout overloads accept `Duration`, without changing other proxies or the shared session; the default is 30 seconds
-unless owner options specify otherwise.
-
-Obtain an endpoint from the application's ready session owner and pass it to ordinary objects. Endpoint access does not
-start login or wait for readiness. Register implementations at runtime and retain their registration handles until they
+In Desktop, obtain the endpoint through `DDRemoteDamDesktopSessionService.getInstance().getRpc()` once the application
+session is ready, and pass it to ordinary objects. Endpoint access does not start login or wait for readiness.
+Register implementations at runtime and retain their registration handles until they
 should stop accepting calls. Proxies need no separate close. The session owner owns the shared endpoint. Transient
 reconnects retain endpoints and registrations; authentication identity changes and shutdown invalidate them. Replacing a
-closed endpoint does not transfer registrations. Backend owners close missing sessions after successful reconciliation;
-failed registry reads preserve endpoints. Asynchronous opening results are shared while callers wait with a timeout.
-Reconciliation and renewal use platform scheduling, without owner-created executors. Owners and caches remain process-local.
+closed endpoint does not transfer registrations.
 
 The inner envelope remains `protocol: "dbeaver.rpc.v2"`, `type`, and `data`, with `operation` on requests or a fixed `error`
 code on failures. Request data is positional: `[]`, `[value]`, `[null]`, or `[value1, value2]`; varargs can be `[["a", "b"]]`.
