@@ -7,7 +7,7 @@ Bundle-Version: 0.0.17.qualifier
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Export-Package: com.dbeaver.datadam.mcp.api.exception,
  com.dbeaver.datadam.mcp.api.model,
- com.dbeaver.datadam.mcp.api.service
+ com.dbeaver.datadam.mcp.api.service.desktop
 Bundle-ActivationPolicy: lazy
 Require-Bundle: org.jkiss.utils
 Import-Package: com.google.gson

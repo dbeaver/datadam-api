@@ -12,6 +12,12 @@ This repository contains API for global DBeaver ecosystem.
 OSGI APIs and Service for DataDam integration
 Used by DBeaver, dbvr, CloudBeaver and by DataDam itself
 
+## Service contract packages
+
+Place new service contracts implemented by desktop in a `service.desktop` package, and those implemented by the
+web server in a `service.web` package. The package names describe the implementation side, not the caller.
+Give services on opposite sides distinct IDs.
+
 ## Remote DAM API
 
 [`apis/com.dbeaver.datadam.dam.remote.api`](apis/com.dbeaver.datadam.dam.remote.api/README.md) contains the Remote DAM
@@ -143,7 +149,7 @@ the shared service interface has no lifecycle methods.
 
 ## MCP function API
 
-`apis/com.dbeaver.datadam.mcp.api` exports `DDMcpFunctionService` for desktop tool discovery and execution.
+`apis/com.dbeaver.datadam.mcp.api` exports `service.desktop.DDMcpFunctionService` for desktop tool discovery and execution.
 `getFunctions()` returns descriptors with `id`, display `name`, optional `description` and `List<DDMcpFunctionParameter> parameters`.
 Each parameter has `name`, `type` (`STRING`, `INTEGER`, `NUMBER`, `BOOLEAN`), optional `description`, `required`,
 optional `defaultValue` and optional `validValues`. Defaults and allowed values are strings interpreted according to `type`.
