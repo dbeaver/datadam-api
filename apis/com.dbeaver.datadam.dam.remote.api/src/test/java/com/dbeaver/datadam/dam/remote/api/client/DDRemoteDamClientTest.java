@@ -18,13 +18,8 @@ package com.dbeaver.datadam.dam.remote.api.client;
 
 import com.dbeaver.datadam.dam.remote.api.DDRemoteDamApi;
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
-import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDam;
-import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamAccountTraffic;
-import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHistorySession;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSession;
-import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamTraffic;
-import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamTrafficDetails;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -46,7 +41,6 @@ import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,13 +72,9 @@ class DDRemoteDamClientTest {
     private static final String CALLBACK_URL = "https://callback.example.com";
     private static final String CALLBACK_SECRET = "remote-dam-callback-secret-2026-test";
     private static final String UPSTREAM_MARKER = "private-upstream-response-marker";
-    private static final String DAMS_FIELD = "remoteDams";
     private static final String SESSIONS_FIELD = "remoteDamSessions";
     private static final String SESSION_ACCOUNT_FIELD = "remoteDamSessionAccount";
     private static final String SEND_FIELD = "sendRemoteDamMessage";
-    private static final Instant FIRST_CONNECTED_AT = Instant.parse("2026-10-01T09:00:00Z");
-    private static final Instant LAST_CONNECTED_AT = Instant.parse("2026-10-28T08:00:00.123456789Z");
-    private static final Instant LAST_DISCONNECTED_AT = Instant.parse("2026-10-28T09:00:00Z");
     private final AtomicReference<String> responseJson = new AtomicReference<>("{}");
     private final AtomicInteger responseStatus = new AtomicInteger(200);
     private final AtomicReference<String> redirect = new AtomicReference<>();
@@ -111,293 +101,6 @@ class DDRemoteDamClientTest {
             server.stop(0);
         }
         assertNull(handlerFailure.get());
-    }
-
-    @Test
-    void queriesTrackedDamsByAccountAndReturnsOnlineAndOfflineMetadata() throws Exception {
-        JsonArray dams = new JsonArray();
-        dams.add(dam(true));
-        dams.add(dam(false));
-        respond(DAMS_FIELD, dams);
-        List<DDRemoteDam> expected = List.of(
-            new DDRemoteDam("dam-online", "DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4", "192.0.2.10",
-                true, "session-1", FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null, "client-dam-1", 1,
-                List.of(new DDRemoteDam.Application("DBeaver", "26.2.4")), List.of("192.0.2.10"), "Development workstation"),
-            new DDRemoteDam("dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", "2001:db8::20",
-                false, null, FIRST_CONNECTED_AT, LAST_CONNECTED_AT, LAST_DISCONNECTED_AT, null, 0,
-                List.of(new DDRemoteDam.Application("DBeaver", "26.2.4")), List.of("2001:db8::20"))
-        );
-        for (UUID accountId : List.of(ACCOUNT_ID, OTHER_ACCOUNT_ID)) {
-            List<DDRemoteDam> result = client.getDams(accountId);
-
-            assertEquals(expected, result);
-            assertThrows(UnsupportedOperationException.class, () -> result.add(result.get(0)));
-            JsonObject body = posted();
-            assertEquals(Set.of("operationName", "query", "variables"), body.keySet());
-            assertEquals("RemoteDams", body.get("operationName").getAsString());
-            String query = body.get("query").getAsString().replaceAll("\\s+", " ");
-            assertTrue(query.contains("query RemoteDams($accountId: ID!)"));
-            assertTrue(query.contains("remoteDams(accountId: $accountId)"));
-            for (String field : List.of("damId", "appDeploymentId", "appInstanceId", "workspaceId", "product", "version",
-                "remoteAddress", "online", "damSessionId", "firstConnectedAt", "lastConnectedAt", "lastDisconnectedAt",
-                "clientDamId", "sessionCount", "applications { product version }", "remoteAddresses", "damName")) {
-                assertTrue(query.contains(field), field);
-            }
-            assertEquals(Set.of("accountId"), body.getAsJsonObject("variables").keySet());
-            assertEquals(accountId.toString(), body.getAsJsonObject("variables").get("accountId").getAsString());
-            assertFalse(query.contains(accountId.toString()));
-        }
-        List<DDRemoteDam> async = awaitDelayedResponse(() -> client.getDamsAsync(ACCOUNT_ID));
-
-        assertEquals(expected, async);
-        assertThrows(UnsupportedOperationException.class, () -> async.add(async.get(0)));
-        assertEquals("RemoteDams", posted().get("operationName").getAsString());
-        assertEquals(ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
-        assertEquals(3, requestCount.get());
-    }
-
-    @Test
-    void acceptsOmittedNullableDamFieldsAndEmptySnapshots() throws Exception {
-        JsonObject value = dam(false);
-        value.remove("remoteAddress");
-        value.remove("damSessionId");
-        value.remove("lastDisconnectedAt");
-        value.remove("clientDamId");
-        value.remove("damName");
-        JsonArray dams = new JsonArray();
-        dams.add(value);
-        respond(DAMS_FIELD, dams);
-        List<DDRemoteDam> expected = List.of(new DDRemoteDam(
-            "dam-offline", "DI_remoteDam", "run-2", "workspace-2", "DBeaver", "26.2.4", null, false, null,
-            FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null, null, 0,
-            List.of(new DDRemoteDam.Application("DBeaver", "26.2.4")), List.of("2001:db8::20")));
-
-        assertEquals(expected, client.getDams(ACCOUNT_ID));
-        assertEquals(expected, client.getDamsAsync(ACCOUNT_ID).toCompletableFuture().get(5, TimeUnit.SECONDS));
-        respond(DAMS_FIELD, new JsonArray());
-        assertEquals(List.of(), client.getDams(ACCOUNT_ID));
-        assertEquals(List.of(), client.getDamsAsync(ACCOUNT_ID).toCompletableFuture().get(5, TimeUnit.SECONDS));
-    }
-
-    @Test
-    void queriesDamDetailsAndHistoryByAccountAndDamAndAcceptsMissingDam() throws DDRemoteDamException {
-        UUID damId = UUID.fromString("ef023ec7-f47f-43cc-bc22-a9f5895f113a");
-        JsonObject variables = new JsonObject();
-        variables.addProperty("accountId", ACCOUNT_ID.toString());
-        variables.addProperty("damId", damId.toString());
-        JsonObject details = dam(true);
-        details.addProperty("damId", damId.toString());
-        details.addProperty("sessionCount", 2);
-        details.getAsJsonArray("applications").add(JsonParser.parseString("""
-            {"product":"DBeaver","version":"26.2.3"}
-            """));
-        details.getAsJsonArray("remoteAddresses").add("2001:db8::20");
-        respond("remoteDam", details);
-
-        assertEquals(new DDRemoteDam(
-            damId.toString(), "DI_remoteDam", "run-1", "workspace-1", "DBeaver", "26.2.4", "192.0.2.10", true, "session-1",
-            FIRST_CONNECTED_AT, LAST_CONNECTED_AT, null, "client-dam-1", 2,
-            List.of(new DDRemoteDam.Application("DBeaver", "26.2.4"), new DDRemoteDam.Application("DBeaver", "26.2.3")),
-            List.of("192.0.2.10", "2001:db8::20"), "Development workstation"
-        ), client.getDam(ACCOUNT_ID, damId));
-        JsonObject body = posted();
-        assertEquals("RemoteDam", body.get("operationName").getAsString());
-        assertEquals(variables, body.getAsJsonObject("variables"));
-        String query = body.get("query").getAsString().replaceAll("\\s+", " ");
-        assertTrue(query.contains("query RemoteDam($accountId: ID!, $damId: ID!)"));
-        assertTrue(query.contains("remoteDam(accountId: $accountId, damId: $damId)"));
-
-        respond("remoteDamHistory", JsonParser.parseString("""
-            [
-                {"damSessionId":"session-1","appDeploymentId":"DI_remoteDam","appInstanceId":"run-1",
-                 "product":"DBeaver","version":"26.2.4","remoteAddress":"192.0.2.10","online":true,
-                 "connectedAt":"2026-10-28T08:00:00.123456789Z","endedAt":null,"durationSeconds":60},
-                {"damSessionId":"session-old","appDeploymentId":null,"appInstanceId":null,
-                 "product":"DBeaver","version":"26.2.3","remoteAddress":null,"online":false,
-                 "connectedAt":"2026-10-01T09:00:00Z","endedAt":"2026-10-01T09:00:15Z","durationSeconds":15}
-            ]
-            """));
-
-        assertEquals(List.of(
-            new DDRemoteDamHistorySession("session-1", "DI_remoteDam", "run-1", "DBeaver", "26.2.4", "192.0.2.10",
-                true, LAST_CONNECTED_AT, null, 60),
-            new DDRemoteDamHistorySession("session-old", null, null, "DBeaver", "26.2.3", null,
-                false, FIRST_CONNECTED_AT, FIRST_CONNECTED_AT.plusSeconds(15), 15)
-        ), client.getDamHistory(ACCOUNT_ID, damId));
-        body = posted();
-        assertEquals("RemoteDamHistory", body.get("operationName").getAsString());
-        assertEquals(variables, body.getAsJsonObject("variables"));
-        query = body.get("query").getAsString().replaceAll("\\s+", " ");
-        assertTrue(query.contains("query RemoteDamHistory($accountId: ID!, $damId: ID!)"));
-        assertTrue(query.contains("remoteDamHistory(accountId: $accountId, damId: $damId)"));
-        assertTrue(query.contains("damSessionId appDeploymentId appInstanceId product version remoteAddress online"
-            + " connectedAt endedAt durationSeconds"));
-
-        respond("remoteDam", JsonNull.INSTANCE);
-        assertNull(client.getDam(ACCOUNT_ID, damId));
-    }
-
-    @Test
-    void renamesByClientIdWithOneRequestAndAcceptsAMissingDam() throws DDRemoteDamException {
-        String clientDamId = "client-dam-1";
-        JsonObject renamed = dam(true);
-        renamed.addProperty("damName", "Office");
-        respond("renameRemoteDamByClientId", renamed);
-
-        DDRemoteDam result = client.renameDamByClientId(ACCOUNT_ID, clientDamId, "  Office  ");
-
-        assertNotNull(result);
-        assertEquals("dam-online", result.damId());
-        assertEquals(clientDamId, result.clientDamId());
-        assertEquals("Office", result.damName());
-        assertEquals(1, requestCount.get());
-        JsonObject body = posted();
-        assertEquals("RenameRemoteDamByClientId", body.get("operationName").getAsString());
-        JsonObject variables = body.getAsJsonObject("variables");
-        assertEquals(Set.of("accountId", "clientDamId", "damName"), variables.keySet());
-        assertEquals(ACCOUNT_ID.toString(), variables.get("accountId").getAsString());
-        assertEquals(clientDamId, variables.get("clientDamId").getAsString());
-        assertEquals("Office", variables.get("damName").getAsString());
-        assertTrue(body.get("query").getAsString()
-            .contains("renameRemoteDamByClientId(accountId: $accountId, clientDamId: $clientDamId, damName: $damName)"));
-
-        respond("renameRemoteDamByClientId", JsonNull.INSTANCE);
-        assertNull(client.renameDamByClientId(OTHER_ACCOUNT_ID, clientDamId, "Office"));
-        assertEquals(OTHER_ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
-        assertThrows(IllegalArgumentException.class, () -> client.renameDamByClientId(ACCOUNT_ID, " ", "Office"));
-        assertThrows(IllegalArgumentException.class, () -> client.renameDamByClientId(ACCOUNT_ID, clientDamId, "a\u0000b"));
-        assertEquals(2, requestCount.get());
-    }
-
-    @Test
-    void queriesAccountAndDamTrafficWithoutLosingLongPrecision() throws DDRemoteDamException {
-        UUID damId = UUID.fromString("ef023ec7-f47f-43cc-bc22-a9f5895f113a");
-        DDRemoteDamTraffic traffic = new DDRemoteDamTraffic(9007199254740993L, Long.MAX_VALUE);
-        respond("remoteDamAccountTraffic", JsonParser.parseString("""
-            {"total":{"inboundBytes":9007199254740993,"outboundBytes":9223372036854775807},
-             "dams":[{"damId":"%s","traffic":{"inboundBytes":9007199254740993,"outboundBytes":9223372036854775807}}]}
-            """.formatted(damId)));
-
-        DDRemoteDamAccountTraffic account = client.getAccountTraffic(ACCOUNT_ID);
-
-        assertEquals(new DDRemoteDamAccountTraffic(traffic, List.of(new DDRemoteDamAccountTraffic.Dam(damId.toString(), traffic))),
-            account);
-        assertThrows(UnsupportedOperationException.class, account.dams()::clear);
-        assertEquals("RemoteDamAccountTraffic", posted().get("operationName").getAsString());
-        assertEquals(JsonParser.parseString("{\"accountId\":\"" + ACCOUNT_ID + "\"}"), posted().get("variables"));
-        respond("remoteDamTraffic", JsonParser.parseString("""
-            {"total":{"inboundBytes":9007199254740993,"outboundBytes":9223372036854775807},
-             "sessions":[{"damSessionId":"session-one","traffic":{"inboundBytes":9007199254740993,"outboundBytes":9223372036854775807}},
-                         {"damSessionId":"legacy-session","traffic":{"inboundBytes":0,"outboundBytes":0}}]}
-            """));
-
-        assertEquals(new DDRemoteDamTrafficDetails(traffic, List.of(
-            new DDRemoteDamTrafficDetails.Session("session-one", traffic),
-            new DDRemoteDamTrafficDetails.Session("legacy-session", new DDRemoteDamTraffic(0, 0)))),
-            client.getDamTraffic(ACCOUNT_ID, damId));
-        assertEquals("RemoteDamTraffic", posted().get("operationName").getAsString());
-        assertEquals(ACCOUNT_ID.toString(), posted().getAsJsonObject("variables").get("accountId").getAsString());
-        assertEquals(damId.toString(), posted().getAsJsonObject("variables").get("damId").getAsString());
-        respond("remoteDamTraffic", JsonNull.INSTANCE);
-        assertNull(client.getDamTraffic(ACCOUNT_ID, damId));
-        respond("remoteDamAccountTraffic", JsonParser.parseString("""
-            {"total":{"inboundBytes":0,"outboundBytes":0},"dams":[]}
-            """));
-        assertEquals(new DDRemoteDamAccountTraffic(new DDRemoteDamTraffic(0, 0), List.of()), client.getAccountTraffic(ACCOUNT_ID));
-    }
-
-    @Test
-    void rejectsInvalidTrafficCountersAndMissingNestedSnapshots() {
-        UUID damId = UUID.randomUUID();
-        for (String field : List.of("inboundBytes", "outboundBytes")) {
-            for (String value : List.of("null", "-1", "0.5", "9223372036854775808", "\"10\"", "true")) {
-                JsonObject traffic = JsonParser.parseString("{\"inboundBytes\":0,\"outboundBytes\":0}").getAsJsonObject();
-                traffic.add(field, JsonParser.parseString(value));
-                respond("remoteDamAccountTraffic", JsonParser.parseString("{\"total\":" + traffic + ",\"dams\":[]}"));
-                assertRequestFails(() -> client.getAccountTraffic(ACCOUNT_ID));
-                respond("remoteDamTraffic", JsonParser.parseString("{\"total\":" + traffic + ",\"sessions\":[]}"));
-                assertRequestFails(() -> client.getDamTraffic(ACCOUNT_ID, damId));
-            }
-        }
-        for (String value : List.of("null", "{}", "{\"total\":{},\"dams\":[]}",
-            "{\"total\":{\"inboundBytes\":0,\"outboundBytes\":0},\"dams\":[{\"damId\":\"dam\"}]}")) {
-            respond("remoteDamAccountTraffic", JsonParser.parseString(value));
-            assertRequestFails(() -> client.getAccountTraffic(ACCOUNT_ID));
-        }
-        respond("remoteDamTraffic", JsonParser.parseString("""
-            {"total":{"inboundBytes":0,"outboundBytes":0},"sessions":[{"damSessionId":"session"}]}
-            """));
-        assertRequestFails(() -> client.getDamTraffic(ACCOUNT_ID, damId));
-    }
-
-    @Test
-    void rejectsContradictoryDamOnlineAndSessionStates() {
-        JsonObject onlineWithoutSession = dam(true);
-        onlineWithoutSession.add("damSessionId", JsonNull.INSTANCE);
-        assertInvalidDam(onlineWithoutSession);
-
-        JsonObject offlineWithSession = dam(false);
-        offlineWithSession.addProperty("damSessionId", "session-1");
-        assertInvalidDam(offlineWithSession);
-    }
-
-    @Test
-    void rejectsTheWholeDamSnapshotWhenRequiredMetadataIsMissingOrIncorrectlyTyped() {
-        for (String field : List.of("damId", "appDeploymentId", "appInstanceId", "workspaceId", "product", "version")) {
-            JsonObject missing = dam(false);
-            missing.remove(field);
-            assertInvalidDam(missing);
-            for (String value : List.of("null", "true", "42", "[]", "{}", "\"\"", "\" \\t\\n\"")) {
-                JsonObject invalid = dam(false);
-                invalid.add(field, JsonParser.parseString(value));
-                assertInvalidDam(invalid);
-            }
-        }
-        JsonObject missingOnline = dam(false);
-        missingOnline.remove("online");
-        assertInvalidDam(missingOnline);
-        for (String value : List.of("null", "\"true\"", "\"false\"", "0", "1", "{}", "[]")) {
-            JsonObject invalid = dam(false);
-            invalid.add("online", JsonParser.parseString(value));
-            assertInvalidDam(invalid);
-        }
-        for (String value : List.of("true", "42", "[]", "{}", "\"\"", "\" \\t\\n\"")) {
-            JsonObject invalid = dam(false);
-            invalid.add("damSessionId", JsonParser.parseString(value));
-            assertInvalidDam(invalid);
-        }
-    }
-
-    @Test
-    void rejectsMissingRequiredTimestampsAndInvalidIsoInstants() {
-        for (String field : List.of("firstConnectedAt", "lastConnectedAt")) {
-            JsonObject missing = dam(false);
-            missing.remove(field);
-            assertInvalidDam(missing);
-            JsonObject nullValue = dam(false);
-            nullValue.add(field, JsonNull.INSTANCE);
-            assertInvalidDam(nullValue);
-        }
-        for (String field : List.of("firstConnectedAt", "lastConnectedAt", "lastDisconnectedAt")) {
-            for (String value : List.of("true", "42", "[]", "{}", "\"\"", "\" \"", "\"not-an-instant\"",
-                "\"2026-10-28\"", "\"2026-10-28T08:00:00\"", "\"" + UPSTREAM_MARKER + SERVICE_SECRET + "\"")) {
-                JsonObject invalid = dam(false);
-                invalid.add(field, JsonParser.parseString(value));
-                assertInvalidDam(invalid);
-            }
-        }
-    }
-
-    @Test
-    void rejectsNonArrayDamResultsAndNonObjectEntries() {
-        for (String value : List.of(
-            "null", "true", "42", "\"dams\"", "{}", "[null]", "[true]", "[42]", "[\"dam\"]", "[[]]"
-        )) {
-            respond(DAMS_FIELD, JsonParser.parseString(value));
-
-            assertRequestFails(() -> client.getDams(ACCOUNT_ID));
-            assertAsyncRequestFails(() -> client.getDamsAsync(ACCOUNT_ID));
-        }
     }
 
     @Test
@@ -1118,8 +821,6 @@ class DDRemoteDamClientTest {
             assertThrows(IllegalArgumentException.class, () -> client.sendMessageAsync(ACCOUNT_ID, damSessionId, message()));
         }
         assertThrows(NullPointerException.class, () -> client.getSessionsAsync(null));
-        assertThrows(NullPointerException.class, () -> client.getDams(null));
-        assertThrows(NullPointerException.class, () -> client.getDamsAsync(null));
         assertThrows(NullPointerException.class, () -> client.getSessionAccountAsync(null));
         assertThrows(NullPointerException.class, () -> client.sendMessageAsync(null, "session-1", message()));
         assertThrows(NullPointerException.class, () -> client.sendMessageAsync(ACCOUNT_ID, "session-1", null));
@@ -1233,16 +934,6 @@ class DDRemoteDamClientTest {
         responseJson.set(envelope.toString());
     }
 
-    private void assertInvalidDam(@NotNull JsonObject invalid) {
-        JsonArray dams = new JsonArray();
-        dams.add(dam(true));
-        dams.add(invalid);
-        respond(DAMS_FIELD, dams);
-        assertRequestFails(() -> client.getDams(ACCOUNT_ID));
-        DDRemoteDamException failure = assertAsyncRequestFails(() -> client.getDamsAsync(ACCOUNT_ID));
-        assertEquals("Invalid Remote DAM response", failure.getMessage());
-    }
-
     private void assertInvalidSession(@NotNull JsonObject invalid) {
         JsonArray sessions = new JsonArray();
         sessions.add(session("session-1"));
@@ -1277,37 +968,6 @@ class DDRemoteDamClientTest {
         assertFalse(trace.toString().contains(SERVICE_SECRET));
         assertFalse(trace.toString().contains(CALLBACK_SECRET));
         assertFalse(trace.toString().contains(UPSTREAM_MARKER));
-    }
-
-    @NotNull
-    private static JsonObject dam(boolean online) {
-        JsonObject dam = session("session-1");
-        dam.addProperty("damId", online ? "dam-online" : "dam-offline");
-        dam.addProperty("appInstanceId", online ? "run-1" : "run-2");
-        dam.addProperty("workspaceId", online ? "workspace-1" : "workspace-2");
-        dam.addProperty("remoteAddress", online ? "192.0.2.10" : "2001:db8::20");
-        dam.addProperty("online", online);
-        dam.addProperty("firstConnectedAt", FIRST_CONNECTED_AT.toString());
-        dam.addProperty("lastConnectedAt", LAST_CONNECTED_AT.toString());
-        dam.addProperty("clientDamId", online ? "client-dam-1" : null);
-        dam.addProperty("sessionCount", online ? 1 : 0);
-        dam.addProperty("damName", online ? "Development workstation" : null);
-        JsonObject application = new JsonObject();
-        application.addProperty("product", "DBeaver");
-        application.addProperty("version", "26.2.4");
-        JsonArray applications = new JsonArray();
-        applications.add(application);
-        dam.add("applications", applications);
-        JsonArray remoteAddresses = new JsonArray();
-        remoteAddresses.add(online ? "192.0.2.10" : "2001:db8::20");
-        dam.add("remoteAddresses", remoteAddresses);
-        if (online) {
-            dam.add("lastDisconnectedAt", JsonNull.INSTANCE);
-        } else {
-            dam.add("damSessionId", JsonNull.INSTANCE);
-            dam.addProperty("lastDisconnectedAt", LAST_DISCONNECTED_AT.toString());
-        }
-        return dam;
     }
 
     @NotNull
