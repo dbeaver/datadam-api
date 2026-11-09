@@ -11,6 +11,7 @@ Export-Package: com.dbeaver.datadam.dam.remote.api,
  com.dbeaver.datadam.dam.remote.api.model,
  com.dbeaver.datadam.dam.remote.api.requestreply,
  com.dbeaver.datadam.dam.remote.api.rpc,
+ com.dbeaver.datadam.dam.remote.api.service.desktop,
  com.dbeaver.datadam.dam.remote.api.transport,
  com.dbeaver.messaging.requestreply,
  com.dbeaver.messaging.rpc
