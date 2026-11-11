@@ -442,6 +442,34 @@ class DDSsoServiceTest {
         }
     }
 
+    @ParameterizedTest
+    @MethodSource("accessContextAccountNames")
+    void accountBackchannelDeserializesCurrentAndLegacyAccountNames(
+        @Nullable String nameJson, @Nullable String expectedName
+    ) throws Exception {
+        var response = JsonParser.parseString("""
+            {"userId":"22222222-2222-2222-2222-222222222222","accountId":"33333333-3333-3333-3333-333333333333",
+             "accountType":"CORPORATE","subscriptionPlanType":"FREE","permissions":["MCP_INVOKE"]}
+            """).getAsJsonObject();
+        if (nameJson != null) {
+            response.add("accountName", JsonParser.parseString(nameJson));
+        }
+        responseJson.set(response.toString());
+        var account = new DDSsoAccountClient("http://127.0.0.1:" + server.getAddress().getPort(), "s".repeat(32));
+        var context = account.exchange("test-access-token");
+        Assertions.assertThat(context.accountName()).isEqualTo(expectedName);
+        Assertions.assertThat(context.userId()).isEqualTo("22222222-2222-2222-2222-222222222222");
+        Assertions.assertThat(context.accountId()).isEqualTo("33333333-3333-3333-3333-333333333333");
+        Assertions.assertThat(context.permissions()).containsExactly("MCP_INVOKE");
+        Assertions.assertThat(requestMethod).hasValue("POST");
+        Assertions.assertThat(requestPath).hasValue(DDSsoConstants.ACCESS_CONTEXT_PATH);
+    }
+
+    @NotNull
+    private static Stream<Arguments> accessContextAccountNames() {
+        return Stream.of(Arguments.of("\"Local account\"", "Local account"), Arguments.of("null", null), Arguments.of(null, null));
+    }
+
     @Test
     void accountBackchannelRejectsForbiddenResponses() {
         responseJson.set("{\"error\":\"forbidden\"}");
