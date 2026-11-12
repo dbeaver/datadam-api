@@ -18,6 +18,7 @@ package com.dbeaver.datadam.sso.api;
 
 import org.assertj.core.api.Assertions;
 import org.jkiss.code.Nullable;
+import org.jkiss.dbeaver.DBException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -27,7 +28,7 @@ import java.util.Set;
 
 class DDSsoScopesTest {
     @Test
-    void scopesAreCaseSensitiveAndHaveAStableRepresentation() {
+    void scopesAreCaseSensitiveAndHaveAStableRepresentation() throws DBException {
         var scopes = DDSsoScopes.parse("dbeaver-storage:access account:access account:access");
         Assertions.assertThat(scopes).isEqualTo(Set.of("dbeaver-storage:access", "account:access"));
         Assertions.assertThat(DDSsoScopes.format(scopes)).isEqualTo("account:access dbeaver-storage:access");
@@ -39,6 +40,6 @@ class DDSsoScopesTest {
     @ValueSource(strings = {" ", " account:access", "account:access ", "account:access  dbeaver-storage:access",
         "account:access\tdbeaver-storage:access", "account:access\n", "a\"b", "a\\b", "права"})
     void rejectsInvalidWireScopes(@Nullable String scope) {
-        Assertions.assertThatThrownBy(() -> DDSsoScopes.parse(scope)).isInstanceOf(IllegalArgumentException.class);
+        Assertions.assertThatThrownBy(() -> DDSsoScopes.parse(scope)).isInstanceOf(DBException.class);
     }
 }
