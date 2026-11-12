@@ -18,8 +18,6 @@ package com.dbeaver.datadam.sso.api.client;
 
 import com.dbeaver.datadam.sso.api.DDSsoConstants;
 import com.dbeaver.datadam.sso.api.exception.DDSsoClientException;
-import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
-import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoRefreshRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenResponse;
@@ -98,12 +96,6 @@ public class DDSsoClient extends AbstractRestClient {
         }
         return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
-    }
-
-    @NotNull
-    public DDSsoLoginApprovalResponse approveLogin(@NotNull DDSsoLoginApprovalRequest request) throws DDSsoClientException {
-        return postResponse(DDSsoConstants.LOGIN_APPROVE_PATH, request, MediaType.JSON,
-            DDSsoLoginApprovalResponse.class, "Invalid SSO login approval response");
     }
 
     @NotNull
