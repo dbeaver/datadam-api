@@ -3,7 +3,7 @@ Bundle-ManifestVersion: 2
 Bundle-Vendor: DBeaver Corp
 Bundle-Name: DataDam Remote DAM API
 Bundle-SymbolicName: com.dbeaver.datadam.dam.remote.api
-Bundle-Version: 0.0.18.qualifier
+Bundle-Version: 0.0.19.qualifier
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Export-Package: com.dbeaver.datadam.dam.remote.api,
  com.dbeaver.datadam.dam.remote.api.exception,

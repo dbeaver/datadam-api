@@ -14,7 +14,7 @@
     <groupId>com.dbeaver.datadam</groupId>
     <artifactId>api</artifactId>
     <packaging>pom</packaging>
-    <version>0.0.18-SNAPSHOT</version>
+    <version>0.0.19-SNAPSHOT</version>
     <name>DataDam API</name>
     <description>DataDam API</description>
 
