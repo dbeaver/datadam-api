@@ -30,6 +30,15 @@ public record DDSsoAccessContextResponse(
     @NotNull String subscriptionPlanType,
     @Nullable String subscriptionStatus,
     @Nullable Long subscriptionExpiresAt,
-    @NotNull Set<String> permissions
+    @NotNull Set<String> permissions,
+    @Nullable String accountName
 ) {
+    public DDSsoAccessContextResponse(
+        @NotNull String userId, @NotNull String accountId, @NotNull String accountType,
+        @Nullable String subscriptionPlanId, @NotNull String subscriptionPlanType,
+        @Nullable String subscriptionStatus, @Nullable Long subscriptionExpiresAt, @NotNull Set<String> permissions
+    ) {
+        this(userId, accountId, accountType, subscriptionPlanId, subscriptionPlanType,
+            subscriptionStatus, subscriptionExpiresAt, permissions, null);
+    }
 }
