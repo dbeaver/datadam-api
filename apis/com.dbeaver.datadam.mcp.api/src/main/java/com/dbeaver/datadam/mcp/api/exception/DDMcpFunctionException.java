@@ -27,7 +27,16 @@ public class DDMcpFunctionException extends Exception {
     private final JsonObject data;
 
     public DDMcpFunctionException(@NotNull DDMcpFunctionErrorCode code, @NotNull String message, @Nullable JsonObject data) {
-        super(message);
+        this(code, message, data, null);
+    }
+
+    public DDMcpFunctionException(
+        @NotNull DDMcpFunctionErrorCode code,
+        @NotNull String message,
+        @Nullable JsonObject data,
+        @Nullable Throwable cause
+    ) {
+        super(message, cause);
         this.code = code;
         this.data = data;
     }
