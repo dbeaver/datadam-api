@@ -107,7 +107,6 @@ public final class DDSsoConstants {
     public static final String LOGIN_APPROVE_PATH = "/login/approve";
     public static final String LOGIN_RESUME_PATH = "/login/resume";
     public static final String APPLICATION_LOGIN_START_PATH = "/sso/login/start";
-    public static final String APPLICATION_CONFIG_PATH = "/sso/config";
     public static final String ACCESS_CONTEXT_PATH = "/api/internal/access-context";
     public static final String HEADER_SERVICE_TOKEN = "X-DD-Service-Token";
 
