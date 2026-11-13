@@ -35,7 +35,6 @@ contracts, clients and transport adapters, together with the messaging implement
 * `DDSsoTokenResponse`: `access_token`, `token_type`, access lifetime (`expires_in`), granted `scope`,
   and an optional internal `id_token` for clients configured to receive identity assertions.
 * `DDSsoAccessIdentity`: verified subject, source, client ID, audience and granted scopes.
-* `DDSsoConfigResponse`: SSO issuer, obtained from the application's `/sso/config`.
 * `DDSsoLoginApprovalRequest`: pending provider request handle and confirmed identity.
 * `DDSsoLoginApprovalResponse`: opaque one-time browser completion handle.
 
