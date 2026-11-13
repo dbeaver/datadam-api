@@ -40,7 +40,7 @@ public final class DDSsoScopes {
         Set<String> scopes = new TreeSet<>();
         for (String value : scope.split(" ", -1)) {
             if (!TOKEN.matcher(value).matches()) {
-                throw new DBException("Invalid OAuth scope '" + value + "'");
+                throw new DBException("Invalid OAuth scope");
             }
             scopes.add(value);
         }
