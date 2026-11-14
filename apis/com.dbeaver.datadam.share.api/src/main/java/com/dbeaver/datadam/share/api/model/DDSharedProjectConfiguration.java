@@ -25,6 +25,21 @@ import java.util.List;
  */
 public record DDSharedProjectConfiguration(
     @NotNull String configurationFingerprint,
-    @NotNull List<DDSharedProjectFile> files
+    @NotNull List<DDSharedProjectFile> files,
+    @NotNull Format format
 ) {
+    public enum Format {
+        LEGACY_LOCAL_FILES,
+        PORTABLE_JSON
+    }
+
+    public DDSharedProjectConfiguration(@NotNull String configurationFingerprint, @NotNull List<DDSharedProjectFile> files) {
+        this(configurationFingerprint, files, Format.LEGACY_LOCAL_FILES);
+    }
+
+    public DDSharedProjectConfiguration {
+        if (format == null) {
+            format = Format.LEGACY_LOCAL_FILES;
+        }
+    }
 }
