@@ -49,6 +49,34 @@ class DDMcpFunctionContractTest {
     }
 
     @Test
+    void readsLegacyDescriptorsWithoutAnnotations() {
+        var descriptor = gson.fromJson("""
+            {"id":"database_query","name":"Query","parameters":[]}
+            """, DDMcpFunctionDescriptor.class);
+        Assertions.assertEquals(new DDMcpFunctionDescriptor("database_query", "Query", null, List.of()), descriptor);
+        Assertions.assertNull(descriptor.readOnlyHint());
+        Assertions.assertNull(descriptor.destructiveHint());
+        Assertions.assertNull(descriptor.idempotentHint());
+    }
+
+    @Test
+    void preservesExplicitFalseAndPartialAnnotations() {
+        var descriptor = new DDMcpFunctionDescriptor("database_query", "Query", null, List.of(), true, false, true);
+        var json = gson.toJsonTree(descriptor).getAsJsonObject();
+        Assertions.assertTrue(json.get("readOnlyHint").getAsBoolean());
+        Assertions.assertFalse(json.get("destructiveHint").getAsBoolean());
+        Assertions.assertTrue(json.get("idempotentHint").getAsBoolean());
+        Assertions.assertEquals(descriptor, gson.fromJson(json, DDMcpFunctionDescriptor.class));
+
+        var partial = gson.fromJson("""
+            {"id":"database_query","name":"Query","parameters":[],"destructiveHint":false}
+            """, DDMcpFunctionDescriptor.class);
+        Assertions.assertNull(partial.readOnlyHint());
+        Assertions.assertEquals(Boolean.FALSE, partial.destructiveHint());
+        Assertions.assertNull(partial.idempotentHint());
+    }
+
+    @Test
     void preservesMapArgumentsWithoutLosingNullsOrNumericPrecision() {
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("id", new BigInteger("9007199254740993"));
