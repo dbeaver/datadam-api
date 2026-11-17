@@ -18,6 +18,7 @@ package com.dbeaver.datadam.sso.api;
 
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
+import org.jkiss.dbeaver.DBException;
 
 import java.util.Collection;
 import java.util.Set;
@@ -32,14 +33,14 @@ public final class DDSsoScopes {
     }
 
     @NotNull
-    public static Set<String> parse(@Nullable String scope) {
+    public static Set<String> parse(@Nullable String scope) throws DBException {
         if (scope == null || scope.isEmpty() || scope.length() > 4096) {
-            throw new IllegalArgumentException("OAuth scopes are required");
+            throw new DBException("OAuth scopes are required");
         }
         Set<String> scopes = new TreeSet<>();
         for (String value : scope.split(" ", -1)) {
             if (!TOKEN.matcher(value).matches()) {
-                throw new IllegalArgumentException("Invalid OAuth scope");
+                throw new DBException("Invalid OAuth scope");
             }
             scopes.add(value);
         }
@@ -47,7 +48,7 @@ public final class DDSsoScopes {
     }
 
     @NotNull
-    public static String format(@NotNull Collection<String> scopes) {
+    public static String format(@NotNull Collection<String> scopes) throws DBException {
         String value = String.join(" ", new TreeSet<>(scopes));
         parse(value);
         return value;

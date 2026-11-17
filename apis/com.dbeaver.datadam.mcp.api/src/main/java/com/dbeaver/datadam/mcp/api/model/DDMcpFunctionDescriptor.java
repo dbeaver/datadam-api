@@ -21,10 +21,25 @@ import org.jkiss.code.Nullable;
 
 import java.util.List;
 
+/**
+ * Function metadata with optional MCP annotations. Omitted hints use the MCP defaults:
+ * readOnlyHint=false, destructiveHint=true, idempotentHint=false.
+ */
 public record DDMcpFunctionDescriptor(
     @NotNull String id,
     @NotNull String name,
     @Nullable String description,
-    @NotNull List<DDMcpFunctionParameter> parameters
+    @NotNull List<DDMcpFunctionParameter> parameters,
+    @Nullable Boolean readOnlyHint,
+    @Nullable Boolean destructiveHint,
+    @Nullable Boolean idempotentHint
 ) {
+    public DDMcpFunctionDescriptor(
+        @NotNull String id,
+        @NotNull String name,
+        @Nullable String description,
+        @NotNull List<DDMcpFunctionParameter> parameters
+    ) {
+        this(id, name, description, parameters, null, null, null);
+    }
 }
