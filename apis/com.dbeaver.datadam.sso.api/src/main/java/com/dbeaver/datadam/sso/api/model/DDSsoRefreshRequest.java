@@ -19,10 +19,20 @@ package com.dbeaver.datadam.sso.api.model;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
-/** RFC 6749 section 6. No access token, redirect URI or PKCE verifier is required. */
+/**
+ * RFC 6749 section 6. No access token, redirect URI or PKCE verifier is required.
+ * An optional persisted successor allows recovery of a lost rotation response by proving possession of both tokens.
+ */
 public record DDSsoRefreshRequest(
-    @NotNull String refreshToken, @NotNull String clientId, @Nullable String resource, @Nullable String scope
+    @NotNull String refreshToken, @NotNull String clientId, @Nullable String resource, @Nullable String scope,
+    @Nullable String nextRefreshToken
 ) {
+    public DDSsoRefreshRequest(
+        @NotNull String refreshToken, @NotNull String clientId, @Nullable String resource, @Nullable String scope
+    ) {
+        this(refreshToken, clientId, resource, scope, null);
+    }
+
     @Override
     @NotNull
     public String toString() {

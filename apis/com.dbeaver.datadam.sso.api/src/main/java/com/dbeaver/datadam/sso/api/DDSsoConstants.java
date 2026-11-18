@@ -24,6 +24,8 @@ public final class DDSsoConstants {
     public static final String TOKEN_PATH = "/token";
     public static final String REVOKE_PATH = "/revoke";
     public static final String PARAM_TOKEN = "token";
+    /** Optional client-generated successor, persisted before rotation so a lost response can be recovered. */
+    public static final String PARAM_NEXT_REFRESH_TOKEN = "next_refresh_token";
     public static final String LOGOUT_PATH = "/logout";
     public static final String JWKS_PATH = "/.well-known/jwks.json";
     public static final String METADATA_PATH = "/.well-known/oauth-authorization-server";
