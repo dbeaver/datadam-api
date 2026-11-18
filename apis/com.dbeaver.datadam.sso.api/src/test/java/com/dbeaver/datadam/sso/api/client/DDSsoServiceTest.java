@@ -23,6 +23,7 @@ import com.dbeaver.datadam.sso.api.model.DDSsoIdentity;
 import com.dbeaver.datadam.sso.api.model.DDSsoJwksResponse;
 import com.dbeaver.datadam.sso.api.model.DDSsoLoginApprovalRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoPublicJwk;
+import com.dbeaver.datadam.sso.api.model.DDSsoRefreshRequest;
 import com.dbeaver.datadam.sso.api.model.DDSsoTokenRequest;
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
@@ -123,6 +124,32 @@ class DDSsoServiceTest {
     @AfterEach
     void stop() {
         server.stop(0);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void refreshForwardsTheOptionalPersistedSuccessor(boolean recoverable) throws Exception {
+        String successor = "B".repeat(43);
+        responseJson.set(gson.toJson(Map.of("access_token", "access-token", "token_type", "Bearer", "expires_in", 3600,
+            "scope", "account:access", "refresh_token", successor)));
+        DDSsoRefreshRequest request = recoverable
+            ? new DDSsoRefreshRequest("A".repeat(43), "account", null, "account:access", successor)
+            : new DDSsoRefreshRequest("A".repeat(43), "account", null, "account:access");
+        Assertions.assertThat(http.refresh(request).refreshToken()).isEqualTo(successor);
+
+        Map<String, String> form = new HashMap<>();
+        for (String parameter : posted.get().split("&")) {
+            String[] values = parameter.split("=", 2);
+            form.put(values[0], URLDecoder.decode(values[1], StandardCharsets.UTF_8));
+        }
+        Assertions.assertThat(form).containsEntry("grant_type", "refresh_token").containsEntry("refresh_token", request.refreshToken())
+            .containsEntry("client_id", "account").containsEntry("scope", "account:access");
+        if (recoverable) {
+            Assertions.assertThat(form).containsEntry(DDSsoConstants.PARAM_NEXT_REFRESH_TOKEN, successor);
+        } else {
+            Assertions.assertThat(form).doesNotContainKey(DDSsoConstants.PARAM_NEXT_REFRESH_TOKEN);
+        }
+        Assertions.assertThat(request.toString()).doesNotContain(request.refreshToken(), successor);
     }
 
     @ParameterizedTest

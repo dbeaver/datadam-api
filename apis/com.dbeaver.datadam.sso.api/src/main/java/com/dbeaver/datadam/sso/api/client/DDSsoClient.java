@@ -96,6 +96,9 @@ public class DDSsoClient extends AbstractRestClient {
         if (request.scope() != null) {
             parameters.put(DDSsoConstants.PARAM_SCOPE, request.scope());
         }
+        if (request.nextRefreshToken() != null) {
+            parameters.put(DDSsoConstants.PARAM_NEXT_REFRESH_TOKEN, request.nextRefreshToken());
+        }
         return postResponse(DDSsoConstants.TOKEN_PATH, parameters, MediaType.FORM_URLENCODED,
             DDSsoTokenResponse.class, "Invalid SSO token response");
     }
