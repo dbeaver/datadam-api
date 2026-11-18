@@ -17,8 +17,17 @@
 package com.dbeaver.datadam.mcp.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 import java.util.Map;
+import java.util.UUID;
 
-public record DDMcpFunctionCall(@NotNull String functionId, @NotNull Map<String, Object> arguments) {
+public record DDMcpFunctionCall(
+    @NotNull String functionId,
+    @NotNull Map<String, Object> arguments,
+    @Nullable UUID requestId
+) {
+    public DDMcpFunctionCall(@NotNull String functionId, @NotNull Map<String, Object> arguments) {
+        this(functionId, arguments, UUID.randomUUID());
+    }
 }

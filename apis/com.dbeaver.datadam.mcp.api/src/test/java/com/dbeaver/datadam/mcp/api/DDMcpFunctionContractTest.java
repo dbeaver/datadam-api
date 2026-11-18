@@ -95,6 +95,18 @@ class DDMcpFunctionContractTest {
     }
 
     @Test
+    void preservesSharedRequestIdAndAcceptsLegacyCalls() {
+        var call = new DDMcpFunctionCall("database_query", Map.of());
+        Assertions.assertNotNull(call.requestId());
+        Assertions.assertEquals(call, gson.fromJson(gson.toJson(call), DDMcpFunctionCall.class));
+        var legacy = gson.fromJson("""
+            {"functionId":"database_query","arguments":{}}
+            """, DDMcpFunctionCall.class);
+        Assertions.assertNull(legacy.requestId());
+        Assertions.assertEquals("database_query", legacy.functionId());
+    }
+
+    @Test
     void preservesExecutionFailureAndStructuredResult() {
         var result = new DDMcpFunctionResult(JsonParser.parseString("{\"message\":\"Permission denied\",\"rows\":[]}"), true);
         Assertions.assertEquals(result, gson.fromJson(gson.toJson(result), DDMcpFunctionResult.class));
