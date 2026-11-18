@@ -18,6 +18,7 @@ package com.dbeaver.datadam.dam.remote.api;
 
 public final class DDRemoteDamSettingKeys {
     public static final String MCP_ENABLED = "mcp.enabled";
+    public static final String PROJECTS_STREAM_SYNC = "projects.streamSync";
 
     private DDRemoteDamSettingKeys() {
     }
