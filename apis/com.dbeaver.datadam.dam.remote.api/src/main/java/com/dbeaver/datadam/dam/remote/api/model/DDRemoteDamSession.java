@@ -42,5 +42,14 @@ public record DDRemoteDamSession(
         DDRemoteDamMessage.requireText(damSessionId, "damSessionId");
         DDRemoteDamMessage.requireText(product, "product");
         DDRemoteDamMessage.requireText(version, "version");
+        if (damName != null) {
+            damName = DDRemoteDam.normalizeName(damName);
+        }
+        if (workspaceId != null) {
+            DDRemoteDamMessage.requireText(workspaceId, "workspaceId");
+        }
+        if (remoteAddress != null) {
+            DDRemoteDamMessage.requireText(remoteAddress, "remoteAddress");
+        }
     }
 }

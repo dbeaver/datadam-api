@@ -33,6 +33,33 @@ class DDRemoteDamSessionTest {
     }
 
     @Test
+    void validatesOptionalDiscoveryMetadataWhenPresent() {
+        var legacy = new DDRemoteDamSession("deployment", "run", "socket", "DBeaver", "26.2");
+        Assertions.assertNull(legacy.damName());
+        Assertions.assertNull(legacy.workspaceId());
+        Assertions.assertNull(legacy.remoteAddress());
+
+        var session = new DDRemoteDamSession("deployment", "run", "socket", "DBeaver", "26.2",
+            " Office ", "workspace", "192.0.2.1");
+        Assertions.assertEquals("Office", session.damName());
+        Assertions.assertEquals("workspace", session.workspaceId());
+        Assertions.assertEquals("192.0.2.1", session.remoteAddress());
+
+        for (String invalid : new String[] {"", " ", "\t\n"}) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSession(
+                "deployment", "run", "socket", "DBeaver", "26.2", invalid, null, null));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSession(
+                "deployment", "run", "socket", "DBeaver", "26.2", null, invalid, null));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSession(
+                "deployment", "run", "socket", "DBeaver", "26.2", null, null, invalid));
+        }
+        for (String invalid : new String[] {"x".repeat(257), "Office\u0000", "\u200B"}) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> new DDRemoteDamSession(
+                "deployment", "run", "socket", "DBeaver", "26.2", invalid, null, null));
+        }
+    }
+
+    @Test
     void rejectsMissingOrBlankMetadataInEveryField() {
         for (int field = 0; field < 5; field++) {
             for (String invalid : new String[] {null, "", " ", "\t\n"}) {
