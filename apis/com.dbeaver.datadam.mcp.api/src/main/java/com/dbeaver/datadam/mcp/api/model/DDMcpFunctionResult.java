@@ -16,8 +16,7 @@
  */
 package com.dbeaver.datadam.mcp.api.model;
 
-import com.google.gson.JsonElement;
 import org.jkiss.code.NotNull;
 
-public record DDMcpFunctionResult(@NotNull JsonElement value, boolean error) {
+public record DDMcpFunctionResult(@NotNull Object value, boolean error) {
 }
