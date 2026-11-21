@@ -10,5 +10,6 @@ Export-Package: com.dbeaver.datadam.mcp.api.exception,
  com.dbeaver.datadam.mcp.api.service.desktop
 Bundle-ActivationPolicy: lazy
 Require-Bundle: org.jkiss.utils
-Import-Package: com.google.gson
+Import-Package: com.google.gson,
+ com.google.gson.annotations
 Automatic-Module-Name: com.dbeaver.datadam.mcp.api
