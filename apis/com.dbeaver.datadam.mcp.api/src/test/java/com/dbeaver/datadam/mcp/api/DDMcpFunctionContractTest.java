@@ -17,6 +17,7 @@
 package com.dbeaver.datadam.mcp.api;
 
 import com.dbeaver.datadam.mcp.api.model.DDMcpDatasource;
+import com.dbeaver.datadam.mcp.api.model.DDMcpDatasourceInfo;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionCall;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionDescriptor;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionParameter;
@@ -115,6 +116,22 @@ class DDMcpFunctionContractTest {
         Assertions.assertEquals(expected, gson.toJsonTree(decoded));
         Assertions.assertEquals(new DDMcpFunctionResult("text result", false),
             gson.fromJson("{\"value\":\"text result\",\"error\":false}", DDMcpFunctionResult.class));
+    }
+
+    @Test
+    void preservesDatasourceInfoFieldsAndDisconnectedServerNulls() {
+        var info = new DDMcpDatasourceInfo("connection-1", "Connection", "jdbc:sample://localhost/example",
+            "Sample driver", "1.2", null, null, "Sample SQL", false, false, false);
+        var expected = JsonParser.parseString("""
+            {"dataSourceId":"connection-1","dataSourceName":"Connection","connectionURL":"jdbc:sample://localhost/example",
+             "driverName":"Sample driver","driverVersion":"1.2","databaseServerName":null,"databaseServerVersion":null,
+             "sqlDialectName":"Sample SQL","supportsCatalogs":false,"supportsSchemas":false,"isConnected":false}
+            """);
+        Assertions.assertEquals(expected, gson.toJsonTree(info));
+        Assertions.assertEquals("dataSourceId", gson.toJsonTree(info).getAsJsonObject().keySet().iterator().next());
+        Assertions.assertEquals(info, gson.fromJson(gson.toJson(info), DDMcpDatasourceInfo.class));
+        var result = gson.toJsonTree(new DDMcpFunctionResult(info, false)).getAsJsonObject();
+        Assertions.assertEquals(expected, result.getAsJsonObject("value"));
     }
 
     @Test
