@@ -17,19 +17,39 @@
 package com.dbeaver.datadam.dam.remote.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 public record DDRemoteDamSession(
     @NotNull String appDeploymentId,
     @NotNull String appInstanceId,
     @NotNull String damSessionId,
     @NotNull String product,
-    @NotNull String version
+    @NotNull String version,
+    @Nullable String damName,
+    @Nullable String workspaceId,
+    @Nullable String remoteAddress
 ) {
+    public DDRemoteDamSession(
+        @NotNull String appDeploymentId, @NotNull String appInstanceId, @NotNull String damSessionId,
+        @NotNull String product, @NotNull String version
+    ) {
+        this(appDeploymentId, appInstanceId, damSessionId, product, version, null, null, null);
+    }
+
     public DDRemoteDamSession {
         DDRemoteDamMessage.requireText(appDeploymentId, "appDeploymentId");
         DDRemoteDamMessage.requireText(appInstanceId, "appInstanceId");
         DDRemoteDamMessage.requireText(damSessionId, "damSessionId");
         DDRemoteDamMessage.requireText(product, "product");
         DDRemoteDamMessage.requireText(version, "version");
+        if (damName != null) {
+            damName = DDRemoteDam.normalizeName(damName);
+        }
+        if (workspaceId != null) {
+            DDRemoteDamMessage.requireText(workspaceId, "workspaceId");
+        }
+        if (remoteAddress != null) {
+            DDRemoteDamMessage.requireText(remoteAddress, "remoteAddress");
+        }
     }
 }
