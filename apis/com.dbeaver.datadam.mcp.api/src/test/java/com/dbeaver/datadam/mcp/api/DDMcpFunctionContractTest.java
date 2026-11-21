@@ -16,10 +16,15 @@
  */
 package com.dbeaver.datadam.mcp.api;
 
+import com.dbeaver.datadam.mcp.api.model.DDMcpDatasource;
+import com.dbeaver.datadam.mcp.api.model.DDMcpDatasourceInfo;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionCall;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionDescriptor;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionParameter;
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionResult;
+import com.dbeaver.datadam.mcp.api.model.DDMcpListDatasourcesResult;
+import com.dbeaver.datadam.mcp.api.model.DDMcpListProjectsResult;
+import com.dbeaver.datadam.mcp.api.model.DDMcpProject;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParser;
@@ -96,7 +101,53 @@ class DDMcpFunctionContractTest {
 
     @Test
     void preservesExecutionFailureAndStructuredResult() {
-        var result = new DDMcpFunctionResult(JsonParser.parseString("{\"message\":\"Permission denied\",\"rows\":[]}"), true);
+        var result = new DDMcpFunctionResult(Map.of("message", "Permission denied", "rows", List.of()), true);
         Assertions.assertEquals(result, gson.fromJson(gson.toJson(result), DDMcpFunctionResult.class));
+    }
+
+    @Test
+    void serializesPojoResultsWithoutChangingTheWireFormat() {
+        var result = new DDMcpFunctionResult(new DDMcpProject("project-1", "Project", null), false);
+        var expected = JsonParser.parseString("""
+            {"value":{"id":"project-1","name":"Project","description":null},"error":false}
+            """);
+        Assertions.assertEquals(expected, gson.toJsonTree(result));
+        var decoded = gson.fromJson(gson.toJson(result), DDMcpFunctionResult.class);
+        Assertions.assertEquals(expected, gson.toJsonTree(decoded));
+        Assertions.assertEquals(new DDMcpFunctionResult("text result", false),
+            gson.fromJson("{\"value\":\"text result\",\"error\":false}", DDMcpFunctionResult.class));
+    }
+
+    @Test
+    void preservesDatasourceInfoFieldsAndDisconnectedServerNulls() {
+        var info = new DDMcpDatasourceInfo("connection-1", "Connection", "jdbc:sample://localhost/example",
+            "Sample driver", "1.2", null, null, "Sample SQL", false, false, false);
+        var expected = JsonParser.parseString("""
+            {"dataSourceId":"connection-1","dataSourceName":"Connection","connectionURL":"jdbc:sample://localhost/example",
+             "driverName":"Sample driver","driverVersion":"1.2","databaseServerName":null,"databaseServerVersion":null,
+             "sqlDialectName":"Sample SQL","supportsCatalogs":false,"supportsSchemas":false,"isConnected":false}
+            """);
+        Assertions.assertEquals(expected, gson.toJsonTree(info));
+        Assertions.assertEquals("dataSourceId", gson.toJsonTree(info).getAsJsonObject().keySet().iterator().next());
+        Assertions.assertEquals(info, gson.fromJson(gson.toJson(info), DDMcpDatasourceInfo.class));
+        var result = gson.toJsonTree(new DDMcpFunctionResult(info, false)).getAsJsonObject();
+        Assertions.assertEquals(expected, result.getAsJsonObject("value"));
+    }
+
+    @Test
+    void preservesDiscoveryResultFieldNamesAndTypedRoundTrips() {
+        var projects = new DDMcpListProjectsResult(List.of(new DDMcpProject("project-1", "Project", null)));
+        Assertions.assertEquals(JsonParser.parseString("""
+            {"projects":[{"id":"project-1","name":"Project","description":null}]}
+            """), gson.toJsonTree(projects));
+        Assertions.assertEquals(projects, gson.fromJson(gson.toJson(projects), DDMcpListProjectsResult.class));
+
+        var datasources = new DDMcpListDatasourcesResult(List.of(
+            new DDMcpDatasource("connection-1", "Connection", "project-1", "Project", "PostgreSQL", true)));
+        Assertions.assertEquals(JsonParser.parseString("""
+            {"datasources":[{"id":"connection-1","name":"Connection","project_id":"project-1",
+            "project_name":"Project","database_type":"PostgreSQL","requires_manual_connection":true}]}
+            """), gson.toJsonTree(datasources));
+        Assertions.assertEquals(datasources, gson.fromJson(gson.toJson(datasources), DDMcpListDatasourcesResult.class));
     }
 }
