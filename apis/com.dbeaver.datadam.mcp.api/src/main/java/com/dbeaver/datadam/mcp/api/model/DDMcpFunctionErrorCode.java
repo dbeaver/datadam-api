@@ -20,5 +20,6 @@ public enum DDMcpFunctionErrorCode {
     FUNCTION_NOT_FOUND,
     INVALID_ARGUMENTS,
     ACCESS_DENIED,
+    FUNCTION_ERROR,
     INTERNAL_ERROR
 }

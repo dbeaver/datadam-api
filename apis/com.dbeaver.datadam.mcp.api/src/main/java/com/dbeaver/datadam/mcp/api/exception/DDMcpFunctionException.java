@@ -17,28 +17,18 @@
 package com.dbeaver.datadam.mcp.api.exception;
 
 import com.dbeaver.datadam.mcp.api.model.DDMcpFunctionErrorCode;
-import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
-import org.jkiss.code.Nullable;
 
 public class DDMcpFunctionException extends Exception {
     private final DDMcpFunctionErrorCode code;
-    @Nullable
-    private final JsonObject data;
 
-    public DDMcpFunctionException(@NotNull DDMcpFunctionErrorCode code, @NotNull String message, @Nullable JsonObject data) {
+    public DDMcpFunctionException(@NotNull DDMcpFunctionErrorCode code, @NotNull String message) {
         super(message);
         this.code = code;
-        this.data = data;
     }
 
     @NotNull
     public DDMcpFunctionErrorCode getCode() {
         return code;
-    }
-
-    @Nullable
-    public JsonObject getData() {
-        return data;
     }
 }
