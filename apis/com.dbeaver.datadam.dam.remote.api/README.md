@@ -21,6 +21,10 @@ Wire control types remain
 application messages additionally have `topic`. Application messages may use any nonblank type, including the control
 type names.
 
+If registration of a new Dam exceeds the account limit, the server closes the connection before `ready` with
+WebSocket code `4409` (`REGISTRATION_LIMIT_EXCEEDED`) and a displayable reason. Clients should not automatically
+retry this rejection. Other close codes retain their existing behavior.
+
 `DDRemoteDamMessage` takes defensive payload snapshots.
 
 `workspaceId` is required and must be a nonblank string of at most 256 UTF-16 units. Missing, null, blank, non-string,

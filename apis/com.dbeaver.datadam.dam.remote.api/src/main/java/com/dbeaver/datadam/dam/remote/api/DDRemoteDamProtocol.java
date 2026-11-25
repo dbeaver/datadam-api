@@ -35,6 +35,7 @@ public final class DDRemoteDamProtocol {
     public static final String WEBSOCKET_PATH = "/ws";
     public static final String TYPE_HANDSHAKE_REQUEST = "hello";
     public static final String TYPE_HANDSHAKE_RESPONSE = "ready";
+    public static final int REGISTRATION_LIMIT_EXCEEDED = 4409;
 
     private static final String FIELD_TOPIC = "topic";
     private static final String FIELD_TYPE = "type";
