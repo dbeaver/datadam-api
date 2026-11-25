@@ -18,6 +18,7 @@ package com.dbeaver.datadam.dam.remote.api.service.web;
 
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
 import com.dbeaver.datadam.dam.remote.api.model.DDGatewayKeyMaterial;
+import com.dbeaver.datadam.dam.remote.api.model.DDGatewayKeyRegistrationStatus;
 import org.jkiss.code.NotNull;
 
 /** Account-scoped encryption keys on the web server, accessed by an authenticated Desktop session. */
@@ -27,6 +28,7 @@ public interface DDGatewayKeyService {
     /** Whether this account has a configured, encrypted key bundle. Requires storage key read permission. */
     boolean isKeysPresent() throws DDRemoteDamException;
 
-    /** Completes when the key material has been registered*/
-    void registerKey(@NotNull DDGatewayKeyMaterial material) throws DDRemoteDamException;
+    /** Reports a known outcome; failures with an unknown outcome remain exceptions. */
+    @NotNull
+    DDGatewayKeyRegistrationStatus registerKey(@NotNull DDGatewayKeyMaterial material) throws DDRemoteDamException;
 }
