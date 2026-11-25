@@ -17,10 +17,20 @@
 package com.dbeaver.datadam.dam.remote.api.model;
 
 import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 
 import java.util.Objects;
+import java.util.UUID;
 
-public record DDRemoteDamSessionSettings(@NotNull String damSessionId, @NotNull DDRemoteDamSettings settings) {
+public record DDRemoteDamSessionSettings(
+    @Nullable UUID damId,
+    @NotNull String damSessionId,
+    @NotNull DDRemoteDamSettings settings
+) {
+    public DDRemoteDamSessionSettings(@NotNull String damSessionId, @NotNull DDRemoteDamSettings settings) {
+        this(null, damSessionId, settings);
+    }
+
     public DDRemoteDamSessionSettings {
         DDRemoteDamMessage.requireText(damSessionId, "damSessionId");
         Objects.requireNonNull(settings, "settings");
