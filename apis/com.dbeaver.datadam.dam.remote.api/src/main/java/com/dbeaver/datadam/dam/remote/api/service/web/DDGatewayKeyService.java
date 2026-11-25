@@ -20,9 +20,12 @@ import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
 import com.dbeaver.datadam.dam.remote.api.model.DDGatewayKeyMaterial;
 import org.jkiss.code.NotNull;
 
-/** Account-scoped key registration on the backend, called by an authenticated Desktop session. */
+/** Account-scoped encryption keys on the web server, accessed by an authenticated Desktop session. */
 public interface DDGatewayKeyService {
     String SERVICE_ID = "datadam.account.gateway-keys";
+
+    /** Whether this account has a configured, encrypted key bundle. Requires storage key read permission. */
+    boolean isKeysPresent() throws DDRemoteDamException;
 
     /** Completes when the key material has been registered*/
     void registerKey(@NotNull DDGatewayKeyMaterial material) throws DDRemoteDamException;
