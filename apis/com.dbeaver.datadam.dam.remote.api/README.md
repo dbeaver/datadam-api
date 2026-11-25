@@ -136,6 +136,10 @@ The neutral endpoint owns no executor. Blocking handlers must stay off a seriali
 
 ## Typed RPC
 
+Service contracts are grouped by their implementation side: `service.desktop` for Desktop and `service.web` for
+the web server. `service.web.DDGatewayKeyService` accepts client-generated key material for registration; the
+recovery phrase stays on the client.
+
 `com.dbeaver.messaging.rpc` supplies typed proxies and implementation registration independently of DataDam and WebSocket.
 `DDRemoteDamRpcTransport` adapts request/reply to `MessagingRpcMessage<JsonElement>`. Application serialization is selected
 through a codec, for example `new DDRemoteDamGsonRpcCodec(new Gson())`. The codec retains the application's Gson adapters
