@@ -35,6 +35,7 @@ public final class DDRemoteDamProtocol {
     public static final String WEBSOCKET_PATH = "/ws";
     public static final String TYPE_HANDSHAKE_REQUEST = "hello";
     public static final String TYPE_HANDSHAKE_RESPONSE = "ready";
+    public static final String TYPE_AUTHENTICATION_REQUEST = "authenticate";
 
     private static final String FIELD_TOPIC = "topic";
     private static final String FIELD_TYPE = "type";
@@ -67,6 +68,24 @@ public final class DDRemoteDamProtocol {
         );
     }
 
+    /** Renews the authenticated identity without replacing the desktop connection. */
+    @NotNull
+    public static String encodeAuthenticationRequest(@NotNull String accessToken) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("accessToken", accessToken);
+        return envelope(TYPE_AUTHENTICATION_REQUEST, payload).toString();
+    }
+
+    public static boolean isAuthenticationRequest(@NotNull String message) {
+        JsonObject envelope = parseEnvelope(message);
+        return !envelope.has(FIELD_TOPIC) && TYPE_AUTHENTICATION_REQUEST.equals(readString(envelope, FIELD_TYPE));
+    }
+
+    @NotNull
+    public static String decodeAuthenticationRequest(@NotNull String message) {
+        return readString(readControlPayload(message, TYPE_AUTHENTICATION_REQUEST), "accessToken");
+    }
+
     @NotNull
     public static String encodeHandshakeRequest(@NotNull DDRemoteDamHandshakeRequest hello) {
         JsonObject payload = new JsonObject();
@@ -97,6 +116,9 @@ public final class DDRemoteDamProtocol {
         JsonObject payload = new JsonObject();
         payload.addProperty(FIELD_DAM_SESSION_ID, ready.damSessionId());
         payload.add("settings", new Gson().toJsonTree(ready.settings()));
+        if (ready.authenticationRefresh()) {
+            payload.addProperty("authenticationRefresh", true);
+        }
         return envelope(TYPE_HANDSHAKE_RESPONSE, payload).toString();
     }
 
@@ -112,7 +134,13 @@ public final class DDRemoteDamProtocol {
             settings = new DDRemoteDamSettings(readSettings(value.getAsJsonObject().get("account")),
                 readSettings(value.getAsJsonObject().get("dam")));
         }
-        return new DDRemoteDamHandshakeResponse(readString(payload, FIELD_DAM_SESSION_ID), settings);
+        JsonElement authenticationRefresh = payload.get("authenticationRefresh");
+        if (authenticationRefresh != null
+            && (!authenticationRefresh.isJsonPrimitive() || !authenticationRefresh.getAsJsonPrimitive().isBoolean())) {
+            throw new IllegalArgumentException("Expected an authenticationRefresh boolean");
+        }
+        return new DDRemoteDamHandshakeResponse(readString(payload, FIELD_DAM_SESSION_ID), settings,
+            authenticationRefresh != null && authenticationRefresh.getAsBoolean());
     }
 
     @NotNull

@@ -34,6 +34,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DDRemoteDamProtocolTest {
     @Test
+    void negotiatesAuthenticationRenewalWithoutChangingLegacyHandshakes() {
+        var supported = new DDRemoteDamHandshakeResponse("launch", DDRemoteDamSettings.EMPTY, true);
+        assertEquals(supported, DDRemoteDamProtocol.decodeHandshakeResponse(DDRemoteDamProtocol.encodeHandshakeResponse(supported)));
+        assertFalse(DDRemoteDamProtocol.decodeHandshakeResponse(
+            "{\"type\":\"ready\",\"payload\":{\"damSessionId\":\"legacy\"}}").authenticationRefresh());
+    }
+
+    @Test
+    void authenticationRenewalIsAControlFrameNotAnApplicationMessage() {
+        String encoded = DDRemoteDamProtocol.encodeAuthenticationRequest("renewed-token");
+        assertTrue(DDRemoteDamProtocol.isAuthenticationRequest(encoded));
+        assertEquals("renewed-token", DDRemoteDamProtocol.decodeAuthenticationRequest(encoded));
+        assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decode(encoded));
+        String application = DDRemoteDamProtocol.encode(new DDRemoteDamMessage("topic", "authenticate", new JsonObject()));
+        assertFalse(DDRemoteDamProtocol.isAuthenticationRequest(application));
+        assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeAuthenticationRequest(application));
+        assertThrows(IllegalArgumentException.class, () ->
+            DDRemoteDamProtocol.decodeAuthenticationRequest("{\"type\":\"authenticate\",\"payload\":{\"accessToken\":\" \"}}"));
+    }
+
+    @Test
     void roundTripsApplicationMessagesWithTopicTypeAndPayload() {
         JsonObject payload = new JsonObject();
         payload.addProperty("projectId", "project-1");
