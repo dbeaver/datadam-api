@@ -16,9 +16,11 @@
  */
 package com.dbeaver.datadam.dam.remote.api;
 
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamAuthenticationRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeResponse;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSessionRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSettings;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
@@ -60,7 +62,21 @@ public final class DDRemoteDamProtocol {
 
     @NotNull
     public static DDRemoteDamMessage decode(@NotNull String message) {
+        return decodeMessage(parseEnvelope(message));
+    }
+
+    /** Parses once and returns a typed control request or application message, never an envelope tree. */
+    @NotNull
+    public static DDRemoteDamSessionRequest decodeSessionRequest(@NotNull String message) {
         JsonObject envelope = parseEnvelope(message);
+        if (!envelope.has(FIELD_TOPIC) && TYPE_AUTHENTICATION_REQUEST.equals(readString(envelope, FIELD_TYPE))) {
+            return new DDRemoteDamAuthenticationRequest(readString(readPayload(envelope), "accessToken"));
+        }
+        return decodeMessage(envelope);
+    }
+
+    @NotNull
+    private static DDRemoteDamMessage decodeMessage(@NotNull JsonObject envelope) {
         return new DDRemoteDamMessage(
             readString(envelope, FIELD_TOPIC),
             readString(envelope, FIELD_TYPE),

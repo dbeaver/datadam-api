@@ -16,6 +16,7 @@
  */
 package com.dbeaver.datadam.dam.remote.api;
 
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamAuthenticationRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeResponse;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
@@ -33,6 +34,36 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DDRemoteDamProtocolTest {
+    @Test
+    void decodesSessionRequestsIntoTypedRecords() {
+        assertEquals(new DDRemoteDamAuthenticationRequest("renewed-token"),
+            DDRemoteDamProtocol.decodeSessionRequest(DDRemoteDamProtocol.encodeAuthenticationRequest("renewed-token")));
+        for (String type : List.of("updated", "authenticate", "hello", "ready", "future.event")) {
+            DDRemoteDamMessage message = new DDRemoteDamMessage("projects", type, new JsonObject());
+            assertEquals(message, DDRemoteDamProtocol.decodeSessionRequest(DDRemoteDamProtocol.encode(message)));
+        }
+        assertFalse(new DDRemoteDamAuthenticationRequest("secret-token").toString().contains("secret-token"));
+    }
+
+    @Test
+    void rejectsMalformedAuthenticationSessionRequests() {
+        for (String token : List.of("null", "true", "42", "[]", "{}", "\"\"", "\" \"")) {
+            assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeSessionRequest(
+                "{\"type\":\"authenticate\",\"payload\":{\"accessToken\":" + token + "}}"));
+        }
+        for (String message : List.of(
+            "", "null", "[]", "{", "{}", "{\"type\":\"authenticate\"}",
+            "{\"type\":\"authenticate\",\"payload\":{}}",
+            "{\"type\":\"authenticate\",\"payload\":null}",
+            "{\"type\":\"authenticate\",\"payload\":[]}",
+            "{\"type\":\"hello\",\"payload\":{}}",
+            "{\"topic\":null,\"type\":\"authenticate\",\"payload\":{\"accessToken\":\"token\"}}",
+            "{\"topic\":42,\"type\":\"authenticate\",\"payload\":{\"accessToken\":\"token\"}}"
+        )) {
+            assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeSessionRequest(message), message);
+        }
+    }
+
     @Test
     void rejectsMissingAndBlankCredentialsBeforeEncoding() {
         for (String token : new String[] {null, "", " ", "\t\r\n"}) {
@@ -234,6 +265,7 @@ class DDRemoteDamProtocolTest {
             "{\"type\":\"updated\",\"payload\":{}}"
         )) {
             assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decode(message), message);
+            assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeSessionRequest(message), message);
         }
     }
 
@@ -247,6 +279,7 @@ class DDRemoteDamProtocolTest {
                 envelope.add(field, JsonParser.parseString(value));
 
                 assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decode(envelope.toString()));
+                assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeSessionRequest(envelope.toString()));
             }
         }
     }
@@ -257,6 +290,7 @@ class DDRemoteDamProtocolTest {
             String message = "{\"topic\":\"projects\",\"type\":\"updated\",\"payload\":" + payload + "}";
 
             assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decode(message));
+            assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeSessionRequest(message));
         }
     }
 

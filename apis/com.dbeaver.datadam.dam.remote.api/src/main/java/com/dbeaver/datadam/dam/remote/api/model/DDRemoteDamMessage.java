@@ -26,7 +26,7 @@ public record DDRemoteDamMessage(
     @NotNull String topic,
     @NotNull String type,
     @NotNull JsonObject payload
-) {
+) implements DDRemoteDamSessionRequest {
     public DDRemoteDamMessage {
         requireText(topic, "topic");
         requireText(type, "type");
