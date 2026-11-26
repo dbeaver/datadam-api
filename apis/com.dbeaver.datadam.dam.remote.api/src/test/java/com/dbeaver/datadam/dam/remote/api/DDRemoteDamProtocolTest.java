@@ -25,6 +25,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -39,7 +40,7 @@ class DDRemoteDamProtocolTest {
         assertEquals(new DDRemoteDamAuthenticationRequest("renewed-token"),
             DDRemoteDamProtocol.decodeSessionRequest(DDRemoteDamProtocol.encodeAuthenticationRequest("renewed-token")));
         for (String type : List.of("updated", "authenticate", "hello", "ready", "future.event")) {
-            DDRemoteDamMessage message = new DDRemoteDamMessage("projects", type, new JsonObject());
+            DDRemoteDamMessage message = new DDRemoteDamMessage("projects", type, Map.of());
             assertEquals(message, DDRemoteDamProtocol.decodeSessionRequest(DDRemoteDamProtocol.encode(message)));
         }
         assertFalse(new DDRemoteDamAuthenticationRequest("secret-token").toString().contains("secret-token"));
@@ -85,7 +86,7 @@ class DDRemoteDamProtocolTest {
         assertTrue(DDRemoteDamProtocol.isAuthenticationRequest(encoded));
         assertEquals("renewed-token", DDRemoteDamProtocol.decodeAuthenticationRequest(encoded));
         assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decode(encoded));
-        String application = DDRemoteDamProtocol.encode(new DDRemoteDamMessage("topic", "authenticate", new JsonObject()));
+        String application = DDRemoteDamProtocol.encode(new DDRemoteDamMessage("topic", "authenticate", Map.of()));
         assertFalse(DDRemoteDamProtocol.isAuthenticationRequest(application));
         assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.decodeAuthenticationRequest(application));
         assertThrows(IllegalArgumentException.class, () ->
@@ -94,8 +95,7 @@ class DDRemoteDamProtocolTest {
 
     @Test
     void roundTripsApplicationMessagesWithTopicTypeAndPayload() {
-        JsonObject payload = new JsonObject();
-        payload.addProperty("projectId", "project-1");
+        Map<String, Object> payload = Map.of("projectId", "project-1");
         DDRemoteDamMessage message = new DDRemoteDamMessage("projects", "project.updated", payload);
         String encoded = DDRemoteDamProtocol.encode(message);
 
@@ -239,7 +239,7 @@ class DDRemoteDamProtocolTest {
     @Test
     void allowsControlTypeNamesInApplicationMessages() {
         for (String type : List.of(DDRemoteDamProtocol.TYPE_HANDSHAKE_REQUEST, DDRemoteDamProtocol.TYPE_HANDSHAKE_RESPONSE)) {
-            DDRemoteDamMessage message = new DDRemoteDamMessage("projects", type, new JsonObject());
+            DDRemoteDamMessage message = new DDRemoteDamMessage("projects", type, Map.of());
 
             assertEquals(message, DDRemoteDamProtocol.decode(DDRemoteDamProtocol.encode(message)));
         }
@@ -253,7 +253,7 @@ class DDRemoteDamProtocolTest {
 
         assertEquals("future", message.topic());
         assertEquals("future.event", message.type());
-        assertEquals(42, message.payload().get("value").getAsInt());
+        assertEquals(new BigDecimal("42"), message.payload().get("value"));
     }
 
     @Test

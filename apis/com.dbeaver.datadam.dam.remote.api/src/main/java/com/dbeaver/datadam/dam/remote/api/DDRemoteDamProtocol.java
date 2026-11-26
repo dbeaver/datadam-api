@@ -20,13 +20,17 @@ import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamAuthenticationRequest
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeResponse;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamPayload;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSessionRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSettings;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.google.gson.ToNumberPolicy;
+import com.google.gson.reflect.TypeToken;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
@@ -34,6 +38,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class DDRemoteDamProtocol {
+    private static final Gson GSON = new GsonBuilder().serializeNulls().setObjectToNumberStrategy(ToNumberPolicy.BIG_DECIMAL).create();
+    private static final TypeToken<Map<String, Object>> PAYLOAD_TYPE = new TypeToken<>() { };
     public static final String WEBSOCKET_PATH = "/ws";
     public static final String TYPE_HANDSHAKE_REQUEST = "hello";
     public static final String TYPE_HANDSHAKE_RESPONSE = "ready";
@@ -55,9 +61,14 @@ public final class DDRemoteDamProtocol {
 
     @NotNull
     public static String encode(@NotNull DDRemoteDamMessage message) {
-        JsonObject envelope = envelope(message.type(), message.payload());
+        JsonObject envelope = envelope(message.type(), GSON.toJsonTree(message.payload()).getAsJsonObject());
         envelope.addProperty(FIELD_TOPIC, message.topic());
         return envelope.toString();
+    }
+
+    @NotNull
+    public static Map<String, Object> decodePayload(@NotNull String payload) {
+        return DDRemoteDamPayload.copyOf(GSON.fromJson(parseEnvelope(payload), PAYLOAD_TYPE));
     }
 
     @NotNull
@@ -80,7 +91,7 @@ public final class DDRemoteDamProtocol {
         return new DDRemoteDamMessage(
             readString(envelope, FIELD_TOPIC),
             readString(envelope, FIELD_TYPE),
-            readPayload(envelope)
+            GSON.fromJson(readPayload(envelope), PAYLOAD_TYPE)
         );
     }
 
