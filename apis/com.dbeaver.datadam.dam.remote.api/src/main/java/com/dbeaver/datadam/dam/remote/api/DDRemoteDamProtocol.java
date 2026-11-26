@@ -71,6 +71,9 @@ public final class DDRemoteDamProtocol {
     /** Renews the authenticated identity without replacing the desktop connection. */
     @NotNull
     public static String encodeAuthenticationRequest(@NotNull String accessToken) {
+        if (accessToken == null || accessToken.isBlank()) {
+            throw new IllegalArgumentException("Expected a non-blank access token");
+        }
         JsonObject payload = new JsonObject();
         payload.addProperty("accessToken", accessToken);
         return envelope(TYPE_AUTHENTICATION_REQUEST, payload).toString();

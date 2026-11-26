@@ -34,6 +34,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DDRemoteDamProtocolTest {
     @Test
+    void rejectsMissingAndBlankCredentialsBeforeEncoding() {
+        for (String token : new String[] {null, "", " ", "\t\r\n"}) {
+            assertThrows(IllegalArgumentException.class, () -> DDRemoteDamProtocol.encodeAuthenticationRequest(token));
+        }
+    }
+
+    @Test
     void negotiatesAuthenticationRenewalWithoutChangingLegacyHandshakes() {
         var supported = new DDRemoteDamHandshakeResponse("launch", DDRemoteDamSettings.EMPTY, true);
         assertEquals(supported, DDRemoteDamProtocol.decodeHandshakeResponse(DDRemoteDamProtocol.encodeHandshakeResponse(supported)));
