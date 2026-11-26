@@ -18,6 +18,7 @@ package com.dbeaver.datadam.dam.remote.api.requestreply;
 
 import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamPayload;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSessionInfo;
 import com.dbeaver.datadam.dam.remote.api.transport.DDRemoteDamChannel;
 import com.dbeaver.datadam.dam.remote.api.transport.DDRemoteDamChannelStatus;
@@ -27,9 +28,6 @@ import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
 import com.dbeaver.messaging.requestreply.MessagingRequestReplyMessage;
 import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
 import com.dbeaver.messaging.requestreply.MessagingSubscription;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
@@ -39,14 +37,16 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Semaphore;
 
-public final class DDRemoteDamRequestReplyTransport implements MessagingRequestReplyTransport<JsonObject>, AutoCloseable {
+public final class DDRemoteDamRequestReplyTransport implements MessagingRequestReplyTransport<Map<String, Object>>, AutoCloseable {
     private static final String MESSAGE_TYPE = "datadam.requestreply.v1";
     private static final String FIELD_REQUEST_ID = "requestId";
     private static final String FIELD_REPLY_TO = "replyTo";
@@ -109,7 +109,7 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
 
     @Override
     @NotNull
-    public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<JsonObject> listener)
+    public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<Map<String, Object>> listener)
             throws MessagingRequestReplyException {
         Registration opened;
         synchronized (lock) {
@@ -151,7 +151,7 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
 
     @Override
     @NotNull
-    public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+    public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
         synchronized (lock) {
             if (registration == null || registration.closed) {
                 return CompletableFuture.failedFuture(new MessagingRequestReplyException(MessagingRequestReplyException.Reason.CLOSED));
@@ -168,14 +168,14 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
             return CompletableFuture.failedFuture(new MessagingRequestReplyException(MessagingRequestReplyException.Reason.OVERLOADED));
         }
         try {
-            JsonObject envelope = new JsonObject();
-            envelope.addProperty(FIELD_REQUEST_ID, message.requestId().toString());
-            envelope.addProperty(FIELD_REPLY_TO, message.replyTo().toString());
-            envelope.addProperty(FIELD_TYPE, message.type().name());
+            Map<String, Object> envelope = new LinkedHashMap<>();
+            envelope.put(FIELD_REQUEST_ID, message.requestId().toString());
+            envelope.put(FIELD_REPLY_TO, message.replyTo().toString());
+            envelope.put(FIELD_TYPE, message.type().name());
             if (message.type() == MessagingRequestReplyMessage.Type.ERROR) {
-                envelope.addProperty(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
+                envelope.put(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
             } else {
-                envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload());
+                envelope.put(FIELD_DATA, message.payload());
             }
             String target = message.type() == MessagingRequestReplyMessage.Type.REQUEST ? topic : replyPrefix + message.replyTo();
             CompletableFuture<Void> result = new CompletableFuture<>();
@@ -217,29 +217,29 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
     }
 
     @Nullable
-    private static MessagingRequestReplyMessage<JsonObject> decode(@NotNull DDRemoteDamMessage message) {
+    private static MessagingRequestReplyMessage<Map<String, Object>> decode(@NotNull DDRemoteDamMessage message) {
         if (!MESSAGE_TYPE.equals(message.type())) {
             return null;
         }
         try {
-            JsonObject envelope = message.payload();
+            Map<String, Object> envelope = message.payload();
             UUID requestId = uuid(envelope, FIELD_REQUEST_ID);
             UUID replyTo = uuid(envelope, FIELD_REPLY_TO);
             MessagingRequestReplyMessage.Type type = MessagingRequestReplyMessage.Type.valueOf(string(envelope, FIELD_TYPE));
-            JsonElement data = envelope.get(FIELD_DATA);
+            Object data = envelope.get(FIELD_DATA);
             MessagingRequestReplyMessage.Error error = null;
-            JsonObject payload = null;
+            Map<String, Object> payload = null;
             if (type == MessagingRequestReplyMessage.Type.ERROR) {
-                if (data != null && !data.isJsonNull()) {
+                if (data != null) {
                     return null;
                 }
                 error = MessagingRequestReplyMessage.Error.valueOf(string(envelope, FIELD_ERROR));
             } else {
-                if (envelope.has(FIELD_ERROR) || data == null || !data.isJsonObject() && !data.isJsonNull()
-                    || type == MessagingRequestReplyMessage.Type.REQUEST && data.isJsonNull()) {
+                if (envelope.containsKey(FIELD_ERROR) || !envelope.containsKey(FIELD_DATA) || data != null && !(data instanceof Map<?, ?>)
+                    || type == MessagingRequestReplyMessage.Type.REQUEST && data == null) {
                     return null;
                 }
-                payload = data.isJsonNull() ? null : data.getAsJsonObject();
+                payload = data == null ? null : DDRemoteDamPayload.copyOf((Map<?, ?>) data);
             }
             return new MessagingRequestReplyMessage<>(requestId, replyTo, type, payload, error);
         } catch (IllegalArgumentException e) {
@@ -248,16 +248,15 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
     }
 
     @NotNull
-    private static String string(@NotNull JsonObject envelope, @NotNull String field) {
-        JsonElement value = envelope.get(field);
-        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+    private static String string(@NotNull Map<String, Object> envelope, @NotNull String field) {
+        if (!(envelope.get(field) instanceof String value)) {
             throw new IllegalArgumentException("Invalid request/reply field");
         }
-        return value.getAsString();
+        return value;
     }
 
     @NotNull
-    private static UUID uuid(@NotNull JsonObject envelope, @NotNull String field) {
+    private static UUID uuid(@NotNull Map<String, Object> envelope, @NotNull String field) {
         String value = string(envelope, field);
         UUID id = UUID.fromString(value);
         if (value.length() != 36 || !id.toString().equalsIgnoreCase(value)) {
@@ -269,7 +268,7 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
     private final class Registration implements MessagingSubscription {
         private final UUID endpointId;
         private final String replyTopic;
-        private final Listener<JsonObject> listener;
+        private final Listener<Map<String, Object>> listener;
         private final List<DDRemoteDamSubscription> subscriptions = new ArrayList<>();
         private final ArrayDeque<Delivery> deliveries = new ArrayDeque<>();
         @Nullable
@@ -279,7 +278,7 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
         private boolean delivering;
         private boolean closed;
 
-        private Registration(@NotNull UUID endpointId, @NotNull Listener<JsonObject> listener) {
+        private Registration(@NotNull UUID endpointId, @NotNull Listener<Map<String, Object>> listener) {
             this.endpointId = endpointId;
             this.replyTopic = replyPrefix + endpointId;
             this.listener = listener;
@@ -332,7 +331,7 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
         }
 
         private void receive(@NotNull DDRemoteDamSessionInfo session, @NotNull DDRemoteDamMessage message, boolean requestTopic) {
-            MessagingRequestReplyMessage<JsonObject> frame = decode(message);
+            MessagingRequestReplyMessage<Map<String, Object>> frame = decode(message);
             if (frame == null || (requestTopic ? frame.type() != MessagingRequestReplyMessage.Type.REQUEST
                 : frame.type() == MessagingRequestReplyMessage.Type.REQUEST || !endpointId.equals(frame.replyTo()))) {
                 return;
@@ -367,7 +366,7 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
             }
         }
 
-        private boolean enqueue(@Nullable MessagingRequestReplyMessage<JsonObject> message) {
+        private boolean enqueue(@Nullable MessagingRequestReplyMessage<Map<String, Object>> message) {
             if (message == null) {
                 if (!deliveries.isEmpty() && deliveries.getLast().message() == null) {
                     return false;
@@ -443,6 +442,6 @@ public final class DDRemoteDamRequestReplyTransport implements MessagingRequestR
         }
     }
 
-    private record Delivery(@Nullable MessagingRequestReplyMessage<JsonObject> message) {
+    private record Delivery(@Nullable MessagingRequestReplyMessage<Map<String, Object>> message) {
     }
 }

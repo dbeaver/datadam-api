@@ -31,8 +31,6 @@ import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
 import com.dbeaver.messaging.requestreply.MessagingRequestReplyMessage;
 import com.dbeaver.messaging.requestreply.MessagingRequestReplyTransport;
 import com.dbeaver.messaging.requestreply.MessagingSubscription;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Assertions;
@@ -41,6 +39,7 @@ import org.junit.jupiter.api.Timeout;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -66,22 +65,22 @@ class DDRemoteDamRequestReplyTransportTest {
         FakeChannel handlerChannel = new FakeChannel();
         callerChannel.forward = message -> handlerChannel.deliver(SESSION, message);
         handlerChannel.forward = message -> callerChannel.deliver(SESSION, message);
-        JsonObject payload = new JsonObject();
-        payload.addProperty("value", "request");
+        Map<String, Object> payload = Map.of("value", "request");
         try (var handler = MessagingRequestReplyEndpoint.open(DDRemoteDamRequestReplyTransport.forChannel(handlerChannel, TOPIC));
              var handlerRegistration = handler.handle(request -> {
-                 request.addProperty("handled", true);
-                 return request;
+                 Map<String, Object> response = new LinkedHashMap<>(request);
+                 response.put("handled", true);
+                 return response;
              });
              var caller = MessagingRequestReplyEndpoint.open(DDRemoteDamRequestReplyTransport.forChannel(callerChannel, TOPIC));
              var callerRegistration = caller.handle(request -> null)) {
-            JsonObject response = caller.request(payload, Duration.ofSeconds(2));
+            Map<String, Object> response = caller.request(payload, Duration.ofSeconds(2));
 
             Assertions.assertNotNull(response);
-            Assertions.assertEquals("request", response.get("value").getAsString());
-            Assertions.assertTrue(response.get("handled").getAsBoolean());
-            Assertions.assertFalse(payload.has("handled"));
-            Assertions.assertNull(handler.request(new JsonObject(), Duration.ofSeconds(2)));
+            Assertions.assertEquals("request", response.get("value"));
+            Assertions.assertEquals(true, response.get("handled"));
+            Assertions.assertFalse(payload.containsKey("handled"));
+            Assertions.assertNull(handler.request(Map.of(), Duration.ofSeconds(2)));
         }
         Assertions.assertFalse(callerChannel.closed);
         Assertions.assertFalse(handlerChannel.closed);
@@ -110,7 +109,7 @@ class DDRemoteDamRequestReplyTransportTest {
             Assertions.assertTrue(secondReplyTopic.endsWith(secondId.toString()));
             Assertions.assertEquals(TOPIC, channel.subscriptions.get(1).topic);
             Assertions.assertEquals(TOPIC, channel.subscriptions.get(3).topic);
-            MessagingRequestReplyMessage<JsonObject> request = request(firstId);
+            MessagingRequestReplyMessage<Map<String, Object>> request = request(firstId);
             first.send(request).toCompletableFuture().join();
             DDRemoteDamMessage sent = channel.sent.getLast();
             Assertions.assertEquals(TOPIC, sent.topic());
@@ -122,7 +121,7 @@ class DDRemoteDamRequestReplyTransportTest {
             channel.deliver(SESSION, channel.sent.getLast());
             Assertions.assertEquals(List.of(request, request.response(null)), firstReceived.messages);
             Assertions.assertEquals(List.of(request), secondReceived.messages);
-            MessagingRequestReplyMessage<JsonObject> otherRequest = request(secondId);
+            MessagingRequestReplyMessage<Map<String, Object>> otherRequest = request(secondId);
             first.send(otherRequest.failure(MessagingRequestReplyMessage.Error.NO_HANDLER)).toCompletableFuture().join();
             Assertions.assertEquals(secondReplyTopic, channel.sent.getLast().topic());
             channel.deliver(SESSION, channel.sent.getLast());
@@ -271,7 +270,7 @@ class DDRemoteDamRequestReplyTransportTest {
         List<String> delivered = new CopyOnWriteArrayList<>();
         try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
                 messageEntered.countDown();
                 await(releaseMessage);
                 delivered.add("message");
@@ -323,7 +322,7 @@ class DDRemoteDamRequestReplyTransportTest {
         List<String> delivered = new CopyOnWriteArrayList<>();
         try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
                 delivered.add("message");
             }
 
@@ -371,7 +370,7 @@ class DDRemoteDamRequestReplyTransportTest {
         List<String> delivered = new ArrayList<>();
         try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
                 channel.setStatus(new DDRemoteDamChannelStatus(DDRemoteDamChannelState.DISCONNECTED, null));
                 delivered.add("message");
             }
@@ -397,7 +396,7 @@ class DDRemoteDamRequestReplyTransportTest {
         List<String> delivered = new ArrayList<>();
         try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
                 delivered.add("message");
             }
 
@@ -467,7 +466,7 @@ class DDRemoteDamRequestReplyTransportTest {
             AtomicInteger disconnects = new AtomicInteger();
             try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
                 @Override
-                public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+                public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
                     entered.countDown();
                     await(release);
                     messages.incrementAndGet();
@@ -507,7 +506,7 @@ class DDRemoteDamRequestReplyTransportTest {
         IllegalStateException failure = new IllegalStateException("Listener failed");
         try (var subscription = adapter.subscribe(endpoint, new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
                 throw failure;
             }
 
@@ -534,60 +533,60 @@ class DDRemoteDamRequestReplyTransportTest {
         UUID endpoint = UUID.randomUUID();
         Received received = new Received();
         try (var subscription = adapter.subscribe(endpoint, received)) {
-            MessagingRequestReplyMessage<JsonObject> request = request(endpoint);
+            MessagingRequestReplyMessage<Map<String, Object>> request = request(endpoint);
             adapter.send(request).toCompletableFuture().join();
             DDRemoteDamMessage requestWire = channel.sent.getLast();
-            adapter.send(request.response(new JsonObject())).toCompletableFuture().join();
+            adapter.send(request.response(Map.of())).toCompletableFuture().join();
             final DDRemoteDamMessage responseWire = channel.sent.getLast();
-            List<JsonObject> malformed = new ArrayList<>();
-            JsonObject abbreviatedId = requestWire.payload();
-            abbreviatedId.addProperty("requestId", "1-1-1-1-1");
+            List<Map<String, Object>> malformed = new ArrayList<>();
+            Map<String, Object> abbreviatedId = new LinkedHashMap<>(requestWire.payload());
+            abbreviatedId.put("requestId", "1-1-1-1-1");
             malformed.add(abbreviatedId);
-            JsonObject invalidOrigin = requestWire.payload();
-            invalidOrigin.addProperty("replyTo", "not-a-uuid");
+            Map<String, Object> invalidOrigin = new LinkedHashMap<>(requestWire.payload());
+            invalidOrigin.put("replyTo", "not-a-uuid");
             malformed.add(invalidOrigin);
-            JsonObject numericId = requestWire.payload();
-            numericId.addProperty("requestId", 1);
+            Map<String, Object> numericId = new LinkedHashMap<>(requestWire.payload());
+            numericId.put("requestId", 1);
             malformed.add(numericId);
-            JsonObject unknownType = requestWire.payload();
-            unknownType.addProperty("type", "OTHER");
+            Map<String, Object> unknownType = new LinkedHashMap<>(requestWire.payload());
+            unknownType.put("type", "OTHER");
             malformed.add(unknownType);
-            JsonObject missingData = requestWire.payload();
+            Map<String, Object> missingData = new LinkedHashMap<>(requestWire.payload());
             missingData.remove("data");
             malformed.add(missingData);
-            JsonObject nullRequest = requestWire.payload();
-            nullRequest.add("data", JsonNull.INSTANCE);
+            Map<String, Object> nullRequest = new LinkedHashMap<>(requestWire.payload());
+            nullRequest.put("data", null);
             malformed.add(nullRequest);
-            JsonObject primitiveData = requestWire.payload();
-            primitiveData.addProperty("data", "text");
+            Map<String, Object> primitiveData = new LinkedHashMap<>(requestWire.payload());
+            primitiveData.put("data", "text");
             malformed.add(primitiveData);
-            JsonObject requestError = requestWire.payload();
-            requestError.addProperty("error", "NO_HANDLER");
+            Map<String, Object> requestError = new LinkedHashMap<>(requestWire.payload());
+            requestError.put("error", "NO_HANDLER");
             malformed.add(requestError);
-            for (JsonObject envelope : malformed) {
+            for (Map<String, Object> envelope : malformed) {
                 channel.deliver(SESSION, new DDRemoteDamMessage(TOPIC, requestWire.type(), envelope));
             }
-            JsonObject responseError = responseWire.payload();
-            responseError.addProperty("error", "NO_HANDLER");
+            Map<String, Object> responseError = new LinkedHashMap<>(responseWire.payload());
+            responseError.put("error", "NO_HANDLER");
             channel.deliver(SESSION, new DDRemoteDamMessage(responseWire.topic(), responseWire.type(), responseError));
-            JsonObject responsePrimitive = responseWire.payload();
-            responsePrimitive.addProperty("data", 42);
+            Map<String, Object> responsePrimitive = new LinkedHashMap<>(responseWire.payload());
+            responsePrimitive.put("data", 42);
             channel.deliver(SESSION, new DDRemoteDamMessage(responseWire.topic(), responseWire.type(), responsePrimitive));
-            JsonObject responseMissingData = responseWire.payload();
+            Map<String, Object> responseMissingData = new LinkedHashMap<>(responseWire.payload());
             responseMissingData.remove("data");
             channel.deliver(SESSION, new DDRemoteDamMessage(responseWire.topic(), responseWire.type(), responseMissingData));
-            JsonObject wrongOrigin = responseWire.payload();
-            wrongOrigin.addProperty("replyTo", UUID.randomUUID().toString());
+            Map<String, Object> wrongOrigin = new LinkedHashMap<>(responseWire.payload());
+            wrongOrigin.put("replyTo", UUID.randomUUID().toString());
             channel.deliver(SESSION, new DDRemoteDamMessage(responseWire.topic(), responseWire.type(), wrongOrigin));
             adapter.send(request.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED)).toCompletableFuture().join();
             DDRemoteDamMessage errorWire = channel.sent.getLast();
-            JsonObject errorData = errorWire.payload();
-            errorData.add("data", new JsonObject());
+            Map<String, Object> errorData = new LinkedHashMap<>(errorWire.payload());
+            errorData.put("data", Map.of());
             channel.deliver(SESSION, new DDRemoteDamMessage(errorWire.topic(), errorWire.type(), errorData));
-            JsonObject unknownError = errorWire.payload();
-            unknownError.addProperty("error", "OTHER");
+            Map<String, Object> unknownError = new LinkedHashMap<>(errorWire.payload());
+            unknownError.put("error", "OTHER");
             channel.deliver(SESSION, new DDRemoteDamMessage(errorWire.topic(), errorWire.type(), unknownError));
-            JsonObject missingError = errorWire.payload();
+            Map<String, Object> missingError = new LinkedHashMap<>(errorWire.payload());
             missingError.remove("error");
             channel.deliver(SESSION, new DDRemoteDamMessage(errorWire.topic(), errorWire.type(), missingError));
             channel.deliver(SESSION, new DDRemoteDamMessage(TOPIC, "unrelated", requestWire.payload()));
@@ -599,7 +598,7 @@ class DDRemoteDamRequestReplyTransportTest {
             channel.deliver(SESSION, requestWire);
             channel.deliver(SESSION, responseWire);
             channel.deliver(SESSION, errorWire);
-            Assertions.assertEquals(List.of(request, request.response(new JsonObject()),
+            Assertions.assertEquals(List.of(request, request.response(Map.of()),
                 request.failure(MessagingRequestReplyMessage.Error.HANDLER_FAILED)), received.messages);
         }
     }
@@ -685,8 +684,8 @@ class DDRemoteDamRequestReplyTransportTest {
     }
 
     @NotNull
-    private static MessagingRequestReplyMessage<JsonObject> request(@NotNull UUID endpoint) {
-        return MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, new JsonObject());
+    private static MessagingRequestReplyMessage<Map<String, Object>> request(@NotNull UUID endpoint) {
+        return MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, Map.of());
     }
 
     private static void assertFailure(@NotNull MessagingRequestReplyException.Reason reason, @NotNull CompletionStage<Void> result) {
@@ -703,14 +702,14 @@ class DDRemoteDamRequestReplyTransportTest {
     }
 
     @NotNull
-    private static MessagingRequestReplyTransport.Listener<JsonObject> inlineReplies(
+    private static MessagingRequestReplyTransport.Listener<Map<String, Object>> inlineReplies(
         @NotNull DDRemoteDamRequestReplyTransport adapter,
         @NotNull CountDownLatch requests,
         @NotNull AtomicInteger replies
     ) {
         return new MessagingRequestReplyTransport.Listener<>() {
             @Override
-            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+            public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
                 if (message.type() == MessagingRequestReplyMessage.Type.REQUEST) {
                     requests.countDown();
                     await(requests);
@@ -735,12 +734,12 @@ class DDRemoteDamRequestReplyTransportTest {
         }
     }
 
-    private static final class Received implements MessagingRequestReplyTransport.Listener<JsonObject> {
-        private final List<MessagingRequestReplyMessage<JsonObject>> messages = new ArrayList<>();
+    private static final class Received implements MessagingRequestReplyTransport.Listener<Map<String, Object>> {
+        private final List<MessagingRequestReplyMessage<Map<String, Object>>> messages = new ArrayList<>();
         private int disconnects;
 
         @Override
-        public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+        public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
             messages.add(message);
         }
 

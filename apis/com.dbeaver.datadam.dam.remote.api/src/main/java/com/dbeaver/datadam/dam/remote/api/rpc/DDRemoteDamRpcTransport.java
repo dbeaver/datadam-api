@@ -16,6 +16,7 @@
  */
 package com.dbeaver.datadam.dam.remote.api.rpc;
 
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamPayload;
 import com.dbeaver.datadam.dam.remote.api.requestreply.DDRemoteDamRequestReplyTransport;
 import com.dbeaver.datadam.dam.remote.api.transport.DDRemoteDamChannel;
 import com.dbeaver.messaging.requestreply.MessagingRequestReplyException;
@@ -25,15 +26,13 @@ import com.dbeaver.messaging.requestreply.MessagingSubscription;
 import com.dbeaver.messaging.rpc.MessagingRpcExceptionDetails;
 import com.dbeaver.messaging.rpc.MessagingRpcMessage;
 import com.dbeaver.messaging.rpc.MessagingRpcTransport;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -41,7 +40,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
 
-public final class DDRemoteDamRpcTransport implements MessagingRequestReplyTransport<MessagingRpcMessage<JsonElement>> {
+public final class DDRemoteDamRpcTransport implements MessagingRequestReplyTransport<MessagingRpcMessage<Object>> {
     private static final String PROTOCOL = "dbeaver.rpc.v2";
     private static final String FIELD_PROTOCOL = "protocol";
     private static final String FIELD_TYPE = "type";
@@ -54,21 +53,24 @@ public final class DDRemoteDamRpcTransport implements MessagingRequestReplyTrans
     private static final String FIELD_TRUNCATED = "truncated";
     private static final int MAX_PENDING_SENDS = 128;
     private final Semaphore sendBudget = new Semaphore(MAX_PENDING_SENDS);
-    private final MessagingRequestReplyTransport<JsonObject> delegate;
+    private final MessagingRequestReplyTransport<Map<String, Object>> delegate;
     @Nullable
     private final Executor requestExecutor;
 
-    public DDRemoteDamRpcTransport(@NotNull MessagingRequestReplyTransport<JsonObject> delegate) {
+    public DDRemoteDamRpcTransport(@NotNull MessagingRequestReplyTransport<Map<String, Object>> delegate) {
         this(delegate, null);
     }
 
-    public DDRemoteDamRpcTransport(@NotNull MessagingRequestReplyTransport<JsonObject> delegate, @Nullable Executor requestExecutor) {
+    public DDRemoteDamRpcTransport(
+        @NotNull MessagingRequestReplyTransport<Map<String, Object>> delegate,
+        @Nullable Executor requestExecutor
+    ) {
         this.delegate = Objects.requireNonNull(delegate);
         this.requestExecutor = requestExecutor;
     }
 
     @NotNull
-    public static MessagingRpcTransport<JsonElement> forChannel(@NotNull DDRemoteDamChannel channel) {
+    public static MessagingRpcTransport<Object> forChannel(@NotNull DDRemoteDamChannel channel) {
         Objects.requireNonNull(channel);
         return topic -> forChannel(channel, topic);
     }
@@ -99,14 +101,14 @@ public final class DDRemoteDamRpcTransport implements MessagingRequestReplyTrans
 
     @Override
     @NotNull
-    public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<MessagingRpcMessage<JsonElement>> listener)
+    public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<MessagingRpcMessage<Object>> listener)
             throws MessagingRequestReplyException {
         Objects.requireNonNull(endpointId);
         Objects.requireNonNull(listener);
         return delegate.subscribe(endpointId, new Listener<>() {
             @Override
-            public void onMessage(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
-                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> decoded = decode(message);
+            public void onMessage(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
+                MessagingRequestReplyMessage<MessagingRpcMessage<Object>> decoded = decode(message);
                 if (decoded != null) {
                     listener.onMessage(decoded);
                 }
@@ -121,16 +123,16 @@ public final class DDRemoteDamRpcTransport implements MessagingRequestReplyTrans
 
     @Override
     @NotNull
-    public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> message) {
+    public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<Object>> message) {
         if (!sendBudget.tryAcquire()) {
             return CompletableFuture.failedFuture(new MessagingRequestReplyException(MessagingRequestReplyException.Reason.OVERLOADED));
         }
         try {
-            MessagingRpcMessage<JsonElement> payload = message.payload();
+            MessagingRpcMessage<Object> payload = message.payload();
             if (payload != null) {
                 requireType(message.type(), payload.type());
             }
-            MessagingRequestReplyMessage<JsonObject> frame = new MessagingRequestReplyMessage<>(
+            MessagingRequestReplyMessage<Map<String, Object>> frame = new MessagingRequestReplyMessage<>(
                 message.requestId(), message.replyTo(), message.type(),
                 payload == null ? null : encode(payload), message.error());
             CompletableFuture<Void> result = new CompletableFuture<>();
@@ -150,76 +152,68 @@ public final class DDRemoteDamRpcTransport implements MessagingRequestReplyTrans
     }
 
     @NotNull
-    private static JsonObject encode(@NotNull MessagingRpcMessage<JsonElement> message) {
-        JsonObject envelope = new JsonObject();
-        envelope.addProperty(FIELD_PROTOCOL, PROTOCOL);
-        envelope.addProperty(FIELD_TYPE, message.type().name());
+    private static Map<String, Object> encode(@NotNull MessagingRpcMessage<Object> message) {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put(FIELD_PROTOCOL, PROTOCOL);
+        envelope.put(FIELD_TYPE, message.type().name());
         if (message.type() == MessagingRpcMessage.Type.ERROR) {
-            envelope.addProperty(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
-            envelope.add(FIELD_EXCEPTION, message.exception() == null ? JsonNull.INSTANCE : encodeException(message.exception()));
+            envelope.put(FIELD_ERROR, Objects.requireNonNull(message.error()).name());
+            envelope.put(FIELD_EXCEPTION, message.exception() == null ? null : encodeException(message.exception()));
         } else {
             if (message.type() == MessagingRpcMessage.Type.REQUEST) {
-                envelope.addProperty(FIELD_OPERATION, message.operation());
-                JsonArray arguments = new JsonArray();
-                for (JsonElement argument : message.arguments()) {
-                    arguments.add(argument == null ? JsonNull.INSTANCE : argument.deepCopy());
-                }
-                envelope.add(FIELD_DATA, arguments);
+                envelope.put(FIELD_OPERATION, message.operation());
+                envelope.put(FIELD_DATA, message.arguments());
             } else {
-                envelope.add(FIELD_DATA, message.payload() == null ? JsonNull.INSTANCE : message.payload().deepCopy());
+                envelope.put(FIELD_DATA, message.payload());
             }
         }
-        return envelope;
+        return DDRemoteDamPayload.copyOf(envelope);
     }
 
     @NotNull
-    private static JsonObject encodeException(@NotNull MessagingRpcExceptionDetails details) {
-        JsonObject exception = new JsonObject();
-        exception.addProperty(FIELD_TYPE, details.type());
-        exception.addProperty(FIELD_MESSAGE, details.message());
-        exception.addProperty(FIELD_STACK_TRACE, details.stackTrace());
-        exception.addProperty(FIELD_TRUNCATED, details.truncated());
+    private static Map<String, Object> encodeException(@NotNull MessagingRpcExceptionDetails details) {
+        Map<String, Object> exception = new LinkedHashMap<>();
+        exception.put(FIELD_TYPE, details.type());
+        exception.put(FIELD_MESSAGE, details.message());
+        exception.put(FIELD_STACK_TRACE, details.stackTrace());
+        exception.put(FIELD_TRUNCATED, details.truncated());
         return exception;
     }
 
     @Nullable
-    private static MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> decode(
-        @NotNull MessagingRequestReplyMessage<JsonObject> message
+    private static MessagingRequestReplyMessage<MessagingRpcMessage<Object>> decode(
+        @NotNull MessagingRequestReplyMessage<Map<String, Object>> message
     ) {
         if (message.type() == MessagingRequestReplyMessage.Type.ERROR || message.payload() == null) {
             return new MessagingRequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), null, message.error());
         }
         try {
-            JsonObject envelope = message.payload();
+            Map<String, Object> envelope = DDRemoteDamPayload.copyOf(message.payload());
             if (!PROTOCOL.equals(string(envelope, FIELD_PROTOCOL))) {
                 return null;
             }
             MessagingRpcMessage.Type type = MessagingRpcMessage.Type.valueOf(string(envelope, FIELD_TYPE));
             requireType(message.type(), type);
-            MessagingRpcMessage<JsonElement> payload;
+            MessagingRpcMessage<Object> payload;
             if (type == MessagingRpcMessage.Type.ERROR) {
-                JsonElement exception = envelope.get(FIELD_EXCEPTION);
-                if (envelope.size() != 4 || exception == null) {
+                Object exception = envelope.get(FIELD_EXCEPTION);
+                if (envelope.size() != 4 || !envelope.containsKey(FIELD_EXCEPTION)) {
                     return null;
                 }
                 payload = MessagingRpcMessage.failure(MessagingRpcMessage.Error.valueOf(string(envelope, FIELD_ERROR)),
                     decodeException(exception));
             } else {
-                JsonElement data = envelope.get(FIELD_DATA);
-                if (data == null || envelope.size() != (type == MessagingRpcMessage.Type.REQUEST ? 4 : 3)) {
+                Object data = envelope.get(FIELD_DATA);
+                if (!envelope.containsKey(FIELD_DATA) || envelope.size() != (type == MessagingRpcMessage.Type.REQUEST ? 4 : 3)) {
                     return null;
                 }
                 if (type == MessagingRpcMessage.Type.REQUEST) {
-                    if (!data.isJsonArray()) {
+                    if (!(data instanceof List<?> arguments)) {
                         return null;
                     }
-                    List<JsonElement> arguments = new ArrayList<>(data.getAsJsonArray().size());
-                    for (JsonElement argument : data.getAsJsonArray()) {
-                        arguments.add(argument.isJsonNull() ? null : argument.deepCopy());
-                    }
-                    payload = MessagingRpcMessage.request(string(envelope, FIELD_OPERATION), arguments);
+                    payload = MessagingRpcMessage.request(string(envelope, FIELD_OPERATION), new ArrayList<>(arguments));
                 } else {
-                    payload = MessagingRpcMessage.response(data.isJsonNull() ? null : data.deepCopy());
+                    payload = MessagingRpcMessage.response(data);
                 }
             }
             return new MessagingRequestReplyMessage<>(message.requestId(), message.replyTo(), message.type(), payload, message.error());
@@ -229,23 +223,21 @@ public final class DDRemoteDamRpcTransport implements MessagingRequestReplyTrans
     }
 
     @Nullable
-    private static MessagingRpcExceptionDetails decodeException(@NotNull JsonElement value) {
-        if (value.isJsonNull()) {
+    private static MessagingRpcExceptionDetails decodeException(@Nullable Object value) {
+        if (value == null) {
             return null;
         }
-        if (!value.isJsonObject()) {
+        if (!(value instanceof Map<?, ?> map)) {
             throw new IllegalArgumentException("Expected RPC exception details");
         }
-        JsonObject exception = value.getAsJsonObject();
-        JsonElement message = exception.get(FIELD_MESSAGE);
-        JsonElement truncated = exception.get(FIELD_TRUNCATED);
-        if (exception.size() != 4 || message == null || truncated == null || !truncated.isJsonPrimitive()
-            || !truncated.getAsJsonPrimitive().isBoolean()) {
+        Map<String, Object> exception = DDRemoteDamPayload.copyOf(map);
+        Object message = exception.get(FIELD_MESSAGE);
+        if (exception.size() != 4 || !exception.containsKey(FIELD_MESSAGE)
+            || !(exception.get(FIELD_TRUNCATED) instanceof Boolean truncated)) {
             throw new IllegalArgumentException("Invalid RPC exception details");
         }
         return new MessagingRpcExceptionDetails(string(exception, FIELD_TYPE),
-            message.isJsonNull() ? null : string(exception, FIELD_MESSAGE), string(exception, FIELD_STACK_TRACE),
-            truncated.getAsBoolean());
+            message == null ? null : string(exception, FIELD_MESSAGE), string(exception, FIELD_STACK_TRACE), truncated);
     }
 
     private static void requireType(@NotNull MessagingRequestReplyMessage.Type outer, @NotNull MessagingRpcMessage.Type inner) {
@@ -256,11 +248,10 @@ public final class DDRemoteDamRpcTransport implements MessagingRequestReplyTrans
     }
 
     @NotNull
-    private static String string(@NotNull JsonObject envelope, @NotNull String field) {
-        JsonElement value = envelope.get(field);
-        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+    private static String string(@NotNull Map<String, Object> envelope, @NotNull String field) {
+        if (!(envelope.get(field) instanceof String value)) {
             throw new IllegalArgumentException("Invalid RPC field");
         }
-        return value.getAsString();
+        return value;
     }
 }

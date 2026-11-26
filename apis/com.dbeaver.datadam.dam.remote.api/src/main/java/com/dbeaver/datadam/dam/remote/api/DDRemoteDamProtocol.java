@@ -16,15 +16,21 @@
  */
 package com.dbeaver.datadam.dam.remote.api;
 
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamAuthenticationRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamHandshakeResponse;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamMessage;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamPayload;
+import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSessionRequest;
 import com.dbeaver.datadam.dam.remote.api.model.DDRemoteDamSettings;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.google.gson.ToNumberPolicy;
+import com.google.gson.reflect.TypeToken;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
@@ -32,9 +38,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class DDRemoteDamProtocol {
+    private static final Gson GSON = new GsonBuilder().serializeNulls().setObjectToNumberStrategy(ToNumberPolicy.BIG_DECIMAL).create();
+    private static final TypeToken<Map<String, Object>> PAYLOAD_TYPE = new TypeToken<>() { };
     public static final String WEBSOCKET_PATH = "/ws";
     public static final String TYPE_HANDSHAKE_REQUEST = "hello";
     public static final String TYPE_HANDSHAKE_RESPONSE = "ready";
+    public static final String TYPE_AUTHENTICATION_REQUEST = "authenticate";
 
     private static final String FIELD_TOPIC = "topic";
     private static final String FIELD_TYPE = "type";
@@ -52,19 +61,59 @@ public final class DDRemoteDamProtocol {
 
     @NotNull
     public static String encode(@NotNull DDRemoteDamMessage message) {
-        JsonObject envelope = envelope(message.type(), message.payload());
+        JsonObject envelope = envelope(message.type(), GSON.toJsonTree(message.payload()).getAsJsonObject());
         envelope.addProperty(FIELD_TOPIC, message.topic());
         return envelope.toString();
     }
 
     @NotNull
+    public static Map<String, Object> decodePayload(@NotNull String payload) {
+        return DDRemoteDamPayload.copyOf(GSON.fromJson(parseEnvelope(payload), PAYLOAD_TYPE));
+    }
+
+    @NotNull
     public static DDRemoteDamMessage decode(@NotNull String message) {
+        return decodeMessage(parseEnvelope(message));
+    }
+
+    /** Parses once and returns a typed control request or application message, never an envelope tree. */
+    @NotNull
+    public static DDRemoteDamSessionRequest decodeSessionRequest(@NotNull String message) {
         JsonObject envelope = parseEnvelope(message);
+        if (!envelope.has(FIELD_TOPIC) && TYPE_AUTHENTICATION_REQUEST.equals(readString(envelope, FIELD_TYPE))) {
+            return new DDRemoteDamAuthenticationRequest(readString(readPayload(envelope), "accessToken"));
+        }
+        return decodeMessage(envelope);
+    }
+
+    @NotNull
+    private static DDRemoteDamMessage decodeMessage(@NotNull JsonObject envelope) {
         return new DDRemoteDamMessage(
             readString(envelope, FIELD_TOPIC),
             readString(envelope, FIELD_TYPE),
-            readPayload(envelope)
+            GSON.fromJson(readPayload(envelope), PAYLOAD_TYPE)
         );
+    }
+
+    /** Renews the authenticated identity without replacing the desktop connection. */
+    @NotNull
+    public static String encodeAuthenticationRequest(@NotNull String accessToken) {
+        if (accessToken == null || accessToken.isBlank()) {
+            throw new IllegalArgumentException("Expected a non-blank access token");
+        }
+        JsonObject payload = new JsonObject();
+        payload.addProperty("accessToken", accessToken);
+        return envelope(TYPE_AUTHENTICATION_REQUEST, payload).toString();
+    }
+
+    public static boolean isAuthenticationRequest(@NotNull String message) {
+        JsonObject envelope = parseEnvelope(message);
+        return !envelope.has(FIELD_TOPIC) && TYPE_AUTHENTICATION_REQUEST.equals(readString(envelope, FIELD_TYPE));
+    }
+
+    @NotNull
+    public static String decodeAuthenticationRequest(@NotNull String message) {
+        return readString(readControlPayload(message, TYPE_AUTHENTICATION_REQUEST), "accessToken");
     }
 
     @NotNull
@@ -97,6 +146,9 @@ public final class DDRemoteDamProtocol {
         JsonObject payload = new JsonObject();
         payload.addProperty(FIELD_DAM_SESSION_ID, ready.damSessionId());
         payload.add("settings", new Gson().toJsonTree(ready.settings()));
+        if (ready.authenticationRefresh()) {
+            payload.addProperty("authenticationRefresh", true);
+        }
         return envelope(TYPE_HANDSHAKE_RESPONSE, payload).toString();
     }
 
@@ -112,7 +164,13 @@ public final class DDRemoteDamProtocol {
             settings = new DDRemoteDamSettings(readSettings(value.getAsJsonObject().get("account")),
                 readSettings(value.getAsJsonObject().get("dam")));
         }
-        return new DDRemoteDamHandshakeResponse(readString(payload, FIELD_DAM_SESSION_ID), settings);
+        JsonElement authenticationRefresh = payload.get("authenticationRefresh");
+        if (authenticationRefresh != null
+            && (!authenticationRefresh.isJsonPrimitive() || !authenticationRefresh.getAsJsonPrimitive().isBoolean())) {
+            throw new IllegalArgumentException("Expected an authenticationRefresh boolean");
+        }
+        return new DDRemoteDamHandshakeResponse(readString(payload, FIELD_DAM_SESSION_ID), settings,
+            authenticationRefresh != null && authenticationRefresh.getAsBoolean());
     }
 
     @NotNull
