@@ -38,6 +38,7 @@ import com.dbeaver.messaging.rpc.MessagingRpcException;
 import com.dbeaver.messaging.rpc.MessagingRpcExceptionDetails;
 import com.dbeaver.messaging.rpc.MessagingRpcMessage;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -45,6 +46,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
+import com.google.gson.ToNumberPolicy;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Assertions;
@@ -54,12 +56,15 @@ import org.junit.jupiter.api.Timeout;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Type;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -81,7 +86,7 @@ class DDRemoteDamRpcTransportTest {
     private static final String TOPIC = "custom.files";
     private static final DDRemoteDamSessionInfo SESSION = new DDRemoteDamSessionInfo("remoteDam", "run", "socket");
     private static final MessagingRequestReplyOptions OPTIONS = new MessagingRequestReplyOptions(Duration.ofSeconds(2), 16, 8);
-    private static final MessagingRpcCodec<JsonElement> CODEC = new GsonCodec();
+    private static final MessagingRpcCodec<Object> CODEC = new GsonCodec();
 
     @Test
     void delegatesRequestExecutionUnlessAnExplicitExecutorIsSupplied() {
@@ -330,11 +335,11 @@ class DDRemoteDamRpcTransportTest {
             Assertions.assertEquals(expectedData.size(), left.sent.size());
             Assertions.assertEquals(expectedData.size(), right.sent.size());
             for (int i = 0; i < expectedData.size(); i++) {
-                JsonObject request = left.sent.get(i).payload().getAsJsonObject("data");
+                JsonObject request = json(left.sent.get(i).payload()).getAsJsonObject("data");
                 Assertions.assertEquals(Set.of("protocol", "type", "operation", "data"), request.keySet());
                 Assertions.assertEquals(expectedOperations.get(i), request.get("operation").getAsString());
                 Assertions.assertEquals(JsonParser.parseString(expectedData.get(i)), request.get("data"));
-                JsonObject response = right.sent.get(i).payload().getAsJsonObject("data");
+                JsonObject response = json(right.sent.get(i).payload()).getAsJsonObject("data");
                 Assertions.assertEquals(Set.of("protocol", "type", "data"), response.keySet());
                 Assertions.assertEquals("RESPONSE", response.get("type").getAsString());
                 Assertions.assertTrue(response.get("data").isJsonPrimitive());
@@ -360,7 +365,7 @@ class DDRemoteDamRpcTransportTest {
             List<String> expectedData = List.of("[\"empty\",[]]", "[\"many\",[\"first\",null,\"third\"]]", "[\"null\",null]");
             Assertions.assertEquals(expectedData.size(), left.sent.size());
             for (int i = 0; i < expectedData.size(); i++) {
-                JsonObject request = left.sent.get(i).payload().getAsJsonObject("data");
+                JsonObject request = json(left.sent.get(i).payload()).getAsJsonObject("data");
                 Assertions.assertEquals("apply(" + String.class.getTypeName() + "," + String[].class.getTypeName() + ")",
                     request.get("operation").getAsString());
                 Assertions.assertEquals(JsonParser.parseString(expectedData.get(i)), request.get("data"));
@@ -403,9 +408,9 @@ class DDRemoteDamRpcTransportTest {
             Assertions.assertEquals(handlerCodec.encodedTypes, callerCodec.decodedTypes);
             Assertions.assertEquals(JsonParser.parseString("[\"label\",{\"name\":\"selected\",\"tags\":[\"chosen\"]},"
                 + "[{\"name\":\"nested\",\"tags\":[\"tag\"]}],[7,8]]"),
-                left.sent.getFirst().payload().getAsJsonObject("data").get("data"));
+                json(left.sent.getFirst().payload()).getAsJsonObject("data").get("data"));
             Assertions.assertEquals(JsonParser.parseString("[null,null,[{\"name\":\"nested\",\"tags\":[\"tag\"]}],[7,8]]"),
-                left.sent.getLast().payload().getAsJsonObject("data").get("data"));
+                json(left.sent.getLast().payload()).getAsJsonObject("data").get("data"));
         }
     }
 
@@ -428,12 +433,13 @@ class DDRemoteDamRpcTransportTest {
                 List.of(new JsonPrimitive(1), new JsonPrimitive(2), new JsonPrimitive(3), new JsonPrimitive(4)),
                 Arrays.asList(new JsonPrimitive(1), null, new JsonPrimitive(3)))) {
                 Assertions.assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST),
-                    caller.request(MessagingRpcMessage.request("sum(int,int,int)", arguments)));
+                    caller.request(MessagingRpcMessage.request("sum(int,int,int)",
+                        arguments.stream().map(DDRemoteDamRpcTransportTest::plain).toList())));
             }
             Assertions.assertEquals(0, calls.get());
-            Assertions.assertEquals(MessagingRpcMessage.response(new JsonPrimitive(6)),
+            Assertions.assertEquals(MessagingRpcMessage.response(new BigDecimal("6")),
                 caller.request(MessagingRpcMessage.request("sum(int,int,int)",
-                    List.of(new JsonPrimitive(1), new JsonPrimitive(2), new JsonPrimitive(3)))));
+                    List.of(1, 2, 3))));
             Assertions.assertEquals(1, calls.get());
         }
     }
@@ -444,49 +450,50 @@ class DDRemoteDamRpcTransportTest {
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
         UUID endpoint = UUID.randomUUID();
         Received received = new Received();
-        MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(endpoint, new JsonPrimitive("argument"));
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = request(endpoint, new JsonPrimitive("argument"));
         try (var subscription = adapter.subscribe(endpoint, received)) {
             Assertions.assertEquals(endpoint, delegate.endpoint);
             adapter.send(request).toCompletableFuture().join();
-            MessagingRequestReplyMessage<JsonObject> sent = delegate.sent.getLast();
+            MessagingRequestReplyMessage<Map<String, Object>> sent = delegate.sent.getLast();
             Assertions.assertEquals(request.requestId(), sent.requestId());
             Assertions.assertEquals(request.replyTo(), sent.replyTo());
             Assertions.assertEquals(MessagingRequestReplyMessage.Type.REQUEST, sent.type());
-            Assertions.assertEquals("dbeaver.rpc.v2", Objects.requireNonNull(sent.payload()).get("protocol").getAsString());
+            Assertions.assertEquals("dbeaver.rpc.v2", Objects.requireNonNull(sent.payload()).get("protocol"));
             JsonObject expectedRequest = requestEnvelope();
             expectedRequest.add("data", JsonParser.parseString("[\"argument\"]"));
-            Assertions.assertEquals(expectedRequest, sent.payload());
-            Assertions.assertFalse(sent.payload().has("topic"));
+            Assertions.assertEquals(expectedRequest, json(sent.payload()));
+            Assertions.assertFalse(sent.payload().containsKey("topic"));
             delegate.deliver(sent);
             Assertions.assertEquals(request, received.messages.getLast());
-            MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> response =
-                request.response(MessagingRpcMessage.response(new JsonPrimitive(42)));
+            MessagingRequestReplyMessage<MessagingRpcMessage<Object>> response =
+                request.response(MessagingRpcMessage.response(new BigDecimal("42")));
             adapter.send(response).toCompletableFuture().join();
             JsonObject expectedResponse = responseEnvelope();
             expectedResponse.addProperty("data", 42);
-            Assertions.assertEquals(expectedResponse, delegate.sent.getLast().payload());
+            Assertions.assertEquals(expectedResponse, json(delegate.sent.getLast().payload()));
             delegate.deliver(delegate.sent.getLast());
             Assertions.assertEquals(response, received.messages.getLast());
             for (MessagingRpcMessage.Error error : MessagingRpcMessage.Error.values()) {
-                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> failure =
+                MessagingRequestReplyMessage<MessagingRpcMessage<Object>> failure =
                     request.response(MessagingRpcMessage.failure(error));
                 adapter.send(failure).toCompletableFuture().join();
-                MessagingRequestReplyMessage<JsonObject> wire = delegate.sent.getLast();
+                MessagingRequestReplyMessage<Map<String, Object>> wire = delegate.sent.getLast();
                 Assertions.assertEquals(request.requestId(), wire.requestId());
                 Assertions.assertEquals(request.replyTo(), wire.replyTo());
                 Assertions.assertEquals(MessagingRequestReplyMessage.Type.RESPONSE, wire.type());
                 Assertions.assertNull(wire.error());
-                Assertions.assertFalse(Objects.requireNonNull(wire.payload()).has("data"));
-                Assertions.assertEquals(error.name(), wire.payload().get("error").getAsString());
-                Assertions.assertEquals(JsonNull.INSTANCE, wire.payload().get("exception"));
-                Assertions.assertEquals(errorEnvelope(error), wire.payload());
+                Assertions.assertFalse(Objects.requireNonNull(wire.payload()).containsKey("data"));
+                Assertions.assertEquals(error.name(), wire.payload().get("error"));
+                Assertions.assertNull(wire.payload().get("exception"));
+                Assertions.assertTrue(wire.payload().containsKey("exception"));
+                Assertions.assertEquals(errorEnvelope(error), json(wire.payload()));
                 delegate.deliver(wire);
                 Assertions.assertEquals(failure, received.messages.getLast());
             }
             for (MessagingRequestReplyMessage.Error error : MessagingRequestReplyMessage.Error.values()) {
-                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> failure = request.failure(error);
+                MessagingRequestReplyMessage<MessagingRpcMessage<Object>> failure = request.failure(error);
                 adapter.send(failure).toCompletableFuture().join();
-                MessagingRequestReplyMessage<JsonObject> wire = delegate.sent.getLast();
+                MessagingRequestReplyMessage<Map<String, Object>> wire = delegate.sent.getLast();
                 Assertions.assertNull(wire.payload());
                 Assertions.assertEquals(error, wire.error());
                 delegate.deliver(wire);
@@ -505,7 +512,7 @@ class DDRemoteDamRpcTransportTest {
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
         UUID endpoint = UUID.randomUUID();
         Received received = new Received();
-        MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(endpoint, null);
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = request(endpoint, null);
         List<MessagingRpcExceptionDetails> diagnostics = List.of(
             new MessagingRpcExceptionDetails("application.Failure", "quoted \"message\"\n雪😀", "trace\r\n\t\0\\雪😀", false),
             new MessagingRpcExceptionDetails("application.Failure", null, "", false),
@@ -514,15 +521,15 @@ class DDRemoteDamRpcTransportTest {
         try (var subscription = adapter.subscribe(endpoint, received)) {
             for (MessagingRpcMessage.Error error : MessagingRpcMessage.Error.values()) {
                 for (MessagingRpcExceptionDetails details : diagnostics) {
-                    MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> failure =
+                    MessagingRequestReplyMessage<MessagingRpcMessage<Object>> failure =
                         request.response(MessagingRpcMessage.failure(error, details));
                     adapter.send(failure).toCompletableFuture().join();
-                    MessagingRequestReplyMessage<JsonObject> wire = delegate.sent.getLast();
+                    MessagingRequestReplyMessage<Map<String, Object>> wire = delegate.sent.getLast();
                     Assertions.assertEquals(request.requestId(), wire.requestId());
                     Assertions.assertEquals(request.replyTo(), wire.replyTo());
                     Assertions.assertEquals(MessagingRequestReplyMessage.Type.RESPONSE, wire.type());
                     Assertions.assertNull(wire.error());
-                    JsonObject envelope = Objects.requireNonNull(wire.payload());
+                    JsonObject envelope = json(Objects.requireNonNull(wire.payload()));
                     Assertions.assertEquals(Set.of("protocol", "type", "error", "exception"), envelope.keySet());
                     final JsonObject expected = errorEnvelope(error);
                     JsonObject exception = new JsonObject();
@@ -547,7 +554,7 @@ class DDRemoteDamRpcTransportTest {
         DDRemoteDamRpcTransport adapter = DDRemoteDamRpcTransport.forChannel(channel, "x".repeat(256));
         UUID endpoint = UUID.randomUUID();
         Received received = new Received();
-        MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(endpoint, null);
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = request(endpoint, null);
         try (var subscription = adapter.subscribe(endpoint, received)) {
             for (String unit : List.of("\0", "\"\\\n\r\t\b\f\37", "\u2028x\u2029x", "雪", "😀")) {
                 MessagingRpcExceptionDetails details = new MessagingRpcExceptionDetails(
@@ -557,12 +564,12 @@ class DDRemoteDamRpcTransportTest {
                 Assertions.assertEquals(256, details.type().length());
                 Assertions.assertEquals(1024, Objects.requireNonNull(details.message()).length());
                 Assertions.assertEquals(8192, details.stackTrace().length());
-                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> failure = request.response(
+                MessagingRequestReplyMessage<MessagingRpcMessage<Object>> failure = request.response(
                     MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_OPERATION, details));
                 adapter.send(failure).toCompletableFuture().join();
                 DDRemoteDamMessage wire = channel.sent.getLast();
                 Assertions.assertEquals("datadam.requestreply.v1", wire.type());
-                JsonObject outer = wire.payload();
+                JsonObject outer = json(wire.payload());
                 Assertions.assertEquals(Set.of("requestId", "replyTo", "type", "data"), outer.keySet());
                 Assertions.assertEquals(request.requestId().toString(), outer.get("requestId").getAsString());
                 Assertions.assertEquals(endpoint.toString(), outer.get("replyTo").getAsString());
@@ -584,15 +591,15 @@ class DDRemoteDamRpcTransportTest {
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
         UUID endpoint = UUID.randomUUID();
         Received received = new Received();
-        MessagingRequestReplyMessage<JsonObject> request =
-            MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, requestEnvelope());
+        MessagingRequestReplyMessage<Map<String, Object>> request =
+            MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, map(requestEnvelope()));
         List<JsonElement> malformed = malformedExceptions();
         try (var subscription = adapter.subscribe(endpoint, received)) {
             for (MessagingRpcMessage.Error error : MessagingRpcMessage.Error.values()) {
                 for (JsonElement details : malformed) {
                     JsonObject envelope = errorEnvelope(error);
                     envelope.add("exception", details);
-                    delegate.deliver(request.response(envelope));
+                    delegate.deliver(request.response(map(envelope)));
                 }
             }
             Assertions.assertTrue(received.messages.isEmpty());
@@ -610,24 +617,25 @@ class DDRemoteDamRpcTransportTest {
             List.of(JsonParser.parseString("[1,null,3]"), JsonNull.INSTANCE, JsonParser.parseString("{\"name\":\"record\"}")));
         try (var subscription = adapter.subscribe(endpoint, received)) {
             for (List<JsonElement> arguments : cases) {
-                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = MessagingRequestReplyMessage.request(
-                    UUID.randomUUID(), endpoint, MessagingRpcMessage.request("apply", arguments));
+                MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = MessagingRequestReplyMessage.request(
+                    UUID.randomUUID(), endpoint, MessagingRpcMessage.request("apply",
+                        arguments.stream().map(DDRemoteDamRpcTransportTest::plain).toList()));
                 adapter.send(request).toCompletableFuture().join();
-                MessagingRequestReplyMessage<JsonObject> wire = delegate.sent.getLast();
-                JsonObject envelope = JsonParser.parseString(Objects.requireNonNull(wire.payload()).toString()).getAsJsonObject();
+                MessagingRequestReplyMessage<Map<String, Object>> wire = delegate.sent.getLast();
+                JsonObject envelope = json(Objects.requireNonNull(wire.payload()));
                 Assertions.assertEquals(Set.of("protocol", "type", "operation", "data"), envelope.keySet());
                 JsonArray expected = new JsonArray();
                 arguments.forEach(expected::add);
                 Assertions.assertEquals(expected, envelope.get("data"));
                 delegate.deliver(new MessagingRequestReplyMessage<>(wire.requestId(), wire.replyTo(), wire.type(), envelope, wire.error()));
-                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> decoded = received.messages.getLast();
+                MessagingRequestReplyMessage<MessagingRpcMessage<Object>> decoded = received.messages.getLast();
                 Assertions.assertEquals(request.requestId(), decoded.requestId());
                 Assertions.assertEquals(endpoint, decoded.replyTo());
                 Assertions.assertEquals(MessagingRequestReplyMessage.Type.REQUEST, decoded.type());
-                MessagingRpcMessage<JsonElement> rpc = Objects.requireNonNull(decoded.payload());
+                MessagingRpcMessage<Object> rpc = Objects.requireNonNull(decoded.payload());
                 Assertions.assertEquals(MessagingRpcMessage.Type.REQUEST, rpc.type());
                 Assertions.assertEquals("apply", rpc.operation());
-                Assertions.assertEquals(arguments.stream().map(value -> value == null || value.isJsonNull() ? null : value).toList(),
+                Assertions.assertEquals(arguments.stream().map(DDRemoteDamRpcTransportTest::plain).toList(),
                     rpc.arguments());
                 Assertions.assertNull(rpc.payload());
                 Assertions.assertNull(rpc.error());
@@ -648,25 +656,25 @@ class DDRemoteDamRpcTransportTest {
             new JsonPrimitive(true), JsonNull.INSTANCE);
         try (var subscription = adapter.subscribe(endpoint, received)) {
             for (JsonElement value : values) {
-                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(endpoint, value);
+                MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = request(endpoint, value);
                 adapter.send(request).toCompletableFuture().join();
-                MessagingRequestReplyMessage<JsonObject> wire = delegate.sent.getLast();
-                JsonArray arguments = Objects.requireNonNull(wire.payload()).getAsJsonArray("data");
+                MessagingRequestReplyMessage<Map<String, Object>> wire = delegate.sent.getLast();
+                JsonArray arguments = json(Objects.requireNonNull(wire.payload())).getAsJsonArray("data");
                 Assertions.assertEquals(1, arguments.size());
                 Assertions.assertEquals(value, arguments.get(0));
                 delegate.deliver(wire);
-                MessagingRpcMessage<JsonElement> decoded = Objects.requireNonNull(received.messages.getLast().payload());
+                MessagingRpcMessage<Object> decoded = Objects.requireNonNull(received.messages.getLast().payload());
                 Assertions.assertNull(decoded.payload());
                 Assertions.assertEquals(1, decoded.arguments().size());
-                Assertions.assertEquals(value.isJsonNull() ? null : value,
+                Assertions.assertEquals(plain(value),
                     decoded.arguments().getFirst());
-                adapter.send(request.response(MessagingRpcMessage.response(value))).toCompletableFuture().join();
-                Assertions.assertEquals(value, Objects.requireNonNull(delegate.sent.getLast().payload()).get("data"));
+                adapter.send(request.response(MessagingRpcMessage.response(plain(value)))).toCompletableFuture().join();
+                Assertions.assertEquals(value, json(Objects.requireNonNull(delegate.sent.getLast().payload())).get("data"));
                 delegate.deliver(delegate.sent.getLast());
                 Assertions.assertEquals(MessagingRpcMessage.Type.RESPONSE,
                     Objects.requireNonNull(received.messages.getLast().payload()).type());
                 Assertions.assertTrue(received.messages.getLast().payload().arguments().isEmpty());
-                Assertions.assertEquals(value.isJsonNull() ? null : value, received.messages.getLast().payload().payload());
+                Assertions.assertEquals(plain(value), received.messages.getLast().payload().payload());
             }
         }
     }
@@ -680,24 +688,25 @@ class DDRemoteDamRpcTransportTest {
         try (var subscription = adapter.subscribe(endpoint, received)) {
             for (MessagingRequestReplyMessage.Type type : List.of(
                 MessagingRequestReplyMessage.Type.REQUEST, MessagingRequestReplyMessage.Type.RESPONSE)) {
-                JsonObject argument = JsonParser.parseString("{\"items\":[\"original\"]}").getAsJsonObject();
-                MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(endpoint, argument);
+                List<String> items = new ArrayList<>(List.of("original"));
+                Map<String, Object> argument = Map.of("items", items);
+                MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = MessagingRequestReplyMessage.request(
+                    UUID.randomUUID(), endpoint, MessagingRpcMessage.request("apply", List.of(argument)));
                 adapter.send(type == MessagingRequestReplyMessage.Type.REQUEST
                     ? request : request.response(MessagingRpcMessage.response(argument)));
-                JsonObject wire = Objects.requireNonNull(delegate.sent.getLast().payload());
-                JsonObject wireValue = (type == MessagingRequestReplyMessage.Type.REQUEST
-                    ? wire.getAsJsonArray("data").get(0) : wire.get("data")).getAsJsonObject();
-                argument.getAsJsonArray("items").add("caller");
-                Assertions.assertEquals(1, wireValue.getAsJsonArray("items").size());
+                Map<String, Object> wire = Objects.requireNonNull(delegate.sent.getLast().payload());
+                Map<?, ?> wireValue = (Map<?, ?>) (type == MessagingRequestReplyMessage.Type.REQUEST
+                    ? ((List<?>) wire.get("data")).getFirst() : wire.get("data"));
+                items.add("caller");
+                Assertions.assertEquals(List.of("original"), wireValue.get("items"));
                 delegate.deliver(delegate.sent.getLast());
-                MessagingRpcMessage<JsonElement> receivedMessage = Objects.requireNonNull(received.messages.getLast().payload());
-                JsonObject decoded = Objects.requireNonNull(type == MessagingRequestReplyMessage.Type.REQUEST
-                    ? receivedMessage.arguments().getFirst() : receivedMessage.payload()).getAsJsonObject();
-                wireValue.getAsJsonArray("items").add("delegate");
-                Assertions.assertEquals(1, decoded.getAsJsonArray("items").size());
-                decoded.getAsJsonArray("items").add("listener");
-                Assertions.assertEquals("delegate", wireValue.getAsJsonArray("items").get(1).getAsString());
-                Assertions.assertEquals("caller", argument.getAsJsonArray("items").get(1).getAsString());
+                MessagingRpcMessage<Object> receivedMessage = Objects.requireNonNull(received.messages.getLast().payload());
+                Map<?, ?> decoded = (Map<?, ?>) Objects.requireNonNull(type == MessagingRequestReplyMessage.Type.REQUEST
+                    ? receivedMessage.arguments().getFirst() : receivedMessage.payload());
+                Assertions.assertThrows(UnsupportedOperationException.class, () -> ((List<?>) wireValue.get("items")).clear());
+                Assertions.assertEquals(List.of("original"), decoded.get("items"));
+                Assertions.assertThrows(UnsupportedOperationException.class, () -> ((List<?>) decoded.get("items")).clear());
+                Assertions.assertEquals(List.of("original", "caller"), items);
             }
         }
     }
@@ -708,8 +717,8 @@ class DDRemoteDamRpcTransportTest {
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
         Received received = new Received();
         UUID endpoint = UUID.randomUUID();
-        MessagingRequestReplyMessage<JsonObject> request =
-            MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, requestEnvelope());
+        MessagingRequestReplyMessage<Map<String, Object>> request =
+            MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, map(requestEnvelope()));
         List<JsonElement> nonStrings = List.of(new JsonPrimitive(1), new JsonPrimitive(true), JsonNull.INSTANCE,
             new JsonObject(), new JsonArray());
         try (var subscription = adapter.subscribe(endpoint, received)) {
@@ -754,7 +763,7 @@ class DDRemoteDamRpcTransportTest {
             boundary.addProperty("operation", "x".repeat(1024));
             delegate.deliver(MessagingRequestReplyMessage.request(request.requestId(), endpoint, boundary));
             Assertions.assertEquals(1, received.messages.size());
-            MessagingRpcMessage<JsonElement> accepted = Objects.requireNonNull(received.messages.getLast().payload());
+            MessagingRpcMessage<Object> accepted = Objects.requireNonNull(received.messages.getLast().payload());
             Assertions.assertEquals("x".repeat(1024), accepted.operation());
             Assertions.assertEquals(Collections.singletonList(null), accepted.arguments());
             Assertions.assertNull(accepted.payload());
@@ -767,8 +776,8 @@ class DDRemoteDamRpcTransportTest {
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
         Received received = new Received();
         UUID endpoint = UUID.randomUUID();
-        MessagingRequestReplyMessage<JsonObject> request =
-            MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, requestEnvelope());
+        MessagingRequestReplyMessage<Map<String, Object>> request =
+            MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint, map(requestEnvelope()));
         try (var subscription = adapter.subscribe(endpoint, received)) {
             List<Consumer<JsonObject>> malformedResponses = List.of(
                 envelope -> envelope.remove("data"),
@@ -783,9 +792,9 @@ class DDRemoteDamRpcTransportTest {
             for (Consumer<JsonObject> mutation : malformedResponses) {
                 JsonObject invalid = responseEnvelope();
                 mutation.accept(invalid);
-                delegate.deliver(request.response(invalid));
+                delegate.deliver(request.response(map(invalid)));
             }
-            delegate.deliver(request.response(requestEnvelope()));
+            delegate.deliver(request.response(map(requestEnvelope())));
             List<Consumer<JsonObject>> malformedErrors = List.of(
                 envelope -> envelope.remove("error"),
                 envelope -> envelope.remove("exception"),
@@ -805,12 +814,12 @@ class DDRemoteDamRpcTransportTest {
                     JsonObject invalid = errorEnvelope(MessagingRpcMessage.Error.HANDLER_FAILED);
                     invalid.add("exception", details);
                     mutation.accept(invalid);
-                    delegate.deliver(request.response(invalid));
+                    delegate.deliver(request.response(map(invalid)));
                 }
             }
             Assertions.assertTrue(received.messages.isEmpty());
-            delegate.deliver(request.response(responseEnvelope()));
-            delegate.deliver(request.response(errorEnvelope(MessagingRpcMessage.Error.HANDLER_FAILED)));
+            delegate.deliver(request.response(map(responseEnvelope())));
+            delegate.deliver(request.response(map(errorEnvelope(MessagingRpcMessage.Error.HANDLER_FAILED))));
             Assertions.assertEquals(2, received.messages.size());
         }
     }
@@ -825,9 +834,9 @@ class DDRemoteDamRpcTransportTest {
             adapter.send(request(endpoint, null)).toCompletableFuture().join();
             DDRemoteDamMessage valid = channel.sent.getLast();
             for (JsonElement value : List.of(new JsonPrimitive("text"), new JsonArray(), JsonNull.INSTANCE)) {
-                JsonObject invalid = valid.payload();
+                JsonObject invalid = json(valid.payload());
                 invalid.add("data", value);
-                channel.deliver(new DDRemoteDamMessage(valid.topic(), valid.type(), invalid));
+                channel.deliver(new DDRemoteDamMessage(valid.topic(), valid.type(), map(invalid)));
             }
             Assertions.assertTrue(received.messages.isEmpty());
             channel.deliver(valid);
@@ -841,7 +850,7 @@ class DDRemoteDamRpcTransportTest {
         try (var endpoint = MessagingRpcEndpoint.open(topic -> new DDRemoteDamRpcTransport(delegate), CODEC, OPTIONS)) {
             Text proxy = endpoint.proxy("text", Text.class);
             for (MessagingRpcMessage.Error error : MessagingRpcMessage.Error.values()) {
-                delegate.forward = request -> delegate.deliver(request.response(errorEnvelope(error)));
+                delegate.forward = request -> delegate.deliver(request.response(map(errorEnvelope(error))));
                 MessagingRpcException failure = Assertions.assertThrows(MessagingRpcException.class, () -> proxy.apply("request"));
                 Assertions.assertEquals(MessagingRpcException.Reason.REMOTE_ERROR, failure.reason());
                 Assertions.assertEquals(error, failure.remoteError());
@@ -877,7 +886,7 @@ class DDRemoteDamRpcTransportTest {
             )) {
                 JsonObject invalid = responseEnvelope();
                 mutation.accept(invalid);
-                delegate.forward = request -> delegate.deliver(request.response(invalid));
+                delegate.forward = request -> delegate.deliver(request.response(map(invalid)));
                 MessagingRpcException failure = Assertions.assertThrows(MessagingRpcException.class,
                     () -> endpoint.proxy("text", Text.class).apply("request"));
                 Assertions.assertEquals(MessagingRpcException.Reason.TIMEOUT, failure.reason());
@@ -899,31 +908,31 @@ class DDRemoteDamRpcTransportTest {
                  throw new IllegalStateException("Handler failed");
              })) {
             handler.proxy("missing", Text.class);
-            MessagingRpcMessage<JsonElement> missingService =
+            MessagingRpcMessage<Object> missingService =
                 missingCaller.request(MessagingRpcMessage.request("apply", Collections.singletonList(null)));
             Assertions.assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_SERVICE), missingService);
-            MessagingRpcMessage<JsonElement> missingOperation =
+            MessagingRpcMessage<Object> missingOperation =
                 caller.request(MessagingRpcMessage.request("missing", Collections.singletonList(null)));
             Assertions.assertEquals(MessagingRpcMessage.failure(MessagingRpcMessage.Error.UNKNOWN_OPERATION), missingOperation);
             String operation = "apply(" + String.class.getTypeName() + ")";
             final JsonSyntaxException expectedCodecFailure = Assertions.assertThrows(JsonSyntaxException.class,
                 () -> CODEC.decode(new JsonObject(), String.class));
-            MessagingRpcMessage<JsonElement> codecFailure =
-                caller.request(MessagingRpcMessage.request(operation, List.of(new JsonObject())));
+            MessagingRpcMessage<Object> codecFailure =
+                caller.request(MessagingRpcMessage.request(operation, List.of(Map.of())));
             Assertions.assertEquals(MessagingRpcMessage.Error.CODEC_FAILED, codecFailure.error());
             MessagingRpcExceptionDetails codecDetails = Objects.requireNonNull(codecFailure.exception());
             Assertions.assertEquals(expectedCodecFailure.getClass().getName(), codecDetails.type());
             Assertions.assertEquals(expectedCodecFailure.getMessage(), codecDetails.message());
             Assertions.assertTrue(codecDetails.stackTrace().startsWith(expectedCodecFailure + System.lineSeparator()));
-            MessagingRpcMessage<JsonElement> handlerFailure =
-                caller.request(MessagingRpcMessage.request(operation, List.of(new JsonPrimitive("value"))));
+            MessagingRpcMessage<Object> handlerFailure =
+                caller.request(MessagingRpcMessage.request(operation, List.of("value")));
             Assertions.assertEquals(MessagingRpcMessage.Error.HANDLER_FAILED, handlerFailure.error());
             MessagingRpcExceptionDetails handlerDetails = Objects.requireNonNull(handlerFailure.exception());
             Assertions.assertEquals(IllegalStateException.class.getName(), handlerDetails.type());
             Assertions.assertEquals("Handler failed", handlerDetails.message());
             Assertions.assertTrue(handlerDetails.stackTrace().contains("IllegalStateException: Handler failed"));
             Assertions.assertTrue(right.sent.stream().allMatch(message ->
-                "RESPONSE".equals(message.payload().get("type").getAsString())));
+                "RESPONSE".equals(message.payload().get("type"))));
         }
     }
 
@@ -973,8 +982,8 @@ class DDRemoteDamRpcTransportTest {
             Assertions.assertEquals(1, handlerCodec.decodes.get());
             Assertions.assertEquals(1, left.sent.size());
             Assertions.assertEquals(1, right.sent.size());
-            JsonObject request = left.sent.getFirst().payload();
-            JsonObject response = right.sent.getFirst().payload();
+            JsonObject request = json(left.sent.getFirst().payload());
+            JsonObject response = json(right.sent.getFirst().payload());
             Assertions.assertEquals(request.get("requestId"), response.get("requestId"));
             Assertions.assertEquals(request.get("replyTo"), response.get("replyTo"));
             Assertions.assertEquals("datadam.requestreply.v1", right.sent.getFirst().type());
@@ -999,17 +1008,17 @@ class DDRemoteDamRpcTransportTest {
             AtomicInteger decodes = new AtomicInteger();
             AtomicInteger calls = new AtomicInteger();
             IllegalStateException unavailable = new IllegalStateException(encoding ? "Result encoding failed" : "Argument decoding failed");
-            MessagingRpcCodec<JsonElement> handlerCodec = new MessagingRpcCodec<>() {
+            MessagingRpcCodec<Object> handlerCodec = new MessagingRpcCodec<>() {
                 @Override
                 @Nullable
-                public JsonElement encode(@Nullable Object value, @NotNull Type type) {
+                public Object encode(@Nullable Object value, @NotNull Type type) {
                     encodes.incrementAndGet();
                     throw unavailable;
                 }
 
                 @Override
                 @Nullable
-                public Object decode(@Nullable JsonElement payload, @NotNull Type type) throws Exception {
+                public Object decode(@Nullable Object payload, @NotNull Type type) throws Exception {
                     decodes.incrementAndGet();
                     if (!encoding) {
                         throw unavailable;
@@ -1048,14 +1057,14 @@ class DDRemoteDamRpcTransportTest {
         MemoryTransport delegate = new MemoryTransport();
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
         UUID endpoint = UUID.randomUUID();
-        MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(endpoint, null);
-        List<MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>>> malformed = List.of(
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = request(endpoint, null);
+        List<MessagingRequestReplyMessage<MessagingRpcMessage<Object>>> malformed = List.of(
             MessagingRequestReplyMessage.request(request.requestId(), endpoint, MessagingRpcMessage.response(null)),
             MessagingRequestReplyMessage.request(request.requestId(), endpoint,
                 MessagingRpcMessage.failure(MessagingRpcMessage.Error.INVALID_REQUEST)),
             request.response(request.payload())
         );
-        for (MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> message : malformed) {
+        for (MessagingRequestReplyMessage<MessagingRpcMessage<Object>> message : malformed) {
             ExecutionException failure = Assertions.assertThrows(ExecutionException.class,
                 () -> adapter.send(message).toCompletableFuture().get(2, TimeUnit.SECONDS));
             Assertions.assertInstanceOf(IllegalArgumentException.class, failure.getCause());
@@ -1067,7 +1076,7 @@ class DDRemoteDamRpcTransportTest {
     void preservesAsynchronousAndSynchronousSendFailuresWithoutRetriesOrWrapping() throws Exception {
         MemoryTransport delegate = new MemoryTransport();
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
-        MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(UUID.randomUUID(), null);
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = request(UUID.randomUUID(), null);
         CompletableFuture<Void> pending = new CompletableFuture<>();
         delegate.sendResult = pending;
         CompletionStage<Void> pendingResult = adapter.send(request);
@@ -1101,16 +1110,16 @@ class DDRemoteDamRpcTransportTest {
         MemoryTransport delegate = new MemoryTransport();
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
         AtomicInteger copies = new AtomicInteger();
-        JsonElement value = new JsonElement() {
+        Map<String, Object> value = new AbstractMap<>() {
             @Override
             @NotNull
-            public JsonElement deepCopy() {
+            public Set<Entry<String, Object>> entrySet() {
                 copies.incrementAndGet();
-                return new JsonPrimitive("snapshot");
+                return Map.<String, Object>of("value", "snapshot").entrySet();
             }
         };
-        MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(UUID.randomUUID(), value);
-        MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> response = request.response(MessagingRpcMessage.response(value));
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = request(UUID.randomUUID(), value);
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> response = request.response(MessagingRpcMessage.response(value));
         List<CompletableFuture<Void>> pending = new ArrayList<>();
         List<CompletableFuture<Void>> results = new ArrayList<>();
         try {
@@ -1173,15 +1182,15 @@ class DDRemoteDamRpcTransportTest {
         MemoryTransport delegate = new MemoryTransport();
         DDRemoteDamRpcTransport adapter = new DDRemoteDamRpcTransport(delegate);
         IllegalStateException unavailable = new IllegalStateException("Snapshot unavailable");
-        JsonElement value = new JsonElement() {
+        Map<String, Object> value = new AbstractMap<>() {
             @Override
             @NotNull
-            public JsonElement deepCopy() {
+            public Set<Entry<String, Object>> entrySet() {
                 throw unavailable;
             }
         };
         UUID endpoint = UUID.randomUUID();
-        MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request = request(endpoint, value);
+        MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request = request(endpoint, value);
         for (int i = 0; i < 129; i++) {
             CompletionStage<Void> result = Assertions.assertDoesNotThrow(() -> adapter.send(request));
             assertSendFailure(unavailable, result);
@@ -1250,17 +1259,17 @@ class DDRemoteDamRpcTransportTest {
         FakeChannel right = new FakeChannel();
         left.forward = right::deliver;
         right.forward = left::deliver;
-        MessagingRpcCodec<String> incompatible = new MessagingRpcCodec<>() {
+        MessagingRpcCodec<Object> incompatible = new MessagingRpcCodec<>() {
             @Override
             @Nullable
-            public String encode(@Nullable Object value, @NotNull Type type) {
-                return String.class.cast(value);
+            public Object encode(@Nullable Object value, @NotNull Type type) {
+                return new Object();
             }
 
             @Override
             @Nullable
-            public Object decode(@Nullable String payload, @NotNull Type type) {
-                return payload;
+            public Object decode(@Nullable Object payload, @NotNull Type type) {
+                return ((UUID) payload).toString();
             }
         };
         try (var caller = MessagingRpcEndpoint.open(DDRemoteDamRpcTransport.forChannel(left), CODEC, OPTIONS);
@@ -1300,12 +1309,28 @@ class DDRemoteDamRpcTransportTest {
     }
 
     @NotNull
-    private static MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> request(
+    private static MessagingRequestReplyMessage<MessagingRpcMessage<Object>> request(
         @NotNull UUID endpoint,
-        @Nullable JsonElement value
+        @Nullable Object value
     ) {
         return MessagingRequestReplyMessage.request(UUID.randomUUID(), endpoint,
-            MessagingRpcMessage.request("apply", Collections.singletonList(value)));
+            MessagingRpcMessage.request("apply", Collections.singletonList(value instanceof JsonElement element ? plain(element) : value)));
+    }
+
+    @Nullable
+    private static Object plain(@Nullable JsonElement value) {
+        return new GsonBuilder().serializeNulls()
+            .setObjectToNumberStrategy(ToNumberPolicy.BIG_DECIMAL).create().fromJson(value, Object.class);
+    }
+
+    @NotNull
+    private static Map<String, Object> map(@NotNull JsonObject value) {
+        return DDRemoteDamProtocol.decodePayload(value.toString());
+    }
+
+    @NotNull
+    private static JsonObject json(@Nullable Object value) {
+        return new GsonBuilder().serializeNulls().create().toJsonTree(value).getAsJsonObject();
     }
 
     private static void assertSendFailure(@NotNull Throwable expected, @NotNull CompletionStage<Void> result) {
@@ -1447,25 +1472,24 @@ class DDRemoteDamRpcTransportTest {
     public record Item(@NotNull String name, @NotNull List<String> tags) {
     }
 
-    private static final class GsonCodec implements MessagingRpcCodec<JsonElement> {
+    private static final class GsonCodec implements MessagingRpcCodec<Object> {
         private final Gson gson = new Gson();
 
         @Override
         @Nullable
-        public JsonElement encode(@Nullable Object value, @NotNull Type type) {
-            JsonElement encoded = gson.toJsonTree(value, type);
-            return encoded.isJsonNull() ? null : encoded.deepCopy();
+        public Object encode(@Nullable Object value, @NotNull Type type) {
+            return plain(gson.toJsonTree(value, type));
         }
 
         @Override
         @Nullable
-        public Object decode(@Nullable JsonElement payload, @NotNull Type type) {
-            return gson.fromJson(payload == null ? JsonNull.INSTANCE : payload.deepCopy(), type);
+        public Object decode(@Nullable Object payload, @NotNull Type type) {
+            return gson.fromJson(gson.toJsonTree(payload), type);
         }
     }
 
-    private static final class CountingCodec implements MessagingRpcCodec<JsonElement> {
-        private final MessagingRpcCodec<JsonElement> codec;
+    private static final class CountingCodec implements MessagingRpcCodec<Object> {
+        private final MessagingRpcCodec<Object> codec;
         private final AtomicInteger encodes = new AtomicInteger();
         private final AtomicInteger decodes = new AtomicInteger();
         private final List<Type> encodedTypes = new ArrayList<>();
@@ -1475,13 +1499,13 @@ class DDRemoteDamRpcTransportTest {
             this(CODEC);
         }
 
-        private CountingCodec(@NotNull MessagingRpcCodec<JsonElement> codec) {
+        private CountingCodec(@NotNull MessagingRpcCodec<Object> codec) {
             this.codec = codec;
         }
 
         @Override
         @Nullable
-        public JsonElement encode(@Nullable Object value, @NotNull Type type) throws Exception {
+        public Object encode(@Nullable Object value, @NotNull Type type) throws Exception {
             encodes.incrementAndGet();
             encodedTypes.add(type);
             return codec.encode(value, type);
@@ -1489,19 +1513,19 @@ class DDRemoteDamRpcTransportTest {
 
         @Override
         @Nullable
-        public Object decode(@Nullable JsonElement payload, @NotNull Type type) throws Exception {
+        public Object decode(@Nullable Object payload, @NotNull Type type) throws Exception {
             decodes.incrementAndGet();
             decodedTypes.add(type);
             return codec.decode(payload, type);
         }
     }
 
-    private static final class Received implements MessagingRequestReplyTransport.Listener<MessagingRpcMessage<JsonElement>> {
-        private final List<MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>>> messages = new ArrayList<>();
+    private static final class Received implements MessagingRequestReplyTransport.Listener<MessagingRpcMessage<Object>> {
+        private final List<MessagingRequestReplyMessage<MessagingRpcMessage<Object>>> messages = new ArrayList<>();
         private int disconnects;
 
         @Override
-        public void onMessage(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<JsonElement>> message) {
+        public void onMessage(@NotNull MessagingRequestReplyMessage<MessagingRpcMessage<Object>> message) {
             messages.add(message);
         }
 
@@ -1511,17 +1535,17 @@ class DDRemoteDamRpcTransportTest {
         }
     }
 
-    private static final class MemoryTransport implements MessagingRequestReplyTransport<JsonObject> {
-        private final List<MessagingRequestReplyMessage<JsonObject>> sent = new ArrayList<>();
+    private static final class MemoryTransport implements MessagingRequestReplyTransport<Map<String, Object>> {
+        private final List<MessagingRequestReplyMessage<Map<String, Object>>> sent = new ArrayList<>();
         private final MessagingSubscription subscription = () -> this.closed = true;
         private CompletionStage<Void> sendResult = CompletableFuture.completedFuture(null);
         private Executor requestExecutor = Runnable::run;
         @Nullable
         private UUID endpoint;
         @Nullable
-        private Listener<JsonObject> listener;
+        private Listener<Map<String, Object>> listener;
         @Nullable
-        private Consumer<MessagingRequestReplyMessage<JsonObject>> forward;
+        private Consumer<MessagingRequestReplyMessage<Map<String, Object>>> forward;
         @Nullable
         private MessagingRequestReplyException subscribeFailure;
         @Nullable
@@ -1530,7 +1554,7 @@ class DDRemoteDamRpcTransportTest {
 
         @Override
         @NotNull
-        public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<JsonObject> receiver)
+        public MessagingSubscription subscribe(@NotNull UUID endpointId, @NotNull Listener<Map<String, Object>> receiver)
                 throws MessagingRequestReplyException {
             if (subscribeFailure != null) {
                 throw subscribeFailure;
@@ -1542,7 +1566,7 @@ class DDRemoteDamRpcTransportTest {
 
         @Override
         @NotNull
-        public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
+        public CompletionStage<Void> send(@NotNull MessagingRequestReplyMessage<Map<String, Object>> message) {
             sent.add(message);
             if (sendFailure != null) {
                 throw sendFailure;
@@ -1558,8 +1582,12 @@ class DDRemoteDamRpcTransportTest {
             requestExecutor.execute(request);
         }
 
-        private void deliver(@NotNull MessagingRequestReplyMessage<JsonObject> message) {
-            Objects.requireNonNull(listener).onMessage(message);
+        @SuppressWarnings("unchecked")
+        private void deliver(@NotNull MessagingRequestReplyMessage<?> message) {
+            Objects.requireNonNull(listener).onMessage(new MessagingRequestReplyMessage<>(
+                message.requestId(), message.replyTo(), message.type(),
+                message.payload() == null ? null : message.payload() instanceof JsonObject object ? map(object)
+                    : (Map<String, Object>) message.payload(), message.error()));
         }
     }
 
