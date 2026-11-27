@@ -20,8 +20,13 @@ import org.jkiss.code.NotNull;
 
 public record DDRemoteDamHandshakeResponse(
     @NotNull String damSessionId,
-    @NotNull DDRemoteDamSettings settings
+    @NotNull DDRemoteDamSettings settings,
+    boolean authenticationRefresh
 ) {
+    public DDRemoteDamHandshakeResponse(@NotNull String damSessionId, @NotNull DDRemoteDamSettings settings) {
+        this(damSessionId, settings, false);
+    }
+
     public DDRemoteDamHandshakeResponse(@NotNull String damSessionId) {
         this(damSessionId, DDRemoteDamSettings.EMPTY);
     }

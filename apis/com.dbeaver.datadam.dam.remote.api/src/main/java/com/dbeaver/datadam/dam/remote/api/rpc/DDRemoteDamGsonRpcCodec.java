@@ -18,30 +18,30 @@ package com.dbeaver.datadam.dam.remote.api.rpc;
 
 import com.dbeaver.messaging.rpc.MessagingRpcCodec;
 import com.google.gson.Gson;
-import com.google.gson.JsonElement;
+import com.google.gson.ToNumberPolicy;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
 import java.lang.reflect.Type;
 import java.util.Objects;
 
-public final class DDRemoteDamGsonRpcCodec implements MessagingRpcCodec<JsonElement> {
+public final class DDRemoteDamGsonRpcCodec implements MessagingRpcCodec<Object> {
     private final Gson gson;
 
     public DDRemoteDamGsonRpcCodec(@NotNull Gson gson) {
-        this.gson = Objects.requireNonNull(gson);
+        this.gson = Objects.requireNonNull(gson).newBuilder().serializeNulls()
+            .setObjectToNumberStrategy(ToNumberPolicy.BIG_DECIMAL).create();
     }
 
     @Override
     @Nullable
-    public JsonElement encode(@Nullable Object value, @NotNull Type type) {
-        JsonElement encoded = gson.toJsonTree(value, Objects.requireNonNull(type));
-        return encoded == null || encoded.isJsonNull() ? null : encoded;
+    public Object encode(@Nullable Object value, @NotNull Type type) {
+        return gson.fromJson(gson.toJsonTree(value, Objects.requireNonNull(type)), Object.class);
     }
 
     @Override
     @Nullable
-    public Object decode(@Nullable JsonElement payload, @NotNull Type type) {
-        return gson.fromJson(payload, Objects.requireNonNull(type));
+    public Object decode(@Nullable Object payload, @NotNull Type type) {
+        return gson.fromJson(gson.toJsonTree(payload), Objects.requireNonNull(type));
     }
 }

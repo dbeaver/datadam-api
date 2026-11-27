@@ -30,8 +30,6 @@ import com.dbeaver.messaging.rpc.MessagingRpcEndpoint;
 import com.dbeaver.messaging.rpc.MessagingRpcException;
 import com.dbeaver.messaging.rpc.MessagingRpcMessage;
 import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonPrimitive;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.junit.jupiter.api.Assertions;
@@ -41,6 +39,7 @@ import org.junit.jupiter.api.Timeout;
 import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -87,12 +86,12 @@ class DDRemoteDamRpcTopicsIntegrationTest {
             Assertions.assertTrue(remoteDam.subscriptions.stream().anyMatch(value -> value.topic().equals(firstTopic)));
             Assertions.assertTrue(remoteDam.subscriptions.stream().anyMatch(value -> value.topic().equals(secondTopic)));
             for (DDRemoteDamMessage message : remoteDam.sent) {
-                if ("REQUEST".equals(message.payload().get("type").getAsString())) {
+                if ("REQUEST".equals(message.payload().get("type"))) {
                     Assertions.assertTrue(List.of(firstTopic, secondTopic).contains(message.topic()));
-                    JsonElement envelope = message.payload().get("data");
-                    Assertions.assertFalse(envelope.getAsJsonObject().has("topic"));
-                    Assertions.assertEquals("dbeaver.rpc.v2", envelope.getAsJsonObject().get("protocol").getAsString());
-                    Assertions.assertEquals(1, envelope.getAsJsonObject().getAsJsonArray("data").size());
+                    Map<?, ?> envelope = (Map<?, ?>) message.payload().get("data");
+                    Assertions.assertFalse(envelope.containsKey("topic"));
+                    Assertions.assertEquals("dbeaver.rpc.v2", envelope.get("protocol"));
+                    Assertions.assertEquals(1, ((List<?>) envelope.get("data")).size());
                 }
             }
             firstGreeting.close();
@@ -114,17 +113,17 @@ class DDRemoteDamRpcTopicsIntegrationTest {
         String hello(@NotNull String value);
     }
 
-    private record PrefixCodec(@NotNull String encodedPrefix, @NotNull String decodedPrefix) implements MessagingRpcCodec<JsonElement> {
+    private record PrefixCodec(@NotNull String encodedPrefix, @NotNull String decodedPrefix) implements MessagingRpcCodec<Object> {
         @Override
         @NotNull
-        public JsonElement encode(@Nullable Object value, @NotNull Type type) {
-            return new JsonPrimitive(encodedPrefix + value);
+        public Object encode(@Nullable Object value, @NotNull Type type) {
+            return encodedPrefix + value;
         }
 
         @Override
         @NotNull
-        public Object decode(@Nullable JsonElement payload, @NotNull Type type) {
-            return decodedPrefix + payload.getAsString();
+        public Object decode(@Nullable Object payload, @NotNull Type type) {
+            return decodedPrefix + payload;
         }
     }
 

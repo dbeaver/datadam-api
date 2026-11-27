@@ -19,33 +19,30 @@ package com.dbeaver.datadam.dam.remote.api.rpc;
 import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonPrimitive;
 import com.google.gson.reflect.TypeToken;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Type;
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 class DDRemoteDamGsonRpcCodecTest {
     private final DDRemoteDamGsonRpcCodec codec = new DDRemoteDamGsonRpcCodec(new Gson());
 
     @Test
     void encodesOrdinaryAndPrimitiveValues() {
-        Assertions.assertEquals(new JsonPrimitive("Hello"), codec.encode("Hello", String.class));
-        Assertions.assertEquals("Hello", codec.decode(new JsonPrimitive("Hello"), String.class));
-        Assertions.assertEquals(new JsonPrimitive(2), codec.encode(2, int.class));
-        Assertions.assertEquals(2, codec.decode(new JsonPrimitive(2), int.class));
+        Assertions.assertEquals("Hello", codec.encode("Hello", String.class));
+        Assertions.assertEquals("Hello", codec.decode("Hello", String.class));
+        Assertions.assertEquals(new BigDecimal("2"), codec.encode(2, int.class));
+        Assertions.assertEquals(2, codec.decode(new BigDecimal("2"), int.class));
     }
 
     @Test
     void normalizesJsonNullAndSupportsNullableValues() {
         Assertions.assertNull(codec.encode(null, String.class));
-        Assertions.assertNull(codec.encode(JsonNull.INSTANCE, JsonElement.class));
         Assertions.assertNull(codec.decode(null, String.class));
-        Assertions.assertNull(codec.decode(JsonNull.INSTANCE, String.class));
     }
 
     @Test
@@ -65,9 +62,9 @@ class DDRemoteDamGsonRpcCodecTest {
             .setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES).create());
         Item value = new Item("configured", List.of(3));
 
-        JsonElement encoded = configured.encode(value, Item.class);
+        Object encoded = configured.encode(value, Item.class);
 
-        Assertions.assertEquals("configured", encoded.getAsJsonObject().get("message_text").getAsString());
+        Assertions.assertEquals("configured", ((Map<?, ?>) encoded).get("message_text"));
         Assertions.assertEquals(value, configured.decode(encoded, Item.class));
     }
 

@@ -16,27 +16,21 @@
  */
 package com.dbeaver.datadam.dam.remote.api.model;
 
-import com.google.gson.JsonObject;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 
-import java.util.Objects;
+import java.util.Map;
 
+/** An application event with a deeply immutable JSON-compatible payload; numbers are exact decimals. */
 public record DDRemoteDamMessage(
     @NotNull String topic,
     @NotNull String type,
-    @NotNull JsonObject payload
-) {
+    @NotNull Map<String, Object> payload
+) implements DDRemoteDamSessionRequest {
     public DDRemoteDamMessage {
         requireText(topic, "topic");
         requireText(type, "type");
-        payload = Objects.requireNonNull(payload, "payload").deepCopy();
-    }
-
-    @Override
-    @NotNull
-    public JsonObject payload() {
-        return payload.deepCopy();
+        payload = DDRemoteDamPayload.copyOf(payload);
     }
 
     static void requireText(@Nullable String value, @NotNull String name) {
