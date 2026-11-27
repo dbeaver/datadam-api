@@ -26,6 +26,9 @@ contracts, clients and transport adapters, together with the messaging implement
 
 ## SSO API
 
+`com.dbeaver.datadam.sso.api.DDPermissionIds` shares permission names with clients. The Account server
+remains responsible for permission metadata, role grants, and access enforcement.
+
 `apis/com.dbeaver.datadam.sso.api` exports the shared SSO contracts in
 `com.dbeaver.datadam.sso.api.model`:
 

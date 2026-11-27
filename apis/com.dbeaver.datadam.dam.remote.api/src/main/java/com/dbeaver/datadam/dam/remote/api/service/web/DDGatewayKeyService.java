@@ -1,0 +1,34 @@
+/*
+ * DBeaver - Universal Database Manager
+ * Copyright (C) 2010-2026 DBeaver Corp
+ *
+ * All Rights Reserved.
+ *
+ * NOTICE:  All information contained herein is, and remains
+ * the property of DBeaver Corp and its suppliers, if any.
+ * The intellectual and technical concepts contained
+ * herein are proprietary to DBeaver Corp and its suppliers
+ * and may be covered by U.S. and Foreign Patents,
+ * patents in process, and are protected by trade secret or copyright law.
+ * Dissemination of this information or reproduction of this material
+ * is strictly forbidden unless prior written permission is obtained
+ * from DBeaver Corp.
+ */
+package com.dbeaver.datadam.dam.remote.api.service.web;
+
+import com.dbeaver.datadam.dam.remote.api.exception.DDRemoteDamException;
+import com.dbeaver.datadam.dam.remote.api.model.DDGatewayKeyMaterial;
+import com.dbeaver.datadam.dam.remote.api.model.DDGatewayKeyRegistrationStatus;
+import org.jkiss.code.NotNull;
+
+/** Account-scoped encryption keys on the web server, accessed by an authenticated Desktop session. */
+public interface DDGatewayKeyService {
+    String SERVICE_ID = "datadam.account.gateway-keys";
+
+    /** Whether this account has a configured, encrypted key bundle. Requires storage key read permission. */
+    boolean isKeysPresent() throws DDRemoteDamException;
+
+    /** Reports a known outcome; failures with an unknown outcome remain exceptions. */
+    @NotNull
+    DDGatewayKeyRegistrationStatus registerKey(@NotNull DDGatewayKeyMaterial material) throws DDRemoteDamException;
+}
